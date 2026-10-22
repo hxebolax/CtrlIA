@@ -110,6 +110,17 @@ def ruta_skills_ejemplo() -> Path:
 	return ruta_base() / "data" / "skills_ejemplo"
 
 
+def ruta_copia_skills_ejemplo() -> Path:
+	"""Copia de las skills de ejemplo FUERA de ``data`` (``copia_skills_ejemplo`` junto al ejecutable).
+
+	El actualizador de cada versión solo copia las carpetas de ``data`` que conoce, y hasta
+	la 1.5.0 no conocía ``skills_ejemplo``; el programa, en cambio, se copia siempre. Al
+	arrancar, ``proteccion_skills`` pone desde aquí ``data/skills_ejemplo`` si falta. Solo
+	existe en la versión compilada (``setup_cx.py``).
+	"""
+	return ruta_base() / "copia_skills_ejemplo"
+
+
 def ruta_binarios() -> Path:
 	"""Carpeta de binarios auxiliares (ffmpeg, aria2c...)."""
 	return subcarpeta("bin")

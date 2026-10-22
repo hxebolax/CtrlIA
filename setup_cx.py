@@ -34,6 +34,10 @@ ICONO = RAIZ / "data" / "icons" / "app.ico"
 DATA_DISTRIBUIBLE = ["bin", "sounds", "locales", "docs", "icons", "plugins", "skills_ejemplo"]
 # Subcarpetas que JAMÁS pueden distribuirse: si alguien las añade arriba, se para.
 DATA_PROHIBIDO = {"config", "logs", "db", "cache", "temp", "sessions", "backups", "downloads"}
+# Copia de data/skills_ejemplo FUERA de data/ (el nombre está también en app/core/paths.py,
+# ruta_copia_skills_ejemplo): los actualizadores de la 1.5.0 y anteriores no copian esa carpeta de data,
+# pero el programa sí; al arrancar, si falta, se pone desde aquí.
+COPIA_EJEMPLOS = "copia_skills_ejemplo"
 # Archivos que nunca se copian aunque estén en una carpeta distribuible.
 PATRONES_EXCLUIDOS = ("__pycache__", ".ruff_cache", ".pytest_cache", "*.pyc", "*.log", "*.tmp", "*.bak", "*.db", "*.key", ".gitkeep", "desktop.ini", "Thumbs.db")
 
@@ -73,6 +77,13 @@ def archivos_de_data() -> list[tuple[str, str]]:
 			if archivo.is_file() and not _excluido(relativo):
 				resultado.append((str(archivo), relativo.as_posix()))
 	return resultado
+
+
+def archivos_copia_ejemplos() -> list[tuple[str, str]]:
+	"""Los de ``data/skills_ejemplo`` otra vez, en ``COPIA_EJEMPLOS`` (fuera de data/)."""
+	prefijo = "data/skills_ejemplo/"
+	return [(origen, COPIA_EJEMPLOS + "/" + destino[len(prefijo):]) for origen, destino in archivos_de_data()
+		if destino.startswith(prefijo)]
 
 
 def corregir_abi_estable(destino: Path) -> list[str]:
@@ -126,7 +137,8 @@ if __name__ == "__main__":
 				"build_exe": str(DESTINO),
 				"packages": PAQUETES + [p for p in PAQUETES_OPCIONALES if _disponible(p)],
 				"excludes": EXCLUDES,
-				"include_files": archivos_de_data() + [(str(RAIZ / o), d) for o, d in ARCHIVOS_EXTRA if (RAIZ / o).is_file()],
+				"include_files": archivos_de_data() + archivos_copia_ejemplos()
+					+ [(str(RAIZ / o), d) for o, d in ARCHIVOS_EXTRA if (RAIZ / o).is_file()],
 				"include_msvcr": True,
 				# Trazas con rutas relativas, sin las carpetas del equipo donde se compiló.
 				"replace_paths": [("*", "")],

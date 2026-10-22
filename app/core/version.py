@@ -9,7 +9,7 @@ Para publicar una versión nueva solo se cambia ``APP_VERSION`` aquí.
 NOMBRE_APLICACION = "Ctrl+IA"
 # Identificador sin espacios: ejecutable, instancia única, carpeta de compilación.
 ID_APLICACION = "CtrlIA"
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
 # Autor (se muestra en «Acerca de»).
 AUTOR = "Héctor J. Benítez Corredera"
 # Página de donaciones de Ayuda, «Invítame a un café si te gusta mi trabajo».

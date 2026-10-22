@@ -2,7 +2,7 @@
 
 Ctrl+IA («Control IA») es un programa para Windows que reúne en una sola ventana, accesible con lector de pantalla y teclado, tus conversaciones con los agentes de IA de programación: Claude Code, Codex, Antigravity, Gemini CLI, Ollama y cualquier agente compatible con ACP, en tu equipo o en otro por SSH.
 
-- Versión actual: 1.5.1.
+- Versión actual: 1.5.2.
 - Autor: Héctor J. Benítez Corredera.
 - Licencia: GNU GPL versión 3 (ver «Licencia»).
 - Repositorio: <https://github.com/hxebolax/CtrlIA>.

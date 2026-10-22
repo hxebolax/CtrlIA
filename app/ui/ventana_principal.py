@@ -359,18 +359,30 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 
 		Antes apunta a las carpetas nuevas las skills que el catálogo aún tenga en las de la 1.5.0
 		(``proteccion_skills.reparar_rutas_catalogo``; las carpetas las mueve ``main.py`` al arrancar).
+
+		Sin la carpeta de ejemplos no se marca nada: una actualización la trae después. Hasta la 1.5.1 se
+		marcaban como cargados aunque no estuviera (no llegaba al actualizar desde la 1.4.3 o la 1.5.0), así
+		que, una vez (``skills.ejemplos_revisados``), si el catálogo no tiene ninguno, se cargan.
 		"""
 		try:
+			from app.core.paths import ruta_skills_ejemplo
 			from app.services.catalogo_skills import CatalogoSkills
 			from app.services.proteccion_skills import reparar_rutas_catalogo
 
 			reparar_rutas_catalogo(self.almacen)
+			if not ruta_skills_ejemplo().is_dir():
+				log.info("No hay skills de ejemplo en %s; se cargarán cuando lleguen", ruta_skills_ejemplo())
+				return
 			catalogo = CatalogoSkills(self.almacen)
-			if not self.opcion("skills.ejemplos_cargados", False):
+			cargados = self.opcion("skills.ejemplos_cargados", False)
+			if cargados and not self.opcion("skills.ejemplos_revisados", False):
+				cargados = catalogo.tiene_ejemplos()
+			if not cargados:
 				catalogo.cargar_ejemplos()
 				self.poner_opcion("skills.ejemplos_cargados", True)
 			else:
 				catalogo.reparar_ejemplos()
+			self.poner_opcion("skills.ejemplos_revisados", True)
 		except Exception:  # noqa: BLE001 - los ejemplos nunca deben impedir arrancar
 			log.warning("No se pudieron preparar las skills de ejemplo", exc_info=True)
 

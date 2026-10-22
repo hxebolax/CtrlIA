@@ -18,6 +18,11 @@ Cada agente de IA las recibe a su manera:
 MUY IMPORTANTE: al limpiar la carpeta del complemento, los enlaces se quitan
 como enlaces (``os.rmdir``/``os.unlink``) y nunca se recorren: borrar dentro de
 un enlace borraría la carpeta ORIGINAL de la persona.
+
+Las reglas de permisos que nombran las skills por su ruta (``Bash(python
+...\\scripts\\x.py:*)``, ``Skill(ctrlia-skills:x)``) se traducen a los nombres
+de ahora con :func:`traducir_regla`: las de la 1.5.0 y anteriores («agentes») y
+las que apuntan al complemento de otra sesión.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ import os
 import re
 import shutil
 import stat
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +48,16 @@ MAX_CONTENIDO = 12000
 CABECERA_PRESENTACION = "[Ctrl+IA] Skills elegidas para esta sesión"
 #: Lo que se le dice al agente cuando se quitan todas las skills de la sesión.
 AVISO_SIN_SKILLS = "[Ctrl+IA] Ya no hay skills elegidas para esta sesión: deja de usar las de antes."
+
+# Nombres de la 1.5.0 y anteriores, cuando las skills se llamaban «agentes» (ver ``app.core.migraciones``).
+_SEPARADOR = r"[\\/]+"
+#: Lo que puede seguir al nombre de una carpeta dentro de una regla: otra barra, el final de la ruta o de la regla.
+_FIN = r"(?=[\\/)*\"'\s:]|$)"
+#: Carpeta del complemento de una sesión (la de esta u otra, de antes o de ahora): ``cache\skills_sesion\<16 hex>``.
+_RE_COMPLEMENTO = re.compile(r"(cache" + _SEPARADOR + r")(?:agentes|skills)_sesion(" + _SEPARADOR + r")[0-9a-f]{16}" + _FIN,
+	re.IGNORECASE)
+#: Las habilidades del complemento hasta la 1.5.0: «ctrlia-agentes:<nombre>».
+_RE_NOMBRE_ANTIGUO = re.compile(r"(?<![\w-])ctrlia-agentes:", re.IGNORECASE)
 
 
 def _nombre_seguro(nombre: str) -> str:
@@ -142,6 +157,56 @@ def regla_lectura(carpeta: str) -> str:
 		return ""
 	resto = coincidencia.group(2).replace("\\", "/").strip("/")
 	return "Read(//%s/%s/**)" % (coincidencia.group(1).lower(), resto) if resto else ""
+
+
+def _patron_carpeta(carpeta: str | Path) -> str:
+	"""Expresión que reconoce una carpeta de Windows en una regla, la escriba Claude Code como la escriba.
+
+	``F:\\Apps\\data``, ``F:/Apps/data``, ``//f/Apps/data`` (rutas de Read y Edit) o ``/f/Apps/data`` (Git Bash).
+	"""
+	coincidencia = re.match(r"^([A-Za-z]):[\\/]*(.*)$", os.path.normpath(str(carpeta or "")))
+	if not coincidencia:
+		return ""
+	letra = re.escape(coincidencia.group(1))
+	partes = [re.escape(parte) for parte in re.split(r"[\\/]+", coincidencia.group(2)) if parte]
+	return r"(?<![\w])(?:%s:|/{1,2}%s(?=[\\/]))" % (letra, letra) + "".join(_SEPARADOR + parte for parte in partes)
+
+
+def traducir_regla(regla: str, complemento: Path | None = None, carpetas_datos: Iterable[str | Path] = ()) -> str:
+	"""La regla con los nombres de ahora de las skills; la misma si no tiene nada que cambiar.
+
+	- ``ctrlia-agentes:x`` (1.5.0 y anteriores) → ``ctrlia-skills:x``.
+	- ``<data>\\agentes_ejemplo`` y ``<data>\\agentes`` → ``skills_ejemplo`` y ``skills``, solo dentro de las
+	  ``carpetas_datos`` de Ctrl+IA: una carpeta ajena que se llame igual no se toca.
+	- La carpeta del complemento de otra sesión (``cache\\agentes_sesion\\<id>`` o ``cache\\skills_sesion\\<id>``)
+	  → la de ``complemento``: cada sesión tiene la suya, y lo permitido «siempre en esta carpeta» con una skill
+	  vale también en las conversaciones siguientes.
+	"""
+	from app.core.migraciones import CARPETAS_RENOMBRADAS
+
+	nueva = _RE_NOMBRE_ANTIGUO.sub(NOMBRE_COMPLEMENTO + ":", regla)
+	if complemento is not None:
+		nueva = _RE_COMPLEMENTO.sub(
+			lambda m: m.group(1) + complemento.parent.name + m.group(2) + complemento.name, nueva)
+	for carpeta in carpetas_datos:
+		patron = _patron_carpeta(carpeta)
+		if patron:
+			nueva = re.sub("(%s%s)(agentes_ejemplo|agentes)%s" % (patron, _SEPARADOR, _FIN),
+				lambda m: m.group(1) + CARPETAS_RENOMBRADAS[m.group(2).lower()], nueva, flags=re.IGNORECASE)
+	return nueva
+
+
+def reglas_traducidas(reglas: Iterable[str], complemento: Path | None = None,
+		carpetas_datos: Iterable[str | Path] = ()) -> list[str]:
+	"""Solo las reglas que :func:`traducir_regla` cambia, ya traducidas y sin repetir (las de origen no van)."""
+	datos = list(carpetas_datos)
+	originales = list(reglas)
+	resultado: list[str] = []
+	for regla in originales:
+		nueva = traducir_regla(regla, complemento, datos)
+		if nueva != regla and nueva not in originales and nueva not in resultado:
+			resultado.append(nueva)
+	return resultado
 
 
 def nombres_en_complemento(carpeta: Path) -> list[str]:

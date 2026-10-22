@@ -46,4 +46,5 @@ def fecha(valor: Any) -> float:
 			return 0.0
 	if momento.tzinfo is None:
 		momento = momento.replace(tzinfo=_dt.UTC)
-	return momento.timestamp()
+	# Antes de 1970 es una fecha sin poner: Antigravity guarda la vacía de Go, «0001-01-01», que Windows no admite.
+	return max(momento.timestamp(), 0.0)

@@ -112,6 +112,9 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		# Las skills de ejemplo de data/skills_ejemplo ya se cargaron en el catálogo (solo la primera vez:
 		# si la persona las quita, no vuelven solas; se restauran desde el gestor de skills).
 		"ejemplos_cargados": False,
+		# 1.5.2: ya se comprobó una vez que los «cargados» de verdad están en el catálogo (hasta la 1.5.1 se
+		# marcaban aunque no hubiera carpeta de ejemplos; ver VentanaPrincipal._preparar_skills_ejemplo).
+		"ejemplos_revisados": False,
 	},
 	"historial": {
 		"claude": True,

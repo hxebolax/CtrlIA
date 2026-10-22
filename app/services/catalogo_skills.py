@@ -851,6 +851,11 @@ class CatalogoSkills:
 		log.info("Skills de ejemplo cargadas en el catálogo: %d", anadidos)
 		return anadidos
 
+	def tiene_ejemplos(self) -> bool:
+		"""Si el catálogo tiene alguna skill de ejemplo (por su categoría o por estar en ``skills_ejemplo``)."""
+		return any(skill.categoria == CATEGORIA_EJEMPLOS or "skills_ejemplo" in {p.lower() for p in Path(skill.carpeta).parts}
+			for skill in self.almacen.skills_catalogo())
+
 	def reparar_ejemplos(self, carpeta: str | Path | None = None) -> int:
 		"""Si el programa portable se movió de carpeta, apunta los ejemplos a su sitio nuevo. Devuelve cuántos."""
 		from app.core.paths import ruta_skills_ejemplo

@@ -153,6 +153,8 @@ ESTILOS_CONOCIDOS = {
 _RE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
 #: Los nombres de las herramientas MCP llegan a 128 caracteres («mcp__servidor__herramienta»).
 _RE_REGLA = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,199}(\([^\r\n]{0,500}\))?$")
+#: «Claude Code 2.1.238 does not support this model; version 2.1.280 or newer is required» (la API, con 2.1.238).
+_RE_VERSION_INSUFICIENTE = re.compile(r"Claude Code (\d[\w.-]*) does not support this model; version (\d[\w.-]*) or newer")
 
 #: Nombre interno de las peticiones de los servidores MCP en ``_solicitudes``.
 HERRAMIENTA_ELICITACION = "__elicitacion_mcp__"
@@ -1035,6 +1037,7 @@ class ConversacionClaude(Conversacion):
 			orden += ["--session-id", ajustes.id_externo]
 		if ajustes.titulo:
 			orden += ["--name", ajustes.titulo[:120]]
+		complemento: Path | None = None
 		if self.skills and not posix:
 			# Con el identificador ya definitivo: el complemento de la sesión es siempre el mismo.
 			from app.services import skills_sesion
@@ -1056,10 +1059,48 @@ class ConversacionClaude(Conversacion):
 					"La persona ha elegido para esta sesión estas skills, que tienes como habilidades: %s. Cuando la "
 					"tarea encaje con una o te pida usarla, ábrela con la herramienta Skill y sigue sus instrucciones; "
 					"si te pregunta por ellas, ábrelas para responder. Sus archivos SKILL.md están en: %s." % (nombres, rutas))]
-				lecturas = [regla for regla in (skills_sesion.regla_lectura(s.get("carpeta", "")) for s in self.skills) if regla]
+				# También la del propio complemento: Claude Code abre las skills por esa ruta (enlaces a las mismas carpetas).
+				carpetas = [*(s.get("carpeta", "") for s in self.skills), str(complemento)]
+				lecturas = [regla for regla in (skills_sesion.regla_lectura(c) for c in carpetas) if regla]
 				if lecturas:
 					orden += ["--allowedTools", *lecturas]
+		if not posix:
+			permitir, prohibir = self._reglas_con_nombres_nuevos(complemento)
+			for carpeta in (carpeta_de_regla(regla) for regla in permitir):
+				if carpeta and carpeta_concreta(carpeta) and Path(carpeta).is_dir():
+					orden += ["--add-dir", carpeta]
+			permitir = [regla for regla in permitir if not regla.startswith(PREFIJO_CARPETA)]
+			if permitir:
+				orden += ["--allowedTools", *permitir]
+			if prohibir:
+				orden += ["--disallowedTools", *prohibir]
 		return orden
+
+	def _reglas_con_nombres_nuevos(self, complemento: Path | None) -> tuple[list[str], list[str]]:
+		"""``(permitir, no permitir nunca)``: las reglas que nombran las skills como antes, con sus nombres de ahora.
+
+		Las de la sesión y las de la configuración de Claude Code de la carpeta («Permitir siempre en esta
+		carpeta»). Solo se añaden a esta orden: nunca se cambia ningún archivo. Sin esto, lo que la persona
+		permitió con la 1.5.0 (``data\\agentes_ejemplo``, ``ctrlia-agentes:``) o en otra sesión (la carpeta de
+		su complemento) se volvería a preguntar. Ver ``skills_sesion.traducir_regla``.
+		"""
+		from app.core.migraciones import carpetas_datos_propias
+		from app.services import skills_sesion
+		from app.services.config_agentes import reglas_claude
+
+		try:
+			encontradas, _ilegibles = reglas_claude.reglas_de(str(self.ajustes.carpeta or ""))
+		except Exception:  # noqa: BLE001 - sin leerlas, Claude Code las aplica igual con los nombres de antes
+			log.debug("No se pudieron leer las reglas de Claude Code de la carpeta", exc_info=True)
+			encontradas = []
+		permitidas = [*self.ajustes.reglas_permitidas,
+			*(r.regla for r in encontradas if r.clase == "allow" and r.aplicada is True)]
+		prohibidas = [r.regla for r in encontradas if r.clase == "deny"]
+		datos = carpetas_datos_propias()
+		permitir = [regla for regla in skills_sesion.reglas_traducidas(permitidas, complemento, datos)
+			if _RE_REGLA.match(regla) or regla.startswith(PREFIJO_CARPETA)]
+		prohibir = [regla for regla in skills_sesion.reglas_traducidas(prohibidas, complemento, datos) if _RE_REGLA.match(regla)]
+		return permitir, prohibir
 
 	def _mensaje_usuario(self, texto: str, adjuntos: list[Adjunto], uuid_mensaje: str = "") -> dict[str, Any]:
 		bloques: list[dict[str, Any]] = []
@@ -1489,9 +1530,15 @@ class ConversacionClaude(Conversacion):
 		if datos.get("is_error") and not interrumpido_a_proposito:
 			errores = datos.get("errors") or []
 			texto = str(datos.get("result") or "") or "; ".join(str(e) for e in errores) or "Claude terminó con un error."
+			version = _RE_VERSION_INSUFICIENTE.search(texto)
 			if "not logged in" in texto.lower() or "/login" in texto:
 				texto = ("Claude Code no tiene la sesión iniciada en este equipo. Ve a Herramientas, Agentes instalados, "
 					"elige Claude Code y pulsa «Iniciar sesión».")
+			elif version:
+				texto = (f"Tu Claude Code (versión {version.group(1)}) es demasiado antiguo para este modelo: hace falta la "
+					f"{version.group(2)} o posterior. Actualízalo escribiendo «claude update» en una consola y vuelve a "
+					"enviar el mensaje, o elige otro modelo en «Opciones de la sesión» (Ctrl+Mayús+O). Si no se actualiza "
+					"solo, puede que tengas desactivadas sus actualizaciones automáticas.")
 			self._emitir(TipoEvento.ERROR, texto, sin_sesion="/login" in str(datos.get("result") or ""))
 		if not turno.vio_estados:
 			# CLI sin eventos de estado: el resultado marca el final del turno.

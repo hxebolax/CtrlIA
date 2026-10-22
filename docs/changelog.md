@@ -2,6 +2,16 @@
 
 Cada versión tiene su apartado, de la más reciente a la más antigua. Los cambios se cuentan con palabras de quien usa el programa: qué puedes hacer y dónde.
 
+## Versión 1.5.2 - 2026-10-22
+
+### Correcciones
+
+- Claude Code: lo que permitiste «siempre en esta carpeta» mientras usabas una skill vuelve a valer. Con el cambio de nombre de la 1.5.1, las skills de ejemplo pasaron de data\agentes_ejemplo a data\skills_ejemplo, las tuyas de data\agentes a data\skills, y en Claude Code de «ctrlia-agentes:nombre» a «ctrlia-skills:nombre». Los permisos guardados con los nombres de antes ya no coincidían, y Claude Code volvía a preguntar por cosas que ya habías permitido. Ahora Ctrl+IA se los pasa a Claude Code también con los nombres nuevos, sin cambiar tus archivos de configuración. Lo mismo con lo que tengas como «Nunca permitido» y con lo que permitiste solo durante una sesión.
+- Claude Code: lo que permites «siempre en esta carpeta» con un script de una skill vale también en tus conversaciones siguientes. Antes solo valía en la conversación en la que lo permitiste, porque cada conversación ve sus skills en una carpeta distinta. Además, Claude puede leer los archivos de tus skills por esa carpeta sin pedirte permiso, solo leerlos, como ya podía en su carpeta original.
+- Claude Code: el error «does not support this model» sale ahora en español y te dice qué hacer: tu Claude Code es demasiado antiguo para el modelo elegido, así que actualízalo escribiendo «claude update» en una consola, o elige otro modelo en «Opciones de la sesión» (Ctrl+Mayús+O).
+- Las 14 skills de ejemplo llegan por fin a quien actualiza desde Ayuda, «Buscar actualizaciones...», venga de la versión que venga: hasta ahora el actualizador no las copiaba (solo las tenía quien descargó el programa entero), y Ctrl+IA las daba por cargadas aunque no estuvieran. Si tu catálogo no tiene ninguna, se añaden una vez, en la categoría «Ejemplos de Ctrl+IA». Las que ya tengas no cambian, y si después las quitas no vuelven solas.
+- Antigravity: la lista de sesiones vuelve a mostrar sus conversaciones. Si una conversación tenía la fecha sin poner, no se veía ninguna de Antigravity, y el registro se llenaba con el mismo error cada pocos segundos.
+
 ## Versión 1.5.1 - 2026-10-22
 
 ### Novedades

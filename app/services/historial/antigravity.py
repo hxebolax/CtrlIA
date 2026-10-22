@@ -191,13 +191,20 @@ def listar_conversaciones(raiz: Path | None = None, propios: set[str] | frozense
 			if resumen.get("titulo") and (not titulo or titulo.startswith(_TITULO_INVENTADO)):
 				titulo = resumen["titulo"]
 			# La fecha del resumen es la de verdad: copiar la carpeta (al migrar o restaurar) cambia la de los archivos.
-			marca = float(resumen.get("fecha") or 0) or conversacion["fecha"].timestamp()
+			momento = conversacion["fecha"]
+			marca = float(resumen.get("fecha") or 0)
+			if marca > 0:
+				try:
+					momento = momento.fromtimestamp(marca)
+				except (OverflowError, OSError, ValueError):
+					# Una fecha imposible en una conversación no deja sin las demás: vale la de sus archivos.
+					log.debug("Fecha del resumen fuera de rango en %s: %r", identificador, marca)
 			resultado[identificador] = {
 				**conversacion,
 				"titulo": titulo or _TITULO_INVENTADO.rstrip(),
 				"carpeta": resumen.get("carpeta", ""),
 				"pasos": resumen.get("pasos", 0),
-				"fecha": conversacion["fecha"].fromtimestamp(marca),
+				"fecha": momento,
 				"origen": origen,
 			}
 	return sorted(resultado.values(), key=lambda c: c["fecha"], reverse=True)

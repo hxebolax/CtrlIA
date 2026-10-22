@@ -4,10 +4,12 @@ Hasta la 1.5.0 el catálogo de habilidades con su SKILL.md se llamaba «agentes�
 ahora son skills. Este módulo nombra A PROPÓSITO lo de antes y lo pone al día
 sin interfaz, dejando en el registro lo que hace:
 
-1. ``data/agentes_ejemplo`` (del programa) → ``data/skills_ejemplo``: si solo
-   existe la vieja, se renombra (pasa al actualizar desde la 1.5.0, cuyo
-   actualizador no copia la carpeta nueva); si existen las dos, se borra la
-   vieja, que es del programa.
+1. ``data/agentes_ejemplo`` (del programa) → ``data/skills_ejemplo``: si falta
+   la nueva y el programa trae su copia fuera de ``data`` (``copia_skills_ejemplo``,
+   desde la 1.5.2), se pone desde ella; si no, y solo existe la vieja, se
+   renombra (pasa al actualizar desde la 1.5.0 o anteriores, cuyo actualizador
+   no copia la carpeta nueva); si existen las dos, se borra la vieja, que es del
+   programa.
 2. ``data/agentes`` (las skills que creó la persona) → ``data/skills``: si no
    existe la nueva, se renombra; si existen las dos, se mueven las subcarpetas
    que no chocan y las demás se quedan donde están, con un aviso en el
@@ -27,7 +29,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -85,8 +89,22 @@ def _avisar(resultado: ResultadoProteccion, texto: str, *argumentos: object) -> 
 	resultado.avisos.append(texto % argumentos)
 
 
-def _ejemplos(programa: Path, resultado: ResultadoProteccion) -> None:
+def _desde_copia(nueva: Path, copia: Path | None, resultado: ResultadoProteccion) -> None:
+	"""Pone ``nueva`` desde la copia que trae el programa fuera de ``data``, si falta (ver ``ruta_copia_skills_ejemplo``)."""
+	if _existe(nueva) or copia is None or not copia.is_dir():
+		return
+	parcial = nueva.with_name(nueva.name + ".parcial")
+	if _existe(parcial):
+		_quitar_sin_seguir_enlaces(parcial)  # de un arranque que no terminó de copiar
+	shutil.copytree(copia, parcial)
+	os.rename(parcial, nueva)
+	_anotar(resultado, "Skills de ejemplo: puesta %s desde la copia del programa %s", nueva, copia)
+
+
+def _ejemplos(programa: Path, resultado: ResultadoProteccion, copia: Path | None = None) -> None:
 	vieja, nueva = programa / EJEMPLOS_ANTIGUA, programa / EJEMPLOS_NUEVA
+	# Antes que renombrar la vieja: la copia es la de esta versión, y la vieja puede ser de la 1.4.4.
+	_desde_copia(nueva, copia, resultado)
 	if not _existe(vieja):
 		return
 	if not _existe(nueva):
@@ -141,28 +159,37 @@ def _cache(datos: Path, resultado: ResultadoProteccion) -> None:
 	_anotar(resultado, "Quitada la caché antigua de complementos %s (sin tocar las carpetas enlazadas)", vieja)
 
 
-def proteger_carpetas(datos: str | Path | None = None, programa: str | Path | None = None) -> ResultadoProteccion:
+def proteger_carpetas(datos: str | Path | None = None, programa: str | Path | None = None,
+		copia: str | Path | None = None) -> ResultadoProteccion:
 	"""Pone al día las carpetas de la 1.5.0 y anteriores (pasos 1 a 3 del módulo). Nunca lanza.
 
 	:param datos: la carpeta ``data`` de la persona (por defecto ``ruta_datos()``).
 	:param programa: la carpeta ``data`` del programa, donde vienen las skills de
 		ejemplo (por defecto ``ruta_base() / "data"``).
+	:param copia: la copia de las skills de ejemplo fuera de ``data`` con la que se
+		pone ``skills_ejemplo`` si falta (por defecto ``ruta_copia_skills_ejemplo()``,
+		solo si tampoco se da ``programa``).
 	"""
 	resultado = ResultadoProteccion()
 	try:
-		from app.core.paths import ruta_base, ruta_datos
+		from app.core.paths import ruta_base, ruta_copia_skills_ejemplo, ruta_datos
 
 		datos = Path(datos) if datos is not None else ruta_datos()
+		if copia is None and programa is None:
+			copia = ruta_copia_skills_ejemplo()
 		programa = Path(programa) if programa is not None else ruta_base() / "data"
 	except Exception:  # noqa: BLE001 - sin rutas no se toca nada
 		log.warning("No se pudieron calcular las carpetas de datos: no se revisan las de las skills", exc_info=True)
 		return resultado
-	for paso, carpeta in ((_ejemplos, programa), (_propias, datos), (_cache, datos)):
+	copia_ejemplos = Path(copia) if copia is not None else None
+	pasos = ((partial(_ejemplos, copia=copia_ejemplos), "_ejemplos", programa),
+		(_propias, "_propias", datos), (_cache, "_cache", datos))
+	for paso, nombre, carpeta in pasos:
 		try:
 			paso(carpeta, resultado)
 		except Exception:  # noqa: BLE001 - un paso que falla no impide los demás ni el arranque
-			log.warning("No se pudo completar %s en %s", paso.__name__, carpeta, exc_info=True)
-			resultado.avisos.append("Falló %s en %s" % (paso.__name__, carpeta))
+			log.warning("No se pudo completar %s en %s", nombre, carpeta, exc_info=True)
+			resultado.avisos.append("Falló %s en %s" % (nombre, carpeta))
 	return resultado
 
 
