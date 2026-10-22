@@ -4,7 +4,7 @@ rem  subir_github.bat - Sube a GitHub los cambios del código de Ctrl+IA
 rem  (remoto origin, rama main). tools\subir_github.py hace todo el trabajo.
 rem
 rem  Con doble clic: commit con un mensaje automático con la fecha y el número
-rem  de archivos cambiados, y espera a que pulse una tecla al final.
+rem  de archivos cambiados, y espera a que pulses una tecla al final.
 rem  Con mensaje (no espera al final):
 rem    subir_github.bat Arreglo del menú Ver
 rem    subir_github.bat --ensayo      dice lo que haría sin cambiar nada

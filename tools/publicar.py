@@ -296,7 +296,7 @@ class Publicador:
 		if version_toml != version:
 			self.fallo(
 				f"La versión no coincide: app/core/version.py dice {version} y pyproject.toml dice "
-				f"{version_toml or 'nada'}. Ponga la misma en los dos."
+				f"{version_toml or 'nada'}. Pon la misma en los dos."
 			)
 		else:
 			self.bien(f"versión {version} en app/core/version.py y en pyproject.toml.")
@@ -305,7 +305,7 @@ class Publicador:
 		if notas is None:
 			self.fallo(
 				f"docs/changelog.md no tiene la sección de la versión {version} (o está vacía). "
-				f"Añada «## Versión {version} - AAAA-MM-DD» con sus cambios."
+				f"Añade «## Versión {version} - AAAA-MM-DD» con sus cambios."
 			)
 		else:
 			self.notas = notas
@@ -357,7 +357,7 @@ class Publicador:
 			return
 		sesion = self.gh("auth", "status")
 		if not sesion.correcto:
-			self.fallo(f"gh no tiene sesión iniciada en GitHub ({detalle(sesion)}). Ejecute: gh auth login")
+			self.fallo(f"gh no tiene sesión iniciada en GitHub ({detalle(sesion)}). Ejecuta: gh auth login")
 			return
 		repo = self.gh("repo", "view", self.opciones.repositorio, "--json", "name")
 		if not repo.correcto:
@@ -388,7 +388,7 @@ class Publicador:
 				self.fallo(
 					f"{que.capitalize()} {self.etiqueta} ya existe en GitHub: esta versión ya se publicó. "
 					"Si es una versión nueva, suba APP_VERSION en app/core/version.py y en pyproject.toml. "
-					"Si quiere volver a subir sus archivos, use --reemplazar."
+					"Si quieres volver a subir sus archivos, usa --reemplazar."
 				)
 		else:
 			self.bien(f"la etiqueta {self.etiqueta} todavía no existe en GitHub.")
@@ -398,7 +398,7 @@ class Publicador:
 		if destino is None:
 			self.salida(
 				f"Aviso: no hay carpeta del servidor de actualizaciones ({self.opciones.origen_destino}); "
-				f"el paso 5 se saltará y solo se publicará en GitHub. Para configurarla, use --destino, la "
+				f"el paso 5 se saltará y solo se publicará en GitHub. Para configurarla, usa --destino, la "
 				f"variable de entorno {VARIABLE_DESTINO} o el archivo tools/{CONFIG_LOCAL.name} con "
 				f'{{"{CLAVE_DESTINO}": "ruta de la carpeta"}}.'
 			)
@@ -406,7 +406,7 @@ class Publicador:
 		self.bien(f"carpeta del servidor {destino} (la indica {self.opciones.origen_destino}).")
 		if not destino.is_dir():
 			self.fallo(
-				f"No se encuentra la carpeta del servidor {destino}. Compruebe que Synology Drive está "
+				f"No se encuentra la carpeta del servidor {destino}. Comprueba que Synology Drive está "
 				"instalado y sincronizando la carpeta web."
 			)
 			return
@@ -422,7 +422,7 @@ class Publicador:
 			)
 		elif actual == nueva and not self.opciones.reemplazar:
 			self.fallo(
-				f"El servidor ya publica la versión {self.version}. Si quiere volver a subirla, use --reemplazar."
+				f"El servidor ya publica la versión {self.version}. Si quieres volver a subirla, usa --reemplazar."
 			)
 		else:
 			self.bien(f"el servidor publica ahora la versión {publicada}; se sustituirá por la {self.version}.")
@@ -448,7 +448,7 @@ class Publicador:
 			f"Se va a publicar {self.titulo}: en el servidor de actualizaciones y en GitHub "
 			f"(repositorio {self.opciones.repositorio})."
 		)
-		respuesta = self.preguntar("¿Continuar? Escriba s y pulse Intro para publicar, o solo Intro para cancelar: ")
+		respuesta = self.preguntar("¿Continuar? Escribe s y pulsa Intro para publicar, o solo Intro para cancelar: ")
 		if respuesta.strip().lower() not in {"s", "si", "sí"}:
 			raise Cancelado
 
@@ -463,7 +463,7 @@ class Publicador:
 		bat = self.opciones.raiz / "entorno.bat"
 		resultado = self.ejecutar(["cmd", "/d", "/c", str(bat), orden], capturar=False)
 		if not resultado.correcto:
-			raise ErrorPublicacion(f"Falló «entorno.bat {orden}» (código {resultado.codigo}). Revise los mensajes anteriores.")
+			raise ErrorPublicacion(f"Falló «entorno.bat {orden}» (código {resultado.codigo}). Revisa los mensajes anteriores.")
 		self.bien(descripcion)
 
 	def pruebas(self) -> None:
@@ -498,7 +498,7 @@ class Publicador:
 		if datos.get("version") != self.version or datos.get("file") != self.zip_.name:
 			self.fallo(
 				f"build/version.json es de otra versión ({datos.get('version')}, {datos.get('file')}); "
-				f"se esperaba la {self.version} con {self.zip_.name}. Vuelva a compilar."
+				f"se esperaba la {self.version} con {self.zip_.name}. Vuelve a compilar."
 			)
 			return
 		claves = claves_publicas(self.opciones.raiz)
@@ -687,7 +687,7 @@ class Publicador:
 			self.salida("No se ha copiado nada al servidor de actualizaciones: no había carpeta configurada.")
 		else:
 			self.salida(
-				"Synology Drive sube los archivos al servidor en segundo plano: espere a que termine de "
+				"Synology Drive sube los archivos al servidor en segundo plano: espera a que termine de "
 				"sincronizar antes de apagar el equipo."
 			)
 

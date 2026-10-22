@@ -4,7 +4,7 @@ rem  publicar.bat - Publica la versión de Ctrl+IA en el servidor de
 rem  actualizaciones y en GitHub (tools\publicar.py hace todo el trabajo).
 rem
 rem  Con doble clic: publica de verdad, pregunta antes de empezar y espera a que
-rem  pulse una tecla al final para que pueda leer el resultado.
+rem  pulsa una tecla al final para que puedas leer el resultado.
 rem  Con opciones (no espera al final):
 rem    publicar.bat --ensayo          dice lo que haría sin copiar, subir ni crear nada
 rem    publicar.bat --sin-pruebas     no pasa las pruebas

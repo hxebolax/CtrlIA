@@ -58,7 +58,7 @@ echo  17. Subir los cambios del código a GitHub
 echo  0. Salir
 echo.
 set "OPCION="
-set /p "OPCION=Elija una opción y pulse Intro: "
+set /p "OPCION=Elige una opción y pulsa Intro: "
 if "%OPCION%"=="1" call :CREAR & goto PAUSA
 if "%OPCION%"=="2" call :INSTALAR & goto PAUSA
 if "%OPCION%"=="3" call :ACTUALIZAR & goto PAUSA
@@ -142,7 +142,7 @@ if exist "%PY%" (
 			py -%VERSION_PY% -m venv "%VENV%"
 			if errorlevel 1 (
 				echo ERROR: no está instalado Python %VERSION_PY%. Instálelo con: py install %VERSION_PY%
-				echo o desde python.org, y vuelva a intentarlo.
+				echo o desde python.org, y vuelve a intentarlo.
 				exit /b 1
 			)
 		) else (
@@ -154,8 +154,8 @@ if exist "%PY%" (
 	) else (
 		where python >nul 2>nul
 		if errorlevel 1 (
-			echo ERROR: no se encontró Python. Instale Python de 64 bits desde python.org
-			echo marcando la opción de añadirlo al PATH, y vuelva a intentarlo.
+			echo ERROR: no se encontró Python. Instala Python de 64 bits desde python.org
+			echo marcando la opción de añadirlo al PATH, y vuelve a intentarlo.
 			exit /b 1
 		)
 		python -m venv "%VENV%"
@@ -253,7 +253,7 @@ if exist tools\antes_de_compilar.py (
 )
 "%PY%" "%SETUP%" build
 if errorlevel 1 (
-	echo ERROR: la compilación ha fallado. Revise los mensajes anteriores.
+	echo ERROR: la compilación ha fallado. Revisa los mensajes anteriores.
 	exit /b 1
 )
 if not exist "%BUILD_DIR%" (
@@ -295,7 +295,7 @@ echo === Publicando la versión (servidor de actualizaciones y GitHub) ===
 call :COMPROBAR_VENV || exit /b 1
 "%PY%" tools\publicar.py %*
 if errorlevel 1 (
-	echo La publicación no se ha completado. Revise los mensajes anteriores.
+	echo La publicación no se ha completado. Revisa los mensajes anteriores.
 	exit /b 1
 )
 exit /b 0
@@ -306,7 +306,7 @@ echo === Subiendo los cambios del código a GitHub ===
 call :COMPROBAR_VENV || exit /b 1
 "%PY%" tools\subir_github.py %*
 if errorlevel 1 (
-	echo No se han subido los cambios. Revise los mensajes anteriores.
+	echo No se han subido los cambios. Revisa los mensajes anteriores.
 	exit /b 1
 )
 exit /b 0
@@ -332,7 +332,7 @@ set "APP_DATA_DIR=%~dp0build\comprobacion_data"
 set "CODIGO=!ERRORLEVEL!"
 set "APP_DATA_DIR="
 if not "!CODIGO!"=="0" (
-	echo ERROR: la versión compilada no arrancó bien (código !CODIGO!^). Revise build\comprobacion_data\logs.
+	echo ERROR: la versión compilada no arrancó bien (código !CODIGO!^). Revisa build\comprobacion_data\logs.
 	exit /b 1
 )
 echo La versión compilada arranca y se cierra correctamente.
@@ -374,7 +374,7 @@ if exist "%PY%" (
 	"%PY%" -c "import cx_Freeze; print('cx_Freeze', cx_Freeze.__version__)" 2>nul || echo cx_Freeze no está instalado.
 	"%PY%" -m pip check
 ) else (
-	echo El entorno virtual no existe todavía. Use la opción 1.
+	echo El entorno virtual no existe todavía. Usa la opción 1.
 )
 tasklist /fi "imagename eq nvda.exe" 2>nul | find /i "nvda.exe" >nul && echo NVDA está en ejecución. || echo NVDA no está en ejecución.
 tasklist /fi "imagename eq jfw.exe" 2>nul | find /i "jfw.exe" >nul && echo JAWS está en ejecución. || echo JAWS no está en ejecución.
@@ -390,7 +390,7 @@ exit /b 0
 
 :COMPROBAR_VENV
 if exist "%PY%" exit /b 0
-echo El entorno virtual no existe. Ejecute primero la opción 1 (crear).
+echo El entorno virtual no existe. Ejecuta primero la opción 1 (crear).
 exit /b 1
 
 :FIN

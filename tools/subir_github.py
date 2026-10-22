@@ -157,12 +157,12 @@ def detalle(resultado: Resultado) -> str:
 def comprobar_repositorio(ejecutar: Ejecutor, raiz: Path = RAIZ) -> None:
 	"""Comprueba git, el repositorio, la rama ``main`` y el remoto ``origin``; si no, ``ErrorPublicacion``."""
 	if isinstance(ejecutar, Ejecutor) and shutil.which("git") is None:
-		raise ErrorPublicacion("No se encuentra git. Instale Git para Windows y vuelva a intentarlo.")
+		raise ErrorPublicacion("No se encuentra git. Instala Git para Windows y vuelve a intentarlo.")
 	dentro = ejecutar(["git", "rev-parse", "--show-toplevel"])
 	if not dentro.correcto:
 		raise ErrorPublicacion(
 			f"La carpeta {raiz} todavía no es un repositorio git. Créelo primero (git init, "
-			"primer commit y remoto origin apuntando a GitHub) y vuelva a intentarlo."
+			"primer commit y remoto origin apuntando a GitHub) y vuelve a intentarlo."
 		)
 	superior = Path(dentro.salida.strip())
 	try:
@@ -172,13 +172,13 @@ def comprobar_repositorio(ejecutar: Ejecutor, raiz: Path = RAIZ) -> None:
 	if not mismo:
 		raise ErrorPublicacion(
 			f"El repositorio git empieza en {superior}, no en la carpeta del proyecto {raiz}. "
-			"Revise dónde se hizo git init."
+			"Revisa dónde se hizo git init."
 		)
 	rama = ejecutar(["git", "branch", "--show-current"]).salida.strip()
 	if rama != RAMA:
 		raise ErrorPublicacion(
 			f"Está en la rama «{rama or 'ninguna (HEAD separado)'}» y solo se publica desde «{RAMA}». "
-			f"Cambie con: git switch {RAMA}"
+			f"Cambia con: git switch {RAMA}"
 		)
 	remoto = ejecutar(["git", "remote", "get-url", REMOTO])
 	if not remoto.correcto or not remoto.salida.strip():
@@ -367,7 +367,7 @@ def subir(
 			f"{'Se ha' if len(prohibidos) == 1 else 'Se han'} encontrado "
 			f"{plural(len(prohibidos), 'archivo que no debe subirse', 'archivos que no deben subirse')} "
 			f"a GitHub:\n{lineas}\nAñádalos a .gitignore (y, si ya estaban guardados, quítelos con "
-			"git rm --cached <ruta>) y vuelva a intentarlo. No se ha subido nada."
+			"git rm --cached <ruta>) y vuelve a intentarlo. No se ha subido nada."
 		)
 	salida("Correcto: no hay archivos prohibidos.")
 
@@ -410,7 +410,7 @@ def subir(
 	if not resultado.correcto:
 		raise ErrorPublicacion(
 			f"No se pudo subir a GitHub: {detalle(resultado)}. El commit queda guardado en este equipo; "
-			"cuando se resuelva el problema, vuelva a ejecutar la subida."
+			"cuando se resuelva el problema, vuelve a ejecutar la subida."
 		)
 	salida("Correcto: cambios subidos a GitHub.")
 	return True
