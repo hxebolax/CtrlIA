@@ -317,8 +317,8 @@ class ProveedorClaude(Proveedor):
 		# Comprobado con Claude Code 2.1.238 (AIChat #238): un mensaje escrito en la entrada a mitad
 		# de turno, sin «interrupt», lo recoge en ese mismo turno, que acaba con un solo resultado.
 		anadir_al_turno=True,
-		# Los agentes del catálogo van como complemento propio de la sesión (--plugin-dir).
-		agentes_nativos=True,
+		# Las skills del catálogo van como complemento propio de la sesión (--plugin-dir).
+		skills_nativas=True,
 		leer_historial_externo=True,
 	)
 
@@ -1035,28 +1035,28 @@ class ConversacionClaude(Conversacion):
 			orden += ["--session-id", ajustes.id_externo]
 		if ajustes.titulo:
 			orden += ["--name", ajustes.titulo[:120]]
-		if self.agentes and not posix:
+		if self.skills and not posix:
 			# Con el identificador ya definitivo: el complemento de la sesión es siempre el mismo.
-			from app.services import agentes_sesion
+			from app.services import skills_sesion
 
 			try:
-				complemento = agentes_sesion.preparar_complemento("claude:" + ajustes.id_externo, self.agentes)
+				complemento = skills_sesion.preparar_complemento("claude:" + ajustes.id_externo, self.skills)
 			except (OSError, ValueError):
-				log.warning("No se pudo preparar el complemento con los agentes de la sesión", exc_info=True)
+				log.warning("No se pudo preparar el complemento con las skills de la sesión", exc_info=True)
 				complemento = None
 			if complemento is not None:
 				orden += ["--plugin-dir", str(complemento)]
 				# Sin esto, algún modelo (Haiku) ve la habilidad pero no la abre: se le dice que la persona las eligió
 				# y dónde está cada SKILL.md, que puede leer sin preguntar (solo leer: nunca escribir ahí).
-				nombres = ", ".join("%s:%s" % (agentes_sesion.NOMBRE_COMPLEMENTO, n)
-					for n in agentes_sesion.nombres_en_complemento(complemento))
-				rutas = "; ".join("%s: %s" % (a.get("nombre", ""), a.get("skill") or Path(str(a.get("carpeta", ""))) / "SKILL.md")
-					for a in self.agentes)
+				nombres = ", ".join("%s:%s" % (skills_sesion.NOMBRE_COMPLEMENTO, n)
+					for n in skills_sesion.nombres_en_complemento(complemento))
+				rutas = "; ".join("%s: %s" % (s.get("nombre", ""), s.get("skill") or Path(str(s.get("carpeta", ""))) / "SKILL.md")
+					for s in self.skills)
 				orden += ["--append-system-prompt", (
-					"La persona ha elegido para esta sesión estos agentes, que tienes como habilidades: %s. Cuando la "
-					"tarea encaje con uno o te pida usarlo, ábrelo con la herramienta Skill y sigue sus instrucciones; "
-					"si te pregunta por ellos, ábrelos para responder. Sus archivos SKILL.md están en: %s." % (nombres, rutas))]
-				lecturas = [regla for regla in (agentes_sesion.regla_lectura(a.get("carpeta", "")) for a in self.agentes) if regla]
+					"La persona ha elegido para esta sesión estas skills, que tienes como habilidades: %s. Cuando la "
+					"tarea encaje con una o te pida usarla, ábrela con la herramienta Skill y sigue sus instrucciones; "
+					"si te pregunta por ellas, ábrelas para responder. Sus archivos SKILL.md están en: %s." % (nombres, rutas))]
+				lecturas = [regla for regla in (skills_sesion.regla_lectura(s.get("carpeta", "")) for s in self.skills) if regla]
 				if lecturas:
 					orden += ["--allowedTools", *lecturas]
 		return orden
@@ -1101,7 +1101,7 @@ class ConversacionClaude(Conversacion):
 			tuple(str(c) for c in ajustes.extra.get("carpetas_adicionales", []) or []),
 			str(datos_remotos.get("equipo") or ""), bool(lista_tareas), bool(esperar_mcp),
 			self._proveedor.usar_chrome(), str(ajustes.extra.get("estilo") or ""),
-			tuple(sorted(str(a.get("carpeta") or "") for a in self.agentes)),
+			tuple(sorted(str(s.get("carpeta") or "") for s in self.skills)),
 		)
 
 	def _lanzar_turno(self, texto: str, adjuntos: list[Adjunto], uuid_mensaje: str = "") -> None:

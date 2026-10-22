@@ -16,7 +16,7 @@ Pasos:
    publicación (``publicar.local.json``), material de consulta (``adjuntos``,
    ``docs/auditorias``), configuración de agentes (``.agents``, ``.claude``,
    ``AGENTS.md``, ``CLAUDE.md``, ``.agentes-instalados.json``), datos
-   personales de ``data`` (config, db, logs, cache, temp, backups, agentes,
+   personales de ``data`` (config, db, logs, cache, temp, backups, skills,
    diagnostico, ollama, sessions, downloads y sounds/propios), compilaciones
    (``build``), el entorno virtual (``.venv``), cachés (``.ruff_cache``,
    ``.pytest_cache``), ``requirements-lock.txt`` y archivos de más de 50 MB.
@@ -61,7 +61,7 @@ PREFIJOS_PROHIBIDOS = {
 	"data/cache/": "caché personal (data/cache)",
 	"data/temp/": "archivos temporales (data/temp)",
 	"data/backups/": "copias de seguridad personales (data/backups)",
-	"data/agentes/": "catálogo personal de agentes (data/agentes)",
+	"data/skills/": "catálogo personal de skills (data/skills)",
 	"data/diagnostico/": "diagnósticos personales (data/diagnostico)",
 	"data/ollama/": "datos personales de Ollama (data/ollama)",
 	"data/sessions/": "sesiones personales (data/sessions)",

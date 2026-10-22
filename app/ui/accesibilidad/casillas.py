@@ -101,14 +101,18 @@ class _AccesibleCasillas(wx.Accessible):
 		indice = childId - 1
 		estados = wx.ACC_STATE_SYSTEM_SELECTABLE | wx.ACC_STATE_SYSTEM_FOCUSABLE
 		try:
+			# El lector puede preguntar por un elemento que ya no existe (la lista se acaba de vaciar o
+			# filtrar): IsChecked con un índice malo es una aserción de wx que salía como «Error inesperado».
+			if not 0 <= indice < self._control.GetCount():
+				return (wx.ACC_OK, estados)
 			if self._control.IsChecked(indice):
 				estados |= wx.ACC_STATE_SYSTEM_CHECKED
 			if self._control.IsSelected(indice):
 				estados |= wx.ACC_STATE_SYSTEM_SELECTED
 				if self._control.HasFocus():
 					estados |= wx.ACC_STATE_SYSTEM_FOCUSED
-		except RuntimeError:
-			pass  # el control se está destruyendo
+		except (RuntimeError, wx.PyAssertionError):
+			log.debug("Estado de la casilla %s no disponible", indice, exc_info=True)  # el control se está destruyendo
 		return (wx.ACC_OK, estados)
 
 

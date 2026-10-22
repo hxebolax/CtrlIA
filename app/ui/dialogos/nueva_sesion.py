@@ -170,12 +170,12 @@ class DialogoNuevaSesion(wx.Dialog):
 				"«Explicativo»... Solo lo tienen algunos agentes, como Claude Code; no cambia su configuración. Se "
 				"propone el que elegiste la última vez con este agente."))
 		self._estilos: list[OpcionLista] = []
-		from app.ui.dialogos.elegir_agentes import PanelAgentes
+		from app.ui.dialogos.elegir_skills import PanelSkills
 
-		# Los agentes del catálogo (habilidades) que usará la sesión, con cualquier agente de IA.
-		self.panel_agentes = PanelAgentes(panel, almacen=almacen, etiqueta_filtro=_("Categoría &de agentes:"),
-			etiqueta=_("Agentes del catál&ogo para la sesión:"), etiqueta_boton=_("&Ver y gestionar el catálogo de agentes..."))
-		raiz.Add(self.panel_agentes, 0, wx.EXPAND)
+		# Las skills del catálogo (habilidades) que usará la sesión, con cualquier agente de IA.
+		self.panel_skills = PanelSkills(panel, almacen=almacen, etiqueta_filtro=_("Categoría &de skills:"),
+			etiqueta=_("Skills del catál&ogo para la sesión:"), etiqueta_boton=_("&Ver y gestionar el catálogo de skills..."))
+		raiz.Add(self.panel_skills, 0, wx.EXPAND)
 		_e, self.mensaje = crear_campo(panel, _("Primer me&nsaje (opcional):"), wx.TextCtrl, style=wx.TE_MULTILINE, sizer=raiz,
 			ayuda=_("Lo que quieres que haga el agente. Si lo dejas vacío, la sesión se crea y escribes después."))
 		self.mensaje.SetMinSize(self.FromDIP(wx.Size(560, 110)))
@@ -440,9 +440,9 @@ class DialogoNuevaSesion(wx.Dialog):
 			self.config.establecer("agentes.predeterminado", identificador)
 		except (ValueError, KeyError):
 			log.debug("No se pudo recordar el agente elegido", exc_info=True)
-		agentes = self.panel_agentes.seleccionados()
-		if agentes:
-			ajustes.extra["agentes"] = agentes
+		skills = self.panel_skills.seleccionados()
+		if skills:
+			ajustes.extra["skills"] = skills
 		estilo = self._estilos[self.estilo.GetSelection()].id if self._estilos and self.estilo.GetSelection() >= 0 else ""
 		if estilo:
 			ajustes.extra["estilo"] = estilo

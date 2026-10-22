@@ -108,9 +108,9 @@ CLAVES_PUBLICAS_ED25519: tuple[str, ...] = ("221657a9e944a5338d307ea4deb6916b515
 # Déjala vacía para que la actualización no escriba nada en data.
 # Debe coincidir con DATA_DISTRIBUIBLE de setup_cx.py (una prueba lo comprueba):
 # lo que se distribuye tiene que poder llegar también con cada actualización
-# (por ejemplo, agentes de ejemplo o plugins nuevos). Los archivos propios de la
+# (por ejemplo, skills de ejemplo o plugins nuevos). Los archivos propios de la
 # persona en esas carpetas se conservan: solo se añaden o sustituyen los del paquete.
-DATA_ACTUALIZABLE: tuple[str, ...] = ("bin", "sounds", "locales", "docs", "icons", "plugins", "agentes_ejemplo")
+DATA_ACTUALIZABLE: tuple[str, ...] = ("bin", "sounds", "locales", "docs", "icons", "plugins", "skills_ejemplo")
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARGUMENTO_TRAS_ACTUALIZAR = "--tras-actualizar"

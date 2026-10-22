@@ -2,7 +2,7 @@
 
 Ctrl+IA («Control IA») es un programa para Windows que reúne en una sola ventana, accesible con lector de pantalla y teclado, tus conversaciones con los agentes de IA de programación: Claude Code, Codex, Antigravity, Gemini CLI, Ollama y cualquier agente compatible con ACP, en tu equipo o en otro por SSH.
 
-- Versión actual: 1.5.0.
+- Versión actual: 1.5.1.
 - Autor: Héctor J. Benítez Corredera.
 - Licencia: GNU GPL versión 3 (ver «Licencia»).
 - Repositorio: <https://github.com/hxebolax/CtrlIA>.
@@ -46,6 +46,7 @@ Un agente de IA de programación, además de conversar, lee los archivos de tu p
 - Avisos por voz, braille, sonidos y barra de estado cuando el agente responde, termina o te necesita.
 - Diálogos de permisos y preguntas claros, en los que Intro siempre elige la opción inofensiva.
 - Todo se maneja con el teclado, con atajos en los menús y ayuda de cada control con Ctrl+H.
+- Un catálogo de skills (carpetas con un SKILL.md con instrucciones para un trabajo concreto) que eliges en cada sesión, con cualquier agente. Trae 14 de ejemplo para programar aplicaciones wxPython accesibles.
 
 Está pensado para personas ciegas o con baja visión que programan, y para cualquiera que prefiera trabajar con varios agentes desde una sola ventana.
 
@@ -75,7 +76,7 @@ Los agentes pueden trabajar en tu equipo o en un Mac o un Linux al que entras po
 ## Descargar e instalar
 
 1. Ve a la página de versiones: <https://github.com/hxebolax/CtrlIA/releases>.
-2. En la última versión, descarga el archivo `CtrlIA_v<versión>.zip` (por ejemplo, `CtrlIA_v1.5.0.zip`).
+2. En la última versión, descarga el archivo `CtrlIA_v<versión>.zip` (por ejemplo, `CtrlIA_v1.5.1.zip`).
 3. Extrae el ZIP en la carpeta que quieras (por ejemplo, en tus Documentos o en un pendrive). Se crea una carpeta `CtrlIA`.
 4. Abre `CtrlIA.exe`. Si Windows SmartScreen avisa, elige «Más información» y «Ejecutar de todas formas».
 
@@ -235,7 +236,7 @@ entorno.bat comprobar
 
 | Ruta | Contenido |
 | --- | --- |
-| `build\CtrlIA\` | El programa compilado y listo para usar: `CtrlIA.exe` (sin consola), `ctrlia-mcp.exe` (puente MCP de las herramientas de Ctrl+IA para los agentes), las bibliotecas, los runtimes de Visual C++ y una carpeta `data` limpia (sonidos, icono, traducciones, agentes de ejemplo y la documentación copiada de `docs/`) |
+| `build\CtrlIA\` | El programa compilado y listo para usar: `CtrlIA.exe` (sin consola), `ctrlia-mcp.exe` (puente MCP de las herramientas de Ctrl+IA para los agentes), las bibliotecas, los runtimes de Visual C++ y una carpeta `data` limpia (sonidos, icono, traducciones, skills de ejemplo y la documentación copiada de `docs/`) |
 | `build\CtrlIA_v<versión>.zip` | La carpeta anterior comprimida, todo dentro de `CtrlIA\` |
 | `build\version.json` | El manifiesto de la versión: versión, nombre del ZIP, SHA-256, tamaño, fecha y firma |
 
@@ -317,10 +318,10 @@ Antes de añadir nada comprueba que no se cuela nada prohibido aunque `.gitignor
 | `app/services/agentes/` | Un adaptador por agente (Claude Code, Codex, Antigravity, ACP, Ollama, SSH) sobre un contrato común |
 | `app/services/config_agentes/` | Lectura y edición de la configuración de cada agente |
 | `app/services/historial/` | Lectura, solo lectura, de las sesiones de otros programas |
-| `app/services/` | Gestor de sesiones, almacén, catálogo de agentes, puntos de restauración, PR, exportar e importar, actualizador... |
+| `app/services/` | Gestor de sesiones, almacén, catálogo de skills, puntos de restauración, PR, exportar e importar, actualizador... |
 | `app/ui/` | Ventana principal, diálogos, avisos y capa de accesibilidad |
 | `app/puente_mcp.py` | Puente MCP por stdio (`ctrlia-mcp.exe`) |
-| `data/` | Recursos del programa que viajan en la distribución (sonidos, icono, traducciones, agentes de ejemplo); lo demás lo genera el programa y no se versiona |
+| `data/` | Recursos del programa que viajan en la distribución (sonidos, icono, traducciones, skills de ejemplo); lo demás lo genera el programa y no se versiona |
 | `docs/` | Manual, teclas y registro de cambios para quien usa el programa, y la arquitectura para programadores |
 | `tests/` | Pruebas con pytest e imitaciones de los agentes (`tests/fakes/`) |
 | `tools/` | Comprobaciones, empaquetado, firma, traducciones, generadores de sonidos e icono, publicación |

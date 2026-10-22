@@ -69,7 +69,7 @@ Argumentos:
 
 | Módulo | Qué hace |
 | --- | --- |
-| `paths.py` | Rutas portables: `ruta_base()` (carpeta del ejecutable o del proyecto), `ruta_datos()` y una función por subcarpeta (`config`, `logs`, `db`, `cache`, `temp`, `backups`, `agentes`...), creadas bajo demanda. `ruta_agentes_ejemplo()` mira la carpeta del programa, no la de datos. |
+| `paths.py` | Rutas portables: `ruta_base()` (carpeta del ejecutable o del proyecto), `ruta_datos()` y una función por subcarpeta (`config`, `logs`, `db`, `cache`, `temp`, `backups`, `skills`...), creadas bajo demanda. `ruta_skills_ejemplo()` mira la carpeta del programa, no la de datos. |
 | `version.py` | Única fuente de verdad del nombre (`NOMBRE_APLICACION`, `ID_APLICACION`), la versión (`APP_VERSION`), el autor y la URL de donaciones. `setup_cx.py` la lee con una expresión regular y `pyproject.toml` debe coincidir (lo comprueba una prueba). |
 | `registro.py` | Registro profesional: archivo por sesión legible y JSONL, `incidencias.log`, captura de excepciones no controladas (hilo principal, wx, hilos, asyncio, fallos nativos), redacción de secretos y rotación segura en Windows. |
 | `configuracion.py` | Configuración JSON atómica con esquema, valores por defecto en código, claves `seccion.clave`, migraciones de claves y avisos a las ventanas abiertas. |
@@ -159,11 +159,14 @@ Todo con SQLite en modo `ro` y archivos abiertos solo para leer (`comun.py` reú
 - `informe.py`: informe de sesiones (tamaño, recuentos, totales; Markdown y CSV sin texto de mensajes).
 - `favoritos.py`: mensajes favoritos de cualquier sesión (tabla `mensajes_favoritos`, migración 4): clave estable del mensaje (id o huella `h:`), Ctrl+Alt+F, Alt+Flecha y la lista global (`ui/dialogos/favoritos.py`).
 
-### Agentes del catálogo
+### Skills del catálogo
 
-- `catalogo_agentes.py`: catálogo de agentes (habilidades con su SKILL.md) en la tabla `agentes` (migración 4): lector de frontmatter sin dependencias, búsqueda en carpetas con límites y sin seguir enlaces, importar, crear en `data/agentes`, refrescar y `datos_para_sesion(almacen, ids)`. Interfaz en `ui/dialogos/gestor_agentes.py` y `ui/dialogos/elegir_agentes.py` (`PanelAgentes`, en «Nueva sesión» y «Opciones de la sesión»). Los ids van en `sesiones.extra["agentes"]`.
-- Los 14 agentes de ejemplo viajan en `data/agentes_ejemplo` (en `DATA_DISTRIBUIBLE`; `paths.ruta_agentes_ejemplo()` mira la carpeta del programa, no la de datos); se cargan una vez al arrancar (`agentes.ejemplos_cargados`), con la categoría «Ejemplos de Ctrl+IA», y `reparar_ejemplos` corrige sus rutas si el programa portable se mueve. Su fuente es el repositorio de agentes del autor: para actualizarlos, se vuelven a copiar sin `__pycache__` ni cachés de herramientas (`.ruff_cache`, `.pytest_cache`).
-- `agentes_sesion.py`: cómo recibe cada plataforma los agentes elegidos. Claude Code (`Capacidades.agentes_nativos`): complemento `ctrlia-agentes` en `data/cache/agentes_sesion/<hash>` con una junction por agente (`--plugin-dir`), `--append-system-prompt` con sus rutas y `Read(//letra/…/**)` en `--allowedTools`; al limpiar, las junctions se quitan con `rmdir` y nunca se recorren. Los demás: `presentacion()` delante del mensaje la primera vez y cuando cambia la lista (`extra["agentes_presentados"]`, `GestorSesiones._con_agentes`); lo guardado es el texto de la persona. Ollama y SSH, con el contenido del SKILL.md.
+Hasta la 1.5.0 se llamaban «agentes» del catálogo; desde la 1.5.1 son **skills** en la interfaz, el código y los datos («agente» queda solo para los agentes de IA).
+
+- `catalogo_skills.py`: catálogo de skills (carpetas con su SKILL.md) en la tabla `skills` (migración 4, renombrada en la 5): lector de frontmatter sin dependencias, búsqueda en carpetas con límites y sin seguir enlaces, importar, crear en `data/skills`, refrescar y `datos_para_sesion(almacen, ids)`. Interfaz en `ui/dialogos/gestor_skills.py` y `ui/dialogos/elegir_skills.py` (`PanelSkills`, en «Nueva sesión» y «Opciones de la sesión»). Los ids van en `sesiones.extra["skills"]`. Exportar usa el formato `ctrlia-catalogo-skills` versión 2 (`skills-ctrlia.json`) y admite al importar los de la 1.5.0.
+- Las 14 skills de ejemplo viajan en `data/skills_ejemplo` (en `DATA_DISTRIBUIBLE` y `DATA_ACTUALIZABLE`; `paths.ruta_skills_ejemplo()` mira la carpeta del programa, no la de datos); se cargan una vez al arrancar (`skills.ejemplos_cargados`; esquema de configuración 3), con la categoría «Ejemplos de Ctrl+IA», y `reparar_ejemplos` corrige sus rutas si el programa portable se mueve. Su fuente es el repositorio de skills del autor: para actualizarlas, se vuelven a copiar sin `__pycache__` ni cachés de herramientas (`.ruff_cache`, `.pytest_cache`).
+- `skills_sesion.py`: cómo recibe cada plataforma las skills elegidas. Claude Code (`Capacidades.skills_nativas`): complemento `ctrlia-skills` en `data/cache/skills_sesion/<hash>` con una junction por skill (`--plugin-dir`), `--append-system-prompt` con sus rutas y `Read(//letra/…/**)` en `--allowedTools`; al limpiar, las junctions se quitan con `rmdir` y nunca se recorren. Los demás: `presentacion()` delante del mensaje la primera vez y cuando cambia la lista (`extra["skills_presentadas"]`, `GestorSesiones._con_skills`); lo guardado es el texto de la persona. Ollama y SSH, con el contenido del SKILL.md.
+- `proteccion_skills.py`: al arrancar (desde `main.py`, antes de la ventana, sin interfaz y sin lanzar nunca) pasa los datos de la 1.5.0 a los nombres nuevos: `data/agentes_ejemplo` se renombra a `data/skills_ejemplo` si es la única (el actualizador de la 1.5.0 no copia la carpeta nueva) o se borra si ya existe la nueva; `data/agentes` (de la persona) se renombra a `data/skills` o, si existen las dos, se mueven las subcarpetas que no chocan (NUNCA se borra nada de la persona); `data/cache/agentes_sesion` se quita con `skills_sesion._quitar`, sin entrar en sus junctions. La migración 5 de la base de datos renombra la tabla, corrige las rutas y convierte las claves de `sesiones.extra`.
 - `memoria.py`: archivos de instrucciones y memoria que leen los agentes («Lo que el agente sabe de ti»): `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, habilidades y ajustes, existan o no.
 - `inventario.py`: «Herramientas del agente» (Ctrl+Alt+H): `Conversacion.inventario()` (Claude, del `system/init`; Codex, de `mcpServerStatus/list`, `skills/list` y `plugin/list`).
 
@@ -203,7 +206,7 @@ Ctrl+O: `claude://resume?session=<id>` importa y abre en la app de Claude una se
   - `vp_conversacion.py`: el cuadro de respuesta, los adjuntos y el envío.
   - `vp_disposicion.py`: el panel de lectura, la lista de sesiones ocultable, el reparto del espacio, el divisor (`ventana.porcentaje_respuesta`, solo cambia proporciones del sizer y nunca recibe el foco) y el resaltado de la zona con foco.
   - `vp_pr.py`: PR y comprobaciones.
-- `dialogos/`: un módulo por diálogo (nueva sesión, permisos, preferencias de la sesión, gestor de agentes, favoritos, grupos, deshacer, listas, equipos SSH...).
+- `dialogos/`: un módulo por diálogo (nueva sesión, permisos, preferencias de la sesión, gestor de skills, favoritos, grupos, deshacer, listas, equipos SSH...).
 - `avisos.py`: voz, braille, barra de estado y esquema de sonidos. Todo aviso pasa por aquí.
 - `accesibilidad/`: la capa de accesibilidad (etiquetas, nombres, listas multicolumna, casillas, diálogos con botones en español, ayuda Ctrl+H, teclado y foco, voz, baja visión). Los diálogos se crean con `app.ui.accesibilidad.dialogos`, nunca con `wx.MessageBox`.
 - `lectura_listas.py`: qué lee el lector de pantalla en cada lista (columnas posibles, su orden y cómo se escribe cada una), sin ventanas.
@@ -223,7 +226,7 @@ Todo lo que genera el programa vive en `data/` (portable). Al compilar, `setup_c
 | --- | --- | --- |
 | `data/sounds` | Sonidos WAV generados con `tools/generar_sonidos.py` | Sí (menos `propios/`, que es de la persona) |
 | `data/icons` | `app.ico`, generado con `tools/generar_icono.py` | Sí |
-| `data/agentes_ejemplo` | Los 14 agentes de ejemplo | Sí |
+| `data/skills_ejemplo` | Las 14 skills de ejemplo | Sí |
 | `data/locales` | Catálogos de traducción (`.pot`, `.po`, `.mo`) | Sí |
 | `data/bin`, `data/plugins` | Reservadas; vacías de momento | Solo el marcador `.gitkeep` |
 | `data/docs` | Copia de `docs/manual.md`, `docs/teclas.md` y `docs/changelog.md` que hace `setup_cx.py` al compilar (`ARCHIVOS_EXTRA`) | Solo el marcador `.gitkeep` |
@@ -296,7 +299,7 @@ La firma Ed25519 cubre el manifiesto completo con una serialización canónica (
 - Un mensaje cuyo envío quedó en duda nunca se reenvía.
 - El modo de permisos que Ctrl+IA pasa al agente (`--permission-mode` en Claude, aprobación y sandbox en Codex) manda sobre su archivo: por eso se propone el de su configuración y, sin modo elegido, no se pasa ninguno. Las pruebas no leen los archivos reales de los agentes (`_config_agentes_aislada` en el conftest).
 - La conversación automática entre sesiones y «Enviar la respuesta a otra sesión» nunca responden permisos ni preguntas.
-- Los puntos de restauración nunca tocan el `.git` de la persona ni borran fuera de la carpeta ni a través de enlaces; las junctions de los agentes de la sesión se quitan con `rmdir` y nunca se recorren.
+- Los puntos de restauración nunca tocan el `.git` de la persona ni borran fuera de la carpeta ni a través de enlaces; las junctions de las skills de la sesión se quitan con `rmdir` y nunca se recorren.
 - Las herramientas de Ctrl+IA para los agentes solo afectan a la sesión de su token.
 - Nada de `wx.MessageBox` ni cuadros nativos con botones en inglés (lo comprueba una prueba).
 - Nada existe solo como voz: cada aviso pasa por `app/ui/avisos.py` (historial, barra de estado y braille).

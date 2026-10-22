@@ -44,7 +44,7 @@ Ctrl+IA busca versiones nuevas una vez al día (la primera, un minuto después d
 
 Cuando la descarga termina, Ctrl+IA te pregunta una sola vez si quieres **reiniciar para aplicar la actualización** y, si hay sesiones con el agente trabajando, cuántas se detendrán (sus conversaciones se conservan). Con «Reiniciar ahora» (Intro), Ctrl+IA se cierra sin más preguntas, se instala y se vuelve a abrir solo, diciendo «Aplicación actualizada a la versión...». Con «Más tarde» (Escape) no se instala nada: cuando quieras, Ayuda, «Buscar actualizaciones...» y «Actualizar ahora» aprovechan lo ya descargado. Si la versión nueva no arrancara, vuelve sola a la anterior y ya no te la ofrece.
 
-La actualización sustituye los archivos del programa (también los agentes de ejemplo), nunca tus datos (configuración, sesiones, registros, tus agentes). Si prefieres actualizar a mano, descarga el ZIP nuevo de GitHub y extráelo encima de la carpeta del programa. Tras actualizar, Ctrl+IA te muestra una vez las novedades.
+La actualización sustituye los archivos del programa (también las skills de ejemplo), nunca tus datos (configuración, sesiones, registros, tus skills). Si prefieres actualizar a mano, descarga el ZIP nuevo de GitHub y extráelo encima de la carpeta del programa. Tras actualizar, Ctrl+IA te muestra una vez las novedades.
 
 ### Los primeros minutos
 
@@ -94,7 +94,7 @@ Alt o F10 llevan a la barra de menús. Cada orden dice su atajo.
 - **Sesión:** enviar, enviar ahora, añadir al turno, detener, responder al agente, comandos, adjuntar, plantillas, enviar la respuesta a otra sesión, la conversación automática entre sesiones, citar, deshacer y rehacer cambios de archivos, opciones y permisos de la sesión, estado del turno, uso y límites, propiedades, «PR y comprobaciones», herramientas del agente y lo que el agente sabe de ti.
 - **Ver:** ir a cada zona, leer la barra de estado, distribución, vistas («Mostrar»), «Ordenar por», columnas, filtrar o buscar, buscar en todas las sesiones, cargar mensajes, favoritos, listas de la sesión, tareas del agente, copiar el último bloque de código, mostrar las herramientas, actualizar, repetir el último aviso, historial de avisos y silenciar la voz.
 - **Organizar:** renombrar, favorita, ocultar y volver a mostrar, borrar, dar por terminada, leída o no leída, grupos.
-- **Herramientas:** agentes instalados, configuración de los agentes, reglas de Antigravity, agentes ACP personalizados, gestor de agentes, equipos por SSH, límites de uso, informe de sesiones, preferencias, sonidos, sonidos activados (F9), carpetas de datos y de registros, y paquete de diagnóstico.
+- **Herramientas:** agentes instalados, configuración de los agentes, reglas de Antigravity, agentes ACP personalizados, gestor de skills, equipos por SSH, límites de uso, informe de sesiones, preferencias, sonidos, sonidos activados (F9), carpetas de datos y de registros, y paquete de diagnóstico.
 - **Ayuda:** manual (F1), lista de teclas (Ctrl+F1), novedades de la versión, ayuda del control (Ctrl+H), buscar actualizaciones, «Invítame a un café si te gusta mi trabajo» (abre la página de donaciones del autor) y «Acerca de Ctrl+IA» (versión, autor, versiones de Python y wxPython, sistema y carpeta de datos, en un texto que se copia).
 
 **A qué sesión se aplica cada orden.** Las de organizar, exportar, abrir o propiedades actúan sobre la sesión seleccionada si estás en la lista de sesiones, y sobre la abierta en las demás zonas. Uso, permisos de la sesión y lo que el agente sabe de ti usan la abierta o, si no hay, la seleccionada. Enviar, detener, opciones de la sesión, comandos, citar, reenviar, estado del turno y herramientas del agente necesitan una sesión abierta.
@@ -171,7 +171,7 @@ Ctrl+N. Los campos, en orden:
 - «Esfuerzo» (Alt+E): cuánto piensa antes de responder; más esfuerzo, respuestas más cuidadas pero más lentas y con más gasto.
 - «Modo de permisos» (Alt+P): qué puede hacer sin preguntarte (Ctrl+H explica el elegido). Se propone el modo inicial de la configuración del agente para esa carpeta (ver «Configuración de los agentes»), y cambia con la carpeta salvo que lo hayas elegido a mano.
 - «Estilo de las respuestas» (Alt+L), solo con Claude Code: «Conciso» (breve y directo, cómodo de escuchar), «Proactivo», «Explicativo», «Aprendizaje» o los tuyos.
-- «Categoría de agentes» (Alt+D), «Agentes del catálogo para la sesión» (Alt+O) y «Ver y gestionar el catálogo de agentes...» (Alt+V): ver «Agentes del catálogo».
+- «Categoría de skills» (Alt+D), «Skills del catálogo para la sesión» (Alt+O) y «Ver y gestionar el catálogo de skills...» (Alt+V): ver «Skills».
 - «Primer mensaje (opcional)» (Alt+N; Intro es línea nueva) y «Crear la sesión» (Alt+S).
 
 Un desplegable con una sola opción sale desactivado. Por SSH, las flechas en «Carpeta» ofrecen las ya usadas en ese equipo.
@@ -229,7 +229,7 @@ Con una sesión importada de otro equipo, Ctrl+Mayús+N (o escribir en su cuadro
 
 ### Opciones de la sesión
 
-Ctrl+Mayús+O, con una sesión de Ctrl+IA abierta: «Título» (Alt+T; vacío conserva el anterior), «Modelo» (Alt+M), «Esfuerzo» (Alt+E), «Modo de permisos» (Alt+P), «Estilo de las respuestas» (Alt+R, con Claude Code) y los agentes del catálogo: «Categoría de agentes» (Alt+D), «Agentes de la sesión» (Alt+G) y «Ver y gestionar el catálogo de agentes...» (Alt+V). Todo vale desde el próximo mensaje; el estilo solo para esta sesión, sin tocar la configuración de Claude Code.
+Ctrl+Mayús+O, con una sesión de Ctrl+IA abierta: «Título» (Alt+T; vacío conserva el anterior), «Modelo» (Alt+M), «Esfuerzo» (Alt+E), «Modo de permisos» (Alt+P), «Estilo de las respuestas» (Alt+R, con Claude Code) y las skills del catálogo: «Categoría de skills» (Alt+D), «Skills de la sesión» (Alt+S) y «Ver y gestionar el catálogo de skills...» (Alt+V). Todo vale desde el próximo mensaje; el estilo solo para esta sesión, sin tocar la configuración de Claude Code.
 
 ### Estado del turno
 
@@ -414,7 +414,7 @@ Cuando un agente sube su trabajo a GitHub suele abrir una PR (una propuesta de c
 
 ## Herramientas del agente
 
-**Sesión, «Herramientas del agente...» (Ctrl+Alt+H)** dice qué tiene cargado el agente de la sesión, en un texto que se copia: servidores MCP y conectores con su estado («conectado», «no ha podido arrancar», «necesita que inicies sesión»), complementos y habilidades (también los agentes del catálogo) y, con Claude Code, sus subagentes y cuántas herramientas tiene. Completo con Claude Code (después de su primer mensaje) y Codex; con Antigravity y los ACP, solo las de Ctrl+IA.
+**Sesión, «Herramientas del agente...» (Ctrl+Alt+H)** dice qué tiene cargado el agente de la sesión, en un texto que se copia: servidores MCP y conectores con su estado («conectado», «no ha podido arrancar», «necesita que inicies sesión»), complementos y habilidades (también las skills del catálogo) y, con Claude Code, sus subagentes y cuántas herramientas tiene. Completo con Claude Code (después de su primer mensaje) y Codex; con Antigravity y los ACP, solo las de Ctrl+IA.
 
 ### Herramientas de Ctrl+IA para los agentes
 
@@ -426,34 +426,34 @@ Ctrl+IA da a los agentes tres herramientas propias, que solo afectan a su sesió
 
 Pídeselo con naturalidad: «avísame cuando acaben las pruebas», «cuando termines, da la sesión por terminada». Cada uso deja un mensaje de Ctrl+IA en la conversación. Valen con Claude Code (también por SSH), Codex, Antigravity, Gemini y los agentes ACP de este equipo; con Antigravity, Ctrl+IA añade a sus ajustes la regla que las permite (se ve en «Reglas de permisos de Antigravity»). Se desactivan en Preferencias, Agentes, y el cambio vale cuando el agente de cada sesión vuelve a arrancar.
 
-## Agentes del catálogo
+## Skills
 
-Aquí, un «agente» es una carpeta con un archivo SKILL.md que explica al agente de IA cómo hacer un trabajo concreto: revisar la accesibilidad, escribir pruebas, traducir una aplicación… (también se llaman habilidades o «skills»). Ctrl+IA guarda los tuyos en un catálogo y en cada sesión eliges cuáles usa, con cualquier agente de IA.
+Una **skill** (habilidad) es una carpeta con un archivo SKILL.md que explica al agente de IA cómo hacer un trabajo concreto: revisar la accesibilidad, escribir pruebas, traducir una aplicación… El agente de IA (Claude Code, Codex…) es quien trabaja; la skill es la ficha de instrucciones que lee para hacerlo bien. Al empezar solo ve el nombre y la descripción de cada skill, y abre su SKILL.md cuando la tarea encaja o se lo pides. Ctrl+IA guarda las tuyas en un catálogo y en cada sesión eliges cuáles usa, con cualquier agente de IA.
 
-### Agentes de ejemplo
+### Skills de ejemplo
 
-Ctrl+IA trae 14, pensados para programar aplicaciones de escritorio en Python con wxPython accesibles con lector de pantalla: accesibilidad, actualizador, auditoría, base de datos SQLite, complemento de NVDA, configuración, documentación, entorno virtual, hilos y tareas, registro, proyecto nuevo, pruebas, red HTTP y traducciones. La primera vez se añaden al catálogo en la categoría «Ejemplos de Ctrl+IA», con «(ejemplo)» detrás del nombre. Son tuyos: úsalos, cámbialos o quítalos; «Restaurar los agentes de ejemplo», en el gestor, devuelve los que falten. Están en la carpeta del programa (data\agentes_ejemplo): si quieres cambiar su SKILL.md, copia antes su carpeta a otro sitio y añade la copia, porque una actualización los sustituye.
+Ctrl+IA trae 14, pensadas para programar aplicaciones de escritorio en Python con wxPython accesibles con lector de pantalla: accesibilidad, actualizador, auditoría, base de datos SQLite, complemento de NVDA, configuración, documentación, entorno virtual, hilos y tareas, registro, proyecto nuevo, pruebas, red HTTP y traducciones. La primera vez se añaden al catálogo en la categoría «Ejemplos de Ctrl+IA», con «(ejemplo)» detrás del nombre. Son tuyas: úsalas, cámbialas o quítalas; «Restaurar las skills de ejemplo», en el gestor, devuelve las que falten. Están en la carpeta del programa (data\skills_ejemplo): si quieres cambiar su SKILL.md, copia antes su carpeta a otro sitio y añade la copia, porque una actualización las sustituye.
 
-### Gestor de agentes
+### Gestor de skills
 
-Herramientas, «Gestor de agentes...» (**Ctrl+Alt+G**). Arriba, «Categoría» (Alt+T; «Todas», «Sin categoría» o una) y «Buscar» (Alt+B o Ctrl+F; en el nombre, la descripción, las notas y la carpeta). La lista «Agentes» (Alt+A) tiene nombre, categoría, descripción, carpeta y estado («Disponible» o «No encontrado»).
+Herramientas, «Gestor de skills...» (**Ctrl+Alt+G**). Arriba, «Categoría» (Alt+T; «Todas», «Sin categoría» o una) y «Buscar» (Alt+B o Ctrl+F; en el nombre, la descripción, las notas y la carpeta). La lista «Skills» (Alt+S) tiene nombre, categoría, descripción, carpeta y estado («Disponible» o «No encontrada»).
 
-- **Añadir desde una carpeta** (Ctrl+O): busca dentro todas las carpetas con SKILL.md y las muestra en una lista de casillas (Espacio marca; Ctrl+A y Ctrl+Mayús+A, todas o ninguna): las nuevas marcadas y las que ya tienes con «(ya en el catálogo)». «Agentes encontrados» (Alt+E); debajo, «Categoría del agente elegido» (Alt+T; propone la del SKILL.md o la de su subcarpeta, y el menú contextual la pone a todos los marcados), «Detalles» (Alt+L) y «Actualizar la descripción de los que ya están en el catálogo» (Alt+U). «Añadir los marcados» (Alt+A).
-- **Añadir uno** (Ctrl+I): eliges su carpeta y revisas nombre, descripción, categoría y notas.
-- **Crear uno nuevo** (Ctrl+N): nombre, descripción, categoría, notas y carpeta donde se crea (de fábrica, data\agentes). Ctrl+IA crea un SKILL.md de plantilla en español y te ofrece abrirlo en tu editor.
-- Con un agente elegido: Intro muestra su SKILL.md, F2 edita sus datos (solo en el catálogo, nunca en el SKILL.md), Ctrl+E abre el SKILL.md en tu editor, Ctrl+Mayús+E abre su carpeta, Ctrl+C copia la ruta del SKILL.md y Suprimir lo quita del catálogo (Intro responde «No»). La carpeta nunca se borra, salvo que la creases desde Ctrl+IA y lo confirmes aparte.
+- **Añadir desde una carpeta** (Ctrl+O): busca dentro todas las carpetas con SKILL.md y las muestra en una lista de casillas (Espacio marca; Ctrl+A y Ctrl+Mayús+A, todas o ninguna): las nuevas marcadas y las que ya tienes con «(ya en el catálogo)». «Skills encontradas» (Alt+E); debajo, «Categoría de la skill elegida» (Alt+T; propone la del SKILL.md o la de su subcarpeta, y el menú contextual la pone a todas las marcadas), «Detalles» (Alt+L) y «Actualizar la descripción de las que ya están en el catálogo» (Alt+U). «Añadir las marcadas» (Alt+A).
+- **Añadir una** (Ctrl+I): eliges su carpeta y revisas nombre, descripción, categoría y notas.
+- **Crear una nueva** (Ctrl+N): nombre, descripción, categoría, notas y carpeta donde se crea (de fábrica, data\skills). Ctrl+IA crea un SKILL.md de plantilla en español y te ofrece abrirlo en tu editor.
+- Con una skill elegida: Intro muestra su SKILL.md, F2 edita sus datos (solo en el catálogo, nunca en el SKILL.md), Ctrl+E abre el SKILL.md en tu editor, Ctrl+Mayús+E abre su carpeta, Ctrl+C copia la ruta del SKILL.md y Suprimir la quita del catálogo (Intro responde «No»). La carpeta nunca se borra, salvo que la creases desde Ctrl+IA y lo confirmes aparte.
 - F5 revisa el catálogo: marca lo que ya no está y, si cambió la descripción de algún SKILL.md, pregunta si usarla.
-- La tecla Aplicaciones o «Acciones...» (Alt+O) tienen todas las órdenes, además de «Restaurar los agentes de ejemplo», «Exportar el catálogo» e «Importar un catálogo» (los datos y las rutas, no el contenido de los SKILL.md).
+- La tecla Aplicaciones o «Acciones...» (Alt+O) tienen todas las órdenes, además de «Restaurar las skills de ejemplo», «Exportar el catálogo» e «Importar un catálogo» (los datos y las rutas, no el contenido de los SKILL.md).
 
-### Usarlos en una sesión
+### Usarlas en una sesión
 
-En «Nueva sesión» (u «Opciones de la sesión», desde el próximo mensaje) marca con Espacio los agentes que quieras (Ctrl+A todos, Ctrl+Mayús+A ninguno); la categoría filtra sin perder lo marcado y su menú contextual muestra el SKILL.md. Cada agente de IA los recibe a su manera, sin que hagas nada:
+En «Nueva sesión» (u «Opciones de la sesión», desde el próximo mensaje) marca con Espacio las skills que quieras (Ctrl+A todas, Ctrl+Mayús+A ninguna); la categoría filtra sin perder lo marcado y su menú contextual muestra el SKILL.md. Cada agente de IA las recibe a su manera, sin que hagas nada:
 
-- **Claude Code** los carga como habilidades propias de la sesión («ctrlia-agentes:nombre» en Ctrl+Alt+H) y puede leer sus carpetas sin pedirte permiso, solo para leer. Usa siempre tu carpeta actual: Ctrl+IA la enlaza, nunca la copia, cambia ni borra.
-- **Codex, Antigravity, Gemini y los ACP:** con tu primer mensaje (y cada vez que cambie la lista), Ctrl+IA les dice qué agentes tienen y dónde está cada SKILL.md, y los leen cuando hace falta. En la lista ves tu mensaje tal como lo escribiste.
+- **Claude Code** las carga como skills propias de la sesión («ctrlia-skills:nombre» en Ctrl+Alt+H) y puede leer sus carpetas sin pedirte permiso, solo para leer. Usa siempre tu carpeta actual: Ctrl+IA la enlaza, nunca la copia, cambia ni borra.
+- **Codex, Antigravity, Gemini y los ACP:** con tu primer mensaje (y cada vez que cambie la lista), Ctrl+IA les dice qué skills tienen y dónde está cada SKILL.md, y las leen cuando hace falta. En la lista ves tu mensaje tal como lo escribiste.
 - **Ollama y las sesiones por SSH** reciben el contenido del SKILL.md (hasta 12.000 caracteres), sin los demás archivos de su carpeta.
 
-Pídeselo («usa el agente de pruebas para…») o deja que lo use cuando la tarea encaje.
+Pídeselo («usa la skill de pruebas para…») o deja que la use cuando la tarea encaje. No confundas las skills con los **subagentes**: estos son ayudantes que el propio agente de IA lanza aparte para repartirse el trabajo (salen en las listas de la sesión, página «Subagentes»).
 
 ## Organizar
 
@@ -534,7 +534,7 @@ Al cerrar la consola, Ctrl+IA lo comprueba solo y dice cómo ha quedado, por eje
 | Límites de uso (Ctrl+Mayús+Y) | Sí | Sí | Sí | No | No tiene |
 | Por SSH | Estable | Estable | Experimental | Experimental (los conocidos y adaptadores, no) | Por túnel, experimental |
 
-Todos usan los agentes del catálogo, deshacer los cambios (Ollama no cambia archivos), la PR, las listas, los favoritos y la conversación entre sesiones. Si un agente no admite algo, Ctrl+IA te lo dice.
+Todos usan las skills del catálogo, deshacer los cambios (Ollama no cambia archivos), la PR, las listas, los favoritos y la conversación entre sesiones. Si un agente no admite algo, Ctrl+IA te lo dice.
 
 ### Claude Code
 
@@ -722,7 +722,7 @@ Ctrl+, o Herramientas, «Preferencias...». Nueve páginas, que se cambian con C
 - «Dejar que Claude lleve una lista de tareas» (Alt+L), activada: con todos los modelos (Claude Code 2.1.233 o posterior).
 - «Esperar a que se conecten las herramientas MCP de Claude antes de cada mensaje» (Alt+H), activada: así no dice que se han desconectado, aunque cada respuesta tarde algo más en empezar.
 - «Dejar que Claude use Chrome (Claude en Chrome)» (Alt+U), activada: ver «Claude Code».
-- «Mantener Claude Code abierto entre mensajes» (Alt+M): «No: arrancarlo en cada mensaje», 5, 15 (de fábrica) o 30 minutos o 1 hora. Responde antes porque no vuelve a arrancar; cada sesión abierta ocupa algo de memoria. Se reinicia solo, sin perder la conversación, si cambias el modelo, el esfuerzo, el estilo, los agentes del catálogo o estas opciones, o si quitas permisos.
+- «Mantener Claude Code abierto entre mensajes» (Alt+M): «No: arrancarlo en cada mensaje», 5, 15 (de fábrica) o 30 minutos o 1 hora. Responde antes porque no vuelve a arrancar; cada sesión abierta ocupa algo de memoria. Se reinicia solo, sin perder la conversación, si cambias el modelo, el esfuerzo, el estilo, las skills del catálogo o estas opciones, o si quitas permisos.
 - «Permitir que Claude use una clave de API (puede costar dinero)», desactivada. Al reiniciar.
 - «Dar a los agentes las herramientas de Ctrl+IA (avisarte, dar la sesión por terminada, renombrarla)» (Alt+I), activada; vale cuando el agente de cada sesión vuelve a arrancar.
 
@@ -785,12 +785,12 @@ Ctrl+IA no tiene servidores para tus datos. Tus mensajes los envía el agente a 
 Todo está en la carpeta data, junto a CtrlIA.exe (Herramientas, «Abrir la carpeta de datos»):
 
 - **config:** tu configuración (con la lista de equipos por SSH, las novedades vistas y la versión omitida).
-- **db:** tus sesiones, mensajes, plantillas, grupos, favoritos, catálogo de agentes, importadas y marcas.
+- **db:** tus sesiones, mensajes, plantillas, grupos, favoritos, catálogo de skills, importadas y marcas.
 - **cache:** los puntos para deshacer cambios, las sesiones leídas de los equipos por SSH y lo que Ctrl+IA prepara para los agentes. Borrarla pierde los puntos.
-- **agentes:** los agentes que creas en el gestor.
+- **skills:** las skills que creas en el gestor.
 - **backups:** una copia de la base de datos antes de cada actualización que cambia su formato (las 10 últimas) y las copias de los archivos de configuración de los agentes.
 - **logs:** los registros. **diagnostico:** los paquetes de diagnóstico. **ollama:** las conversaciones con Ollama. **temp:** temporales, como las imágenes pegadas. **sounds:** los sonidos (y **sounds\propios**, los tuyos).
-- **docs, bin, locales, icons, agentes_ejemplo y plugins** son del programa.
+- **docs, bin, locales, icons, skills_ejemplo y plugins** son del programa.
 
 Si la configuración se daña, Ctrl+IA vuelve a su copia anterior; si se daña la base de datos, a su última copia, que puede ser antigua o no existir. Copia de vez en cuando la carpeta data. Las sesiones de otros programas no se guardan en Ctrl+IA: se leen cada vez sin modificarlas.
 
@@ -815,11 +815,11 @@ Si la configuración se daña, Ctrl+IA vuelve a su copia anterior; si se daña l
 
 ## Glosario
 
-- **Agente:** un programa de IA que conversa y además lee y modifica los archivos de tu proyecto y ejecuta órdenes. En el catálogo, «agente» es también una carpeta con un SKILL.md (una habilidad).
+- **Agente:** un programa de IA que conversa y además lee y modifica los archivos de tu proyecto y ejecuta órdenes, como Claude Code o Codex.
 - **Sesión:** una conversación con un agente en una carpeta de trabajo. **Turno:** lo que hace el agente desde que le escribes hasta que termina de responder.
 - **Modelo:** el «cerebro» de IA que usa el agente. **Esfuerzo:** cuánto piensa antes de responder. **Modo de permisos:** qué puede hacer sin preguntarte.
 - **Contexto:** la memoria de trabajo del agente, con un tamaño máximo. **Token:** la unidad en que se mide el texto, de unas pocas letras. **Compactar:** resumir la conversación para liberar contexto.
-- **Comando de barra:** una orden para el agente que empieza por barra, como /compact. **Habilidad (skill):** instrucciones guardadas para una tarea concreta.
+- **Comando de barra:** una orden para el agente que empieza por barra, como /compact. **Skill (habilidad):** una carpeta con un SKILL.md, las instrucciones que el agente sigue para una tarea concreta.
 - **PR (pull request):** una propuesta de cambios en GitHub. **Comprobaciones (CI):** las pruebas automáticas que GitHub pasa a una PR.
 - **Copia aislada (worktree):** una copia aparte de tu repositorio de git, con su propia rama. **Punto de restauración:** la foto de los archivos que Ctrl+IA guarda antes de cada mensaje.
 - **MCP:** un protocolo para que los agentes usen herramientas y servicios externos. **ACP:** un protocolo abierto para que un programa como Ctrl+IA converse con agentes.

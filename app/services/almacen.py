@@ -128,8 +128,8 @@ class Plantilla:
 
 
 @dataclass(slots=True)
-class AgenteCatalogo:
-	"""Un agente (habilidad con su SKILL.md) del catálogo de la persona."""
+class SkillCatalogo:
+	"""Una skill (habilidad con su SKILL.md) del catálogo de la persona."""
 
 	id: int
 	nombre: str
@@ -568,43 +568,43 @@ class Almacen:
 	def olvidar_carpeta(self, ruta: str) -> None:
 		self.bd.ejecutar("DELETE FROM carpetas_recientes WHERE ruta = ?", (ruta,))
 
-	# -- Catálogo de agentes (habilidades con SKILL.md) ---------------------------------
+	# -- Catálogo de skills (habilidades con SKILL.md) ----------------------------------
 
-	def _a_agente(self, fila) -> AgenteCatalogo:
-		return AgenteCatalogo(fila["id"], fila["nombre"], fila["descripcion"], fila["categoria"], fila["carpeta"],
+	def _a_skill(self, fila) -> SkillCatalogo:
+		return SkillCatalogo(fila["id"], fila["nombre"], fila["descripcion"], fila["categoria"], fila["carpeta"],
 			fila["version"], fila["origen"], fila["notas"], fila["creado"], fila["modificado"])
 
-	def agentes_catalogo(self, categoria: str | None = None) -> list[AgenteCatalogo]:
-		"""Agentes del catálogo ordenados por categoría y nombre; ``categoria`` filtra (``""`` = sin categoría)."""
+	def skills_catalogo(self, categoria: str | None = None) -> list[SkillCatalogo]:
+		"""Skills del catálogo ordenadas por categoría y nombre; ``categoria`` filtra (``""`` = sin categoría)."""
 		if categoria is None:
 			filas = self.bd.consultar(
-				"SELECT * FROM agentes ORDER BY categoria COLLATE NOCASE, nombre COLLATE NOCASE, id",
+				"SELECT * FROM skills ORDER BY categoria COLLATE NOCASE, nombre COLLATE NOCASE, id",
 			)
 		else:
 			filas = self.bd.consultar(
-				"SELECT * FROM agentes WHERE categoria = ? COLLATE NOCASE ORDER BY nombre COLLATE NOCASE, id", (categoria,),
+				"SELECT * FROM skills WHERE categoria = ? COLLATE NOCASE ORDER BY nombre COLLATE NOCASE, id", (categoria,),
 			)
-		return [self._a_agente(fila) for fila in filas]
+		return [self._a_skill(fila) for fila in filas]
 
-	def agente_catalogo(self, id_agente: int) -> AgenteCatalogo | None:
-		fila = self.bd.consultar_uno("SELECT * FROM agentes WHERE id = ?", (id_agente,))
-		return self._a_agente(fila) if fila else None
+	def skill_catalogo(self, id_skill: int) -> SkillCatalogo | None:
+		fila = self.bd.consultar_uno("SELECT * FROM skills WHERE id = ?", (id_skill,))
+		return self._a_skill(fila) if fila else None
 
-	def agente_por_carpeta(self, carpeta: str) -> AgenteCatalogo | None:
-		"""El agente de esa carpeta (sin distinguir mayúsculas, como Windows) o ``None``."""
-		fila = self.bd.consultar_uno("SELECT * FROM agentes WHERE carpeta = ? COLLATE NOCASE", (carpeta,))
-		return self._a_agente(fila) if fila else None
+	def skill_por_carpeta(self, carpeta: str) -> SkillCatalogo | None:
+		"""La skill de esa carpeta (sin distinguir mayúsculas, como Windows) o ``None``."""
+		fila = self.bd.consultar_uno("SELECT * FROM skills WHERE carpeta = ? COLLATE NOCASE", (carpeta,))
+		return self._a_skill(fila) if fila else None
 
-	def crear_agente_catalogo(self, nombre: str, carpeta: str, *, descripcion: str = "", categoria: str = "",
+	def crear_skill_catalogo(self, nombre: str, carpeta: str, *, descripcion: str = "", categoria: str = "",
 			version: str = "", origen: str = "importado", notas: str = "") -> int:
 		ahora = time.time()
 		return self.bd.insertar(
-			"""INSERT INTO agentes (nombre, descripcion, categoria, carpeta, version, origen, notas, creado, modificado)
+			"""INSERT INTO skills (nombre, descripcion, categoria, carpeta, version, origen, notas, creado, modificado)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
 			(nombre, descripcion, categoria, carpeta, version, origen, notas, ahora, ahora),
 		)
 
-	def actualizar_agente_catalogo(self, id_agente: int, **campos: Any) -> None:
+	def actualizar_skill_catalogo(self, id_skill: int, **campos: Any) -> None:
 		"""Cambia nombre, descripción, categoría, notas, versión o carpeta; anota la fecha de modificación."""
 		permitidos = {"nombre", "descripcion", "categoria", "notas", "version", "carpeta", "origen", "modificado"}
 		cambios = {k: v for k, v in campos.items() if k in permitidos}
@@ -612,14 +612,14 @@ class Almacen:
 			return
 		cambios.setdefault("modificado", time.time())
 		asignaciones = ", ".join(f"{nombre} = ?" for nombre in cambios)
-		self.bd.ejecutar(f"UPDATE agentes SET {asignaciones} WHERE id = ?", (*cambios.values(), id_agente))  # noqa: S608 - lista blanca  # auditoria: ignorar sql-formateado - los nombres de columna salen de una lista blanca fija
+		self.bd.ejecutar(f"UPDATE skills SET {asignaciones} WHERE id = ?", (*cambios.values(), id_skill))  # noqa: S608 - lista blanca  # auditoria: ignorar sql-formateado - los nombres de columna salen de una lista blanca fija
 
-	def borrar_agente_catalogo(self, id_agente: int) -> None:
-		self.bd.ejecutar("DELETE FROM agentes WHERE id = ?", (id_agente,))
+	def borrar_skill_catalogo(self, id_skill: int) -> None:
+		self.bd.ejecutar("DELETE FROM skills WHERE id = ?", (id_skill,))
 
-	def categorias_agentes(self) -> list[str]:
+	def categorias_skills(self) -> list[str]:
 		"""Categorías usadas en el catálogo (sin la vacía), en orden alfabético."""
 		filas = self.bd.consultar(
-			"SELECT DISTINCT categoria FROM agentes WHERE categoria != '' ORDER BY categoria COLLATE NOCASE",
+			"SELECT DISTINCT categoria FROM skills WHERE categoria != '' ORDER BY categoria COLLATE NOCASE",
 		)
 		return [fila["categoria"] for fila in filas]

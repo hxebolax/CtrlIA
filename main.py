@@ -124,6 +124,12 @@ def _principal(argumentos: list[str]) -> int:
 
 	vigilante_ui.iniciar()
 
+	# 5b. Carpetas de las skills de la 1.5.0 y anteriores («agentes» del catálogo), antes de abrir el catálogo.
+	#     Tras la instancia única: una segunda copia no debe mover nada mientras la primera las usa.
+	from app.services.proteccion_skills import proteger_carpetas
+
+	proteger_carpetas()
+
 	# 6. Aviso por voz antes de lo pesado.
 	from app.ui.accesibilidad import voz
 

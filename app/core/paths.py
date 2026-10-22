@@ -94,20 +94,20 @@ def ruta_copias() -> Path:
 	return subcarpeta("backups")
 
 
-def ruta_agentes() -> Path:
-	"""Carpeta donde se crean los agentes (habilidades) nuevos del gestor de agentes."""
-	return subcarpeta("agentes")
+def ruta_skills() -> Path:
+	"""Carpeta donde se crean las skills nuevas del gestor de skills."""
+	return subcarpeta("skills")
 
 
 # ── Recursos que viajan con la distribución ───────────────────────────────────
 
-def ruta_agentes_ejemplo() -> Path:
-	"""Agentes de ejemplo que trae el programa (``data/agentes_ejemplo`` junto al ejecutable).
+def ruta_skills_ejemplo() -> Path:
+	"""Skills de ejemplo que trae el programa (``data/skills_ejemplo`` junto al ejecutable).
 
 	Es un recurso de la instalación, no de los datos de la persona: se lee de la
 	carpeta del programa aunque ``APP_DATA_DIR`` lleve los datos a otro sitio, y no se crea.
 	"""
-	return ruta_base() / "data" / "agentes_ejemplo"
+	return ruta_base() / "data" / "skills_ejemplo"
 
 
 def ruta_binarios() -> Path:

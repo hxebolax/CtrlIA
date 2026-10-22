@@ -31,7 +31,7 @@ DESCRIPCION = "Ctrl+IA: chat accesible con agentes de IA de programación"
 ICONO = RAIZ / "data" / "icons" / "app.ico"
 
 # Subcarpetas de data/ que SÍ se distribuyen (lista blanca).
-DATA_DISTRIBUIBLE = ["bin", "sounds", "locales", "docs", "icons", "plugins", "agentes_ejemplo"]
+DATA_DISTRIBUIBLE = ["bin", "sounds", "locales", "docs", "icons", "plugins", "skills_ejemplo"]
 # Subcarpetas que JAMÁS pueden distribuirse: si alguien las añade arriba, se para.
 DATA_PROHIBIDO = {"config", "logs", "db", "cache", "temp", "sessions", "backups", "downloads"}
 # Archivos que nunca se copian aunque estén en una carpeta distribuible.

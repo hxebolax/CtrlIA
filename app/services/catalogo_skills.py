@@ -1,6 +1,6 @@
-"""Catálogo de agentes: las habilidades (*skills*) de la persona, cada una con su SKILL.md.
+"""Catálogo de skills: las habilidades de la persona, cada una con su SKILL.md.
 
-Un «agente» es una carpeta con un ``SKILL.md`` (o ``skill.md``) que empieza
+Una skill es una carpeta con un ``SKILL.md`` (o ``skill.md``) que empieza
 con un bloque YAML entre dos líneas ``---`` (*frontmatter*) con, al menos,
 ``name`` y ``description``; a veces ``version`` y un mapa ``metadata`` con
 ``version`` o ``category``. Junto a él puede haber plantillas, guiones o
@@ -11,19 +11,19 @@ Qué hace este módulo (sin wx, para probarlo sin ventanas):
 - ``leer_frontmatter`` / ``parsear_yaml_simple``: lector tolerante de YAML
   sencillo (claves, textos entre comillas, bloques ``|`` y ``>``, mapas
   anidados y listas). El proyecto no depende de PyYAML y no hace falta: un
-  frontmatter roto nunca impide añadir el agente (se usa el nombre de la
+  frontmatter roto nunca impide añadir la skill (se usa el nombre de la
   carpeta y el primer párrafo).
-- ``leer_skill``: la ficha de un agente (nombre, descripción, versión,
+- ``leer_skill``: la ficha de una skill (nombre, descripción, versión,
   categoría) a partir de su carpeta o de su SKILL.md.
-- ``buscar_agentes``: recorre una carpeta (con límite de profundidad y de
+- ``buscar_skills``: recorre una carpeta (con límite de profundidad y de
   entradas, sin seguir enlaces ni uniones) y devuelve las carpetas que tienen
-  SKILL.md. Una carpeta de agente no se recorre por dentro.
-- ``CatalogoAgentes``: importar (sin duplicar por carpeta), listar con filtro,
-  editar, eliminar (y borrar la carpeta solo de los creados aquí), crear uno
-  nuevo, refrescar (qué cambió en los SKILL.md y qué carpetas ya no existen),
+  SKILL.md. Una carpeta de skill no se recorre por dentro.
+- ``CatalogoSkills``: importar (sin duplicar por carpeta), listar con filtro,
+  editar, eliminar (y borrar la carpeta solo de las creadas aquí), crear una
+  nueva, refrescar (qué cambió en los SKILL.md y qué carpetas ya no existen),
   exportar e importar el catálogo en JSON y ``datos_para_sesion``.
 
-Los datos viven en la tabla ``agentes`` de la base de datos (``Almacen``).
+Los datos viven en la tabla ``skills`` de la base de datos (``Almacen``).
 """
 
 from __future__ import annotations
@@ -42,18 +42,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.services.almacen import AgenteCatalogo, Almacen
+from app.services.almacen import Almacen, SkillCatalogo
 
 log = logging.getLogger(__name__)
 
-#: Nombres del archivo de instrucciones de un agente (el primero es el que se crea).
+#: Nombres del archivo de instrucciones de una skill (el primero es el que se crea).
 NOMBRES_SKILL = ("SKILL.md", "skill.md")
 #: Un SKILL.md mayor que esto no se lee (no es un SKILL.md normal).
 MAX_TAMANO_SKILL = 1024 * 1024
 #: Límites de la búsqueda en una carpeta.
 PROFUNDIDAD_MAXIMA = 8
 MAX_ENTRADAS = 20000
-MAX_AGENTES = 1000
+MAX_SKILLS = 1000
 #: Carpetas que nunca se recorren al buscar (sin distinguir mayúsculas).
 CARPETAS_IGNORADAS = frozenset({
 	".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", "env", ".tox", ".mypy_cache",
@@ -67,18 +67,18 @@ CARPETAS_GENERICAS = frozenset({
 	"shared", "src", "docs", "desktop", "escritorio", "documents", "documentos", "downloads", "descargas", "data",
 	"users", "usuarios",
 })
-#: Estados de un agente del catálogo.
+#: Estados de una skill del catálogo.
 ESTADO_DISPONIBLE = "disponible"
-ESTADO_NO_ENCONTRADO = "no_encontrado"
-#: Origen de un agente.
+ESTADO_NO_ENCONTRADO = "no_encontrada"
+#: Origen de una skill.
 ORIGEN_IMPORTADO = "importado"
 ORIGEN_CREADO = "creado"
 #: Formato del archivo JSON de exportación del catálogo.
-FORMATO_JSON = "ctrlia-catalogo-agentes"
-VERSION_JSON = 1
-#: Un agente creado aquí no se borra si su carpeta tiene más entradas que esto (no parece un agente).
+FORMATO_JSON = "ctrlia-catalogo-skills"
+VERSION_JSON = 2
+#: Una skill creada aquí no se borra si su carpeta tiene más entradas que esto (no parece una skill).
 MAX_ENTRADAS_BORRAR = 500
-#: Longitud máxima del nombre de la carpeta de un agente nuevo.
+#: Longitud máxima del nombre de la carpeta de una skill nueva.
 MAX_NOMBRE_CARPETA = 60
 _RESERVADOS_WINDOWS = frozenset(
 	{"con", "prn", "aux", "nul"} | {f"com{n}" for n in range(1, 10)} | {f"lpt{n}" for n in range(1, 10)}
@@ -95,13 +95,13 @@ def _motivo(error: OSError) -> str:
 	return error.strerror or str(error)
 
 
-#: Categoría de los agentes de ejemplo que trae Ctrl+IA.
+#: Categoría de las skills de ejemplo que trae Ctrl+IA.
 CATEGORIA_EJEMPLOS = "Ejemplos de Ctrl+IA"
-#: Lo que se añade al nombre de cada agente de ejemplo, para que se vea que lo es.
+#: Lo que se añade al nombre de cada skill de ejemplo, para que se vea que lo es.
 SUFIJO_EJEMPLO = " (ejemplo)"
-#: Nota de cada agente de ejemplo en el catálogo.
-NOTA_EJEMPLO = ("Agente de ejemplo que trae Ctrl+IA, para ver cómo se usan, se editan y se quitan los agentes. Puedes "
-	"usarlo en tus sesiones, cambiarlo o quitarlo; «Restaurar los agentes de ejemplo» lo recupera. Si quieres "
+#: Nota de cada skill de ejemplo en el catálogo.
+NOTA_EJEMPLO = ("Skill de ejemplo que trae Ctrl+IA, para ver cómo se usan, se editan y se quitan las skills. Puedes "
+	"usarla en tus sesiones, cambiarla o quitarla; «Restaurar las skills de ejemplo» la recupera. Si quieres "
 	"cambiar su SKILL.md, copia antes su carpeta a otro sitio: una actualización de Ctrl+IA puede sustituirla.")
 
 
@@ -385,12 +385,12 @@ def leer_frontmatter(texto: str) -> dict[str, Any]:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Lectura de un agente
+# Lectura de una skill
 # ════════════════════════════════════════════════════════════════════════════
 
 @dataclass(slots=True)
-class FichaAgente:
-	"""Lo que dice el SKILL.md de un agente."""
+class FichaSkill:
+	"""Lo que dice el SKILL.md de una skill."""
 
 	nombre: str
 	descripcion: str
@@ -456,8 +456,8 @@ def _campo(datos: dict[str, Any], *claves: str) -> Any:
 	return ""
 
 
-def leer_skill(ruta: str | Path) -> FichaAgente:
-	"""Lee la carpeta de un agente o su SKILL.md. Lanza ``ErrorCatalogo`` si no hay o no se puede leer."""
+def leer_skill(ruta: str | Path) -> FichaSkill:
+	"""Lee la carpeta de una skill o su SKILL.md. Lanza ``ErrorCatalogo`` si no hay o no se puede leer."""
 	ruta = Path(ruta)
 	if ruta.is_dir():
 		archivo = ruta_skill(ruta)
@@ -488,21 +488,21 @@ def leer_skill(ruta: str | Path) -> FichaAgente:
 	categoria = una_linea(_campo(
 		datos, "metadata.category", "metadata.categoria", "metadata.categoría", "category", "categoria", "categoría",
 	))
-	return FichaAgente(nombre, descripcion, carpeta, archivo, version, categoria, datos, aviso)
+	return FichaSkill(nombre, descripcion, carpeta, archivo, version, categoria, datos, aviso)
 
 
-def es_plantilla(ficha: FichaAgente) -> bool:
-	"""El SKILL.md es una plantilla para crear agentes (``{{NOMBRE}}``), no un agente."""
+def es_plantilla(ficha: FichaSkill) -> bool:
+	"""El SKILL.md es una plantilla para crear skills (``{{NOMBRE}}``), no una skill."""
 	return "{{" in ficha.nombre or ficha.descripcion.strip().startswith("{{")
 
 
-def categoria_propuesta(ficha: FichaAgente, raiz: str | Path | None = None) -> str:
-	"""Categoría que se propone al añadir un agente.
+def categoria_propuesta(ficha: FichaSkill, raiz: str | Path | None = None) -> str:
+	"""Categoría que se propone al añadir una skill.
 
 	La de su ``metadata`` si tiene; si no, el nombre de la carpeta que lo
 	contiene cuando la persona los ha ordenado en subcarpetas (con ``raiz``,
 	solo si esa carpeta está dentro de la buscada) y no es un nombre genérico
-	(«agentes», «skills», «Escritorio»...); si no, vacía.
+	(«skills», «agentes», «Escritorio»...); si no, vacía.
 	"""
 	if ficha.categoria:
 		return ficha.categoria
@@ -529,14 +529,14 @@ def categoria_propuesta(ficha: FichaAgente, raiz: str | Path | None = None) -> s
 
 @dataclass(slots=True)
 class ResultadoBusqueda:
-	encontrados: list[FichaAgente] = field(default_factory=list)
+	encontrados: list[FichaSkill] = field(default_factory=list)
 	#: Carpetas que no se pudieron leer o SKILL.md con problemas (texto para la persona).
 	errores: list[str] = field(default_factory=list)
-	#: Se paró antes de terminar por algún límite (entradas, agentes o cancelación).
+	#: Se paró antes de terminar por algún límite (entradas, skills o cancelación).
 	truncado: bool = False
 	#: Entradas (archivos y carpetas) revisadas.
 	revisadas: int = 0
-	#: Plantillas de agente (``{{NOMBRE}}``) que se han saltado.
+	#: Plantillas de skill (``{{NOMBRE}}``) que se han saltado.
 	plantillas: int = 0
 
 
@@ -550,19 +550,19 @@ def _es_enlace(entrada: os.DirEntry) -> bool:
 		return True
 
 
-def buscar_agentes(
+def buscar_skills(
 	raiz: str | Path,
 	profundidad: int = PROFUNDIDAD_MAXIMA,
 	max_entradas: int = MAX_ENTRADAS,
-	max_agentes: int = MAX_AGENTES,
+	max_skills: int = MAX_SKILLS,
 	cancelado: Callable[[], bool] | None = None,
 ) -> ResultadoBusqueda:
 	"""Busca carpetas con SKILL.md dentro de ``raiz`` (incluida ella misma).
 
 	Recorre por niveles, sin seguir enlaces simbólicos ni uniones, sin entrar en
 	carpetas de herramientas (``.git``, ``node_modules``...) ni dentro de una
-	carpeta que ya es un agente. Se detiene al pasar ``max_entradas`` entradas
-	revisadas o ``max_agentes`` encontrados (``truncado``).
+	carpeta que ya es una skill. Se detiene al pasar ``max_entradas`` entradas
+	revisadas o ``max_skills`` encontradas (``truncado``).
 	"""
 	raiz = Path(raiz)
 	resultado = ResultadoBusqueda()
@@ -596,10 +596,10 @@ def buscar_agentes(
 					resultado.plantillas += 1
 				else:
 					resultado.encontrados.append(ficha)
-					if len(resultado.encontrados) >= max_agentes:
+					if len(resultado.encontrados) >= max_skills:
 						resultado.truncado = bool(pendientes)
 						break
-			continue  # una carpeta de agente no se recorre por dentro
+			continue  # una carpeta de skill no se recorre por dentro
 		if resultado.revisadas > max_entradas:
 			resultado.truncado = True
 			break
@@ -634,9 +634,9 @@ def nombre_seguro(nombre: str) -> str:
 	texto = re.sub(r"[^a-z0-9]+", "-", texto).strip("-")
 	texto = re.sub(r"-{2,}", "-", texto)[:MAX_NOMBRE_CARPETA].strip("-")
 	if not texto:
-		texto = "agente"
+		texto = "skill"
 	if texto in _RESERVADOS_WINDOWS:
-		texto = f"{texto}-agente"
+		texto = f"{texto}-skill"
 	return texto
 
 
@@ -653,7 +653,7 @@ def _yaml_texto(texto: str) -> str:
 
 
 def contenido_skill_nuevo(nombre: str, descripcion: str, categoria: str = "", identificador: str = "") -> str:
-	"""SKILL.md de un agente nuevo: frontmatter con nombre y descripción y un cuerpo de plantilla en español."""
+	"""SKILL.md de una skill nueva: frontmatter con nombre y descripción y un cuerpo de plantilla en español."""
 	identificador = identificador or nombre_seguro(nombre)
 	lineas = [
 		"---",
@@ -670,16 +670,16 @@ def contenido_skill_nuevo(nombre: str, descripcion: str, categoria: str = "", id
 	cuerpo = f"""
 # {titulo}
 
-{una_linea(descripcion) or "Describe aquí en una o dos frases qué hace este agente."}
+{una_linea(descripcion) or "Describe aquí en una o dos frases qué hace esta skill."}
 
 ## Cuándo usarlo
 
-- Escribe aquí en qué situaciones debe usarse este agente.
+- Escribe aquí en qué situaciones debe usarse esta skill.
 - Por ejemplo: «cuando la persona pida revisar un texto».
 
 ## Instrucciones
 
-1. Explica, paso a paso, lo que debe hacer el agente.
+1. Explica, paso a paso, lo que debe hacer el agente de IA con esta skill.
 2. Di qué debe comprobar antes de dar el trabajo por terminado.
 3. Indica cómo debe entregar el resultado.
 
@@ -690,7 +690,7 @@ def contenido_skill_nuevo(nombre: str, descripcion: str, categoria: str = "", id
 
 ## Archivos de apoyo
 
-Si este agente necesita plantillas, guiones o referencias, guárdalos en esta
+Si esta skill necesita plantillas, guiones o referencias, guárdalos en esta
 misma carpeta y menciónalos aquí con su nombre.
 """
 	return "\n".join(lineas) + "\n" + cuerpo
@@ -702,23 +702,23 @@ def _escribir_atomico(ruta: Path, texto: str) -> None:
 	os.replace(temporal, ruta)
 
 
-def coincide(agente: AgenteCatalogo, texto: str) -> bool:
-	"""El agente contiene ``texto`` (sin distinguir mayúsculas ni acentos) en nombre, descripción, categoría, notas o carpeta."""
+def coincide(skill: SkillCatalogo, texto: str) -> bool:
+	"""La skill contiene ``texto`` (sin distinguir mayúsculas ni acentos) en nombre, descripción, categoría, notas o carpeta."""
 	buscado = sin_acentos(texto.strip())
 	if not buscado:
 		return True
-	pajar = sin_acentos(" ".join((agente.nombre, agente.descripcion, agente.categoria, agente.notas, agente.carpeta)))
+	pajar = sin_acentos(" ".join((skill.nombre, skill.descripcion, skill.categoria, skill.notas, skill.carpeta)))
 	return all(palabra in pajar for palabra in buscado.split())
 
 
-def disponible(agente: AgenteCatalogo) -> bool:
+def disponible(skill: SkillCatalogo) -> bool:
 	"""Su carpeta sigue existiendo y tiene SKILL.md."""
-	return ruta_skill(agente.carpeta) is not None
+	return ruta_skill(skill.carpeta) is not None
 
 
-def estado(agente: AgenteCatalogo) -> str:
+def estado(skill: SkillCatalogo) -> str:
 	"""``ESTADO_DISPONIBLE`` o ``ESTADO_NO_ENCONTRADO``."""
-	return ESTADO_DISPONIBLE if disponible(agente) else ESTADO_NO_ENCONTRADO
+	return ESTADO_DISPONIBLE if disponible(skill) else ESTADO_NO_ENCONTRADO
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -735,8 +735,8 @@ class ResultadoImportar:
 
 
 @dataclass(slots=True)
-class CambioAgente:
-	"""Un agente cuyo SKILL.md dice ahora otra cosa que el catálogo."""
+class CambioSkill:
+	"""Una skill cuyo SKILL.md dice ahora otra cosa que el catálogo."""
 
 	id: int
 	nombre: str
@@ -747,11 +747,11 @@ class CambioAgente:
 @dataclass(slots=True)
 class ResultadoRefresco:
 	revisados: int = 0
-	#: Ids de los agentes cuya carpeta o SKILL.md ya no existe.
+	#: Ids de las skills cuya carpeta o SKILL.md ya no existe.
 	no_encontrados: list[int] = field(default_factory=list)
 	#: Descripciones que han cambiado en el SKILL.md desde la última vez (pendientes de decidir).
-	cambiados: list[CambioAgente] = field(default_factory=list)
-	#: Agentes a los que se ha actualizado la versión (eso no lo edita la persona).
+	cambiados: list[CambioSkill] = field(default_factory=list)
+	#: Skills a las que se ha actualizado la versión (eso no lo edita la persona).
 	versiones: int = 0
 	errores: list[str] = field(default_factory=list)
 
@@ -764,10 +764,10 @@ class ResultadoJson:
 	errores: list[str] = field(default_factory=list)
 
 
-class CatalogoAgentes:
-	"""Operaciones del catálogo sobre la tabla ``agentes`` del almacén.
+class CatalogoSkills:
+	"""Operaciones del catálogo sobre la tabla ``skills`` del almacén.
 
-	:param carpeta_creados: dónde se crean los agentes nuevos (por defecto ``data/agentes``).
+	:param carpeta_creados: dónde se crean las skills nuevas (por defecto ``data/skills``).
 	"""
 
 	def __init__(self, almacen: Almacen, carpeta_creados: str | Path | None = None) -> None:
@@ -778,61 +778,61 @@ class CatalogoAgentes:
 	def carpeta_creados(self) -> Path:
 		if self._carpeta_creados is not None:
 			return self._carpeta_creados
-		from app.core.paths import ruta_agentes
+		from app.core.paths import ruta_skills
 
-		return ruta_agentes()
+		return ruta_skills()
 
 	# -- Consultas ---------------------------------------------------------------
 
-	def listar(self, categoria: str | None = None, texto: str = "") -> list[AgenteCatalogo]:
-		"""Agentes ordenados por categoría y nombre. ``categoria=None``: todas; ``""``: los que no tienen."""
-		return [agente for agente in self.almacen.agentes_catalogo(categoria) if coincide(agente, texto)]
+	def listar(self, categoria: str | None = None, texto: str = "") -> list[SkillCatalogo]:
+		"""Skills ordenadas por categoría y nombre. ``categoria=None``: todas; ``""``: las que no tienen."""
+		return [skill for skill in self.almacen.skills_catalogo(categoria) if coincide(skill, texto)]
 
-	def obtener(self, id_agente: int) -> AgenteCatalogo | None:
-		return self.almacen.agente_catalogo(id_agente)
+	def obtener(self, id_skill: int) -> SkillCatalogo | None:
+		return self.almacen.skill_catalogo(id_skill)
 
 	def categorias(self) -> list[str]:
-		return self.almacen.categorias_agentes()
+		return self.almacen.categorias_skills()
 
-	def en_catalogo(self, carpeta: str | Path) -> AgenteCatalogo | None:
-		"""El agente de esa carpeta, si ya está en el catálogo."""
-		return self.almacen.agente_por_carpeta(normalizar_carpeta(carpeta))
+	def en_catalogo(self, carpeta: str | Path) -> SkillCatalogo | None:
+		"""La skill de esa carpeta, si ya está en el catálogo."""
+		return self.almacen.skill_por_carpeta(normalizar_carpeta(carpeta))
 
 	# -- Añadir --------------------------------------------------------------------
 
-	def importar(self, ficha: FichaAgente, categoria: str | None = None, actualizar_descripcion: bool = False) -> ResultadoImportar:
-		"""Añade un agente leído de su SKILL.md. Si su carpeta ya estaba, no lo duplica.
+	def importar(self, ficha: FichaSkill, categoria: str | None = None, actualizar_descripcion: bool = False) -> ResultadoImportar:
+		"""Añade una skill leída de su SKILL.md. Si su carpeta ya estaba, no la duplica.
 
 		:param categoria: la elegida por la persona (``None``: la propuesta por ``categoria_propuesta``).
 		:param actualizar_descripcion: si ya estaba, poner la descripción (y la versión) del SKILL.md.
 		"""
 		carpeta = normalizar_carpeta(ficha.carpeta)
-		existente = self.almacen.agente_por_carpeta(carpeta)
+		existente = self.almacen.skill_por_carpeta(carpeta)
 		if existente is not None:
 			if actualizar_descripcion and (existente.descripcion != ficha.descripcion or existente.version != ficha.version):
-				self.almacen.actualizar_agente_catalogo(existente.id, descripcion=ficha.descripcion, version=ficha.version)
+				self.almacen.actualizar_skill_catalogo(existente.id, descripcion=ficha.descripcion, version=ficha.version)
 				return ResultadoImportar(existente.id, False, True)
 			return ResultadoImportar(existente.id, False, False)
 		if categoria is None:
 			categoria = categoria_propuesta(ficha)
-		identificador = self.almacen.crear_agente_catalogo(
+		identificador = self.almacen.crear_skill_catalogo(
 			ficha.nombre or Path(carpeta).name, carpeta, descripcion=ficha.descripcion, categoria=una_linea(categoria),
 			version=ficha.version, origen=ORIGEN_IMPORTADO,
 		)
-		log.info("Agente añadido al catálogo: %s (%s)", ficha.nombre, carpeta)
+		log.info("Skill añadida al catálogo: %s (%s)", ficha.nombre, carpeta)
 		return ResultadoImportar(identificador, True)
 
 	def cargar_ejemplos(self, carpeta: str | Path | None = None) -> int:
-		"""Añade los agentes de ejemplo que trae Ctrl+IA (los que falten). Devuelve cuántos se han añadido.
+		"""Añade las skills de ejemplo que trae Ctrl+IA (las que falten). Devuelve cuántas se han añadido.
 
-		Van con la categoría ``CATEGORIA_EJEMPLOS``: la persona puede editarlos, quitarlos o
-		volver a cargarlos desde el gestor («Restaurar los agentes de ejemplo»).
+		Van con la categoría ``CATEGORIA_EJEMPLOS``: la persona puede editarlas, quitarlas o
+		volver a cargarlas desde el gestor («Restaurar las skills de ejemplo»).
 		"""
-		from app.core.paths import ruta_agentes_ejemplo
+		from app.core.paths import ruta_skills_ejemplo
 
-		raiz = Path(carpeta) if carpeta is not None else ruta_agentes_ejemplo()
+		raiz = Path(carpeta) if carpeta is not None else ruta_skills_ejemplo()
 		if not raiz.is_dir():
-			log.info("No hay agentes de ejemplo en %s", raiz)
+			log.info("No hay skills de ejemplo en %s", raiz)
 			return 0
 		anadidos = 0
 		for subcarpeta in sorted(p for p in raiz.iterdir() if p.is_dir()):
@@ -842,58 +842,58 @@ class CatalogoAgentes:
 				ficha = leer_skill(subcarpeta)
 				resultado = self.importar(ficha, CATEGORIA_EJEMPLOS)
 				if resultado.nuevo:
-					# Que se vea en la lista, en «Nueva sesión» y en lo que se le dice al agente que es de ejemplo.
+					# Que se vea en la lista, en «Nueva sesión» y en lo que se le dice al agente de IA que es de ejemplo.
 					nombre = (ficha.nombre or subcarpeta.name) + SUFIJO_EJEMPLO
-					self.almacen.actualizar_agente_catalogo(resultado.id, nombre=nombre, notas=NOTA_EJEMPLO)
+					self.almacen.actualizar_skill_catalogo(resultado.id, nombre=nombre, notas=NOTA_EJEMPLO)
 					anadidos += 1
 			except Exception:  # noqa: BLE001 - un ejemplo roto no impide cargar los demás
-				log.exception("No se pudo cargar el agente de ejemplo %s", subcarpeta)
-		log.info("Agentes de ejemplo cargados en el catálogo: %d", anadidos)
+				log.exception("No se pudo cargar la skill de ejemplo %s", subcarpeta)
+		log.info("Skills de ejemplo cargadas en el catálogo: %d", anadidos)
 		return anadidos
 
 	def reparar_ejemplos(self, carpeta: str | Path | None = None) -> int:
 		"""Si el programa portable se movió de carpeta, apunta los ejemplos a su sitio nuevo. Devuelve cuántos."""
-		from app.core.paths import ruta_agentes_ejemplo
+		from app.core.paths import ruta_skills_ejemplo
 
-		raiz = Path(carpeta) if carpeta is not None else ruta_agentes_ejemplo()
+		raiz = Path(carpeta) if carpeta is not None else ruta_skills_ejemplo()
 		reparados = 0
-		for agente in self.almacen.agentes_catalogo():
-			antigua = Path(agente.carpeta)
-			if "agentes_ejemplo" not in {parte.lower() for parte in antigua.parts} or antigua.is_dir():
+		for skill in self.almacen.skills_catalogo():
+			antigua = Path(skill.carpeta)
+			if "skills_ejemplo" not in {parte.lower() for parte in antigua.parts} or antigua.is_dir():
 				continue
 			nueva = raiz / antigua.name
-			if ruta_skill(nueva) is None or self.almacen.agente_por_carpeta(normalizar_carpeta(nueva)) is not None:
+			if ruta_skill(nueva) is None or self.almacen.skill_por_carpeta(normalizar_carpeta(nueva)) is not None:
 				continue
-			self.almacen.actualizar_agente_catalogo(agente.id, carpeta=normalizar_carpeta(nueva))
+			self.almacen.actualizar_skill_catalogo(skill.id, carpeta=normalizar_carpeta(nueva))
 			reparados += 1
 		if reparados:
-			log.info("Agentes de ejemplo apuntados a su carpeta nueva: %d", reparados)
+			log.info("Skills de ejemplo apuntadas a su carpeta nueva: %d", reparados)
 		return reparados
 
-	def importar_varios(self, elegidos: Iterable[tuple[FichaAgente, str]], actualizar_descripcion: bool = False) -> list[ResultadoImportar]:
+	def importar_varios(self, elegidos: Iterable[tuple[FichaSkill, str]], actualizar_descripcion: bool = False) -> list[ResultadoImportar]:
 		"""Importa ``[(ficha, categoría), ...]``; un fallo en uno no impide los demás (se registra)."""
 		resultados: list[ResultadoImportar] = []
 		for ficha, categoria in elegidos:
 			try:
 				resultados.append(self.importar(ficha, categoria, actualizar_descripcion))
 			except Exception:  # noqa: BLE001 - se registra y se sigue con los demás
-				log.exception("No se pudo añadir el agente %s", ficha.carpeta)
+				log.exception("No se pudo añadir la skill %s", ficha.carpeta)
 		return resultados
 
 	def importar_carpeta(self, carpeta: str | Path, categoria: str | None = None,
 			actualizar_descripcion: bool = False) -> ResultadoImportar:
-		"""Añade el agente de una carpeta con SKILL.md (o del propio archivo). ``ErrorCatalogo`` si no lo es."""
+		"""Añade la skill de una carpeta con SKILL.md (o del propio archivo). ``ErrorCatalogo`` si no lo es."""
 		return self.importar(leer_skill(carpeta), categoria, actualizar_descripcion)
 
 	def crear(self, nombre: str, descripcion: str, categoria: str = "", notas: str = "",
 			carpeta_base: str | Path | None = None) -> int:
-		"""Crea un agente nuevo: su carpeta (``<carpeta_base>/<nombre-seguro>``) con un SKILL.md de plantilla.
+		"""Crea una skill nueva: su carpeta (``<carpeta_base>/<nombre-seguro>``) con un SKILL.md de plantilla.
 
 		Si la carpeta ya existe se añade un número («revisor-2»). Devuelve su id.
 		"""
 		nombre = una_linea(nombre)
 		if not nombre:
-			raise ErrorCatalogo(_("Escribe un nombre para el agente."))
+			raise ErrorCatalogo(_("Escribe un nombre para la skill."))
 		base = Path(carpeta_base) if carpeta_base else self.carpeta_creados
 		try:
 			base.mkdir(parents=True, exist_ok=True)
@@ -911,25 +911,25 @@ class CatalogoAgentes:
 				contenido_skill_nuevo(nombre, descripcion, categoria, identificador=destino.name))
 		except OSError as error:
 			shutil.rmtree(destino, ignore_errors=True)
-			raise ErrorCatalogo(_("No se pudo crear el agente en «{ruta}»: {error}").format(
+			raise ErrorCatalogo(_("No se pudo crear la skill en «{ruta}»: {error}").format(
 				ruta=destino, error=_motivo(error))) from error
-		id_agente = self.almacen.crear_agente_catalogo(
+		id_skill = self.almacen.crear_skill_catalogo(
 			nombre, normalizar_carpeta(destino), descripcion=una_linea(descripcion), categoria=una_linea(categoria),
 			version="0.1.0", origen=ORIGEN_CREADO, notas=notas.strip(),
 		)
-		log.info("Agente creado: %s en %s", nombre, destino)
-		return id_agente
+		log.info("Skill creada: %s en %s", nombre, destino)
+		return id_skill
 
 	# -- Cambiar y quitar ------------------------------------------------------------
 
-	def editar(self, id_agente: int, *, nombre: str | None = None, descripcion: str | None = None,
+	def editar(self, id_skill: int, *, nombre: str | None = None, descripcion: str | None = None,
 			categoria: str | None = None, notas: str | None = None) -> None:
 		"""Cambia los datos del catálogo (nunca el SKILL.md)."""
 		cambios: dict[str, str] = {}
 		if nombre is not None:
 			nombre = una_linea(nombre)
 			if not nombre:
-				raise ErrorCatalogo(_("El nombre del agente no puede quedar vacío."))
+				raise ErrorCatalogo(_("El nombre de la skill no puede quedar vacío."))
 			cambios["nombre"] = nombre
 		if descripcion is not None:
 			cambios["descripcion"] = una_linea(descripcion)
@@ -938,19 +938,19 @@ class CatalogoAgentes:
 		if notas is not None:
 			cambios["notas"] = notas.strip()
 		if cambios:
-			self.almacen.actualizar_agente_catalogo(id_agente, **cambios)
+			self.almacen.actualizar_skill_catalogo(id_skill, **cambios)
 
-	def se_puede_borrar_carpeta(self, agente: AgenteCatalogo) -> str:
+	def se_puede_borrar_carpeta(self, skill: SkillCatalogo) -> str:
 		"""Motivo por el que NO se borraría su carpeta (vacío si se puede)."""
-		if agente.origen != ORIGEN_CREADO:
-			return _("Solo se borra la carpeta de los agentes creados desde Ctrl+IA.")
-		carpeta = Path(agente.carpeta)
+		if skill.origen != ORIGEN_CREADO:
+			return _("Solo se borra la carpeta de las skills creadas desde Ctrl+IA.")
+		carpeta = Path(skill.carpeta)
 		if not carpeta.is_dir():
 			return _("La carpeta ya no existe.")
 		if carpeta == carpeta.parent or carpeta.parent == carpeta.parent.parent:
 			return _("La carpeta es la raíz de una unidad o está justo debajo: no se borra.")
 		if ruta_skill(carpeta) is None:
-			return _("La carpeta ya no tiene SKILL.md: no parece la del agente.")
+			return _("La carpeta ya no tiene SKILL.md: no parece la de la skill.")
 		try:
 			from app.core.paths import ruta_datos
 
@@ -965,50 +965,50 @@ class CatalogoAgentes:
 				return _("La carpeta tiene más de {n} archivos: bórrala tú si de verdad quieres.").format(n=MAX_ENTRADAS_BORRAR)
 		return ""
 
-	def eliminar(self, id_agente: int, borrar_carpeta: bool = False) -> bool:
-		"""Quita el agente del catálogo; con ``borrar_carpeta`` (solo los creados aquí) borra también su carpeta.
+	def eliminar(self, id_skill: int, borrar_carpeta: bool = False) -> bool:
+		"""Quita la skill del catálogo; con ``borrar_carpeta`` (solo las creadas aquí) borra también su carpeta.
 
 		Devuelve ``True`` si se ha borrado la carpeta. Si no se puede borrar,
-		lanza ``ErrorCatalogo`` y NO lo quita del catálogo.
+		lanza ``ErrorCatalogo`` y NO la quita del catálogo.
 		"""
-		agente = self.almacen.agente_catalogo(id_agente)
-		if agente is None:
+		skill = self.almacen.skill_catalogo(id_skill)
+		if skill is None:
 			return False
 		borrada = False
 		if borrar_carpeta:
-			motivo = self.se_puede_borrar_carpeta(agente)
+			motivo = self.se_puede_borrar_carpeta(skill)
 			if motivo:
 				raise ErrorCatalogo(motivo)
 			try:
-				shutil.rmtree(agente.carpeta)
+				shutil.rmtree(skill.carpeta)
 			except OSError as error:
 				raise ErrorCatalogo(_("No se pudo borrar «{ruta}»: {error}").format(
-					ruta=agente.carpeta, error=_motivo(error))) from error
+					ruta=skill.carpeta, error=_motivo(error))) from error
 			borrada = True
-			log.info("Carpeta del agente borrada: %s", agente.carpeta)
-		self.almacen.borrar_agente_catalogo(id_agente)
+			log.info("Carpeta de la skill borrada: %s", skill.carpeta)
+		self.almacen.borrar_skill_catalogo(id_skill)
 		return borrada
 
 	# -- Refrescar ------------------------------------------------------------------
 
 	def refrescar(self, ids: Sequence[int] | None = None) -> ResultadoRefresco:
-		"""Vuelve a leer los SKILL.md: qué agentes ya no se encuentran y qué descripciones cambiaron.
+		"""Vuelve a leer los SKILL.md: qué skills ya no se encuentran y qué descripciones cambiaron.
 
 		La versión se actualiza sola (la persona no la edita). Una descripción solo
 		cuenta como cambiada si el SKILL.md se modificó DESPUÉS de la última vez
-		que se tocó el agente en el catálogo: así no se proponen una y otra vez
+		que se tocó la skill en el catálogo: así no se proponen una y otra vez
 		las descripciones que la persona ha reescrito a su gusto.
 		"""
 		resultado = ResultadoRefresco()
-		agentes = self.almacen.agentes_catalogo()
+		skills = self.almacen.skills_catalogo()
 		if ids is not None:
 			buscados = set(ids)
-			agentes = [a for a in agentes if a.id in buscados]
-		for agente in agentes:
+			skills = [s for s in skills if s.id in buscados]
+		for skill in skills:
 			resultado.revisados += 1
-			archivo = ruta_skill(agente.carpeta)
+			archivo = ruta_skill(skill.carpeta)
 			if archivo is None:
-				resultado.no_encontrados.append(agente.id)
+				resultado.no_encontrados.append(skill.id)
 				continue
 			try:
 				ficha = leer_skill(archivo)
@@ -1016,69 +1016,69 @@ class CatalogoAgentes:
 			except (ErrorCatalogo, OSError) as error:
 				resultado.errores.append(str(error))
 				continue
-			if ficha.version and ficha.version != agente.version:
-				self.almacen.actualizar_agente_catalogo(agente.id, version=ficha.version, modificado=agente.modificado)
+			if ficha.version and ficha.version != skill.version:
+				self.almacen.actualizar_skill_catalogo(skill.id, version=ficha.version, modificado=skill.modificado)
 				resultado.versiones += 1
-			if ficha.descripcion and ficha.descripcion != agente.descripcion and modificado_archivo > agente.modificado:
-				resultado.cambiados.append(CambioAgente(agente.id, agente.nombre, agente.descripcion, ficha.descripcion))
+			if ficha.descripcion and ficha.descripcion != skill.descripcion and modificado_archivo > skill.modificado:
+				resultado.cambiados.append(CambioSkill(skill.id, skill.nombre, skill.descripcion, ficha.descripcion))
 		return resultado
 
-	def aplicar_cambios(self, cambios: Iterable[CambioAgente]) -> int:
+	def aplicar_cambios(self, cambios: Iterable[CambioSkill]) -> int:
 		"""Pone en el catálogo la descripción nueva de cada cambio. Devuelve cuántos."""
 		total = 0
 		for cambio in cambios:
-			self.almacen.actualizar_agente_catalogo(cambio.id, descripcion=cambio.descripcion_archivo)
+			self.almacen.actualizar_skill_catalogo(cambio.id, descripcion=cambio.descripcion_archivo)
 			total += 1
 		return total
 
-	def descartar_cambios(self, cambios: Iterable[CambioAgente]) -> None:
+	def descartar_cambios(self, cambios: Iterable[CambioSkill]) -> None:
 		"""Deja la descripción del catálogo y no vuelve a proponer estos cambios (hasta que el archivo cambie otra vez)."""
 		ahora = time.time()
 		for cambio in cambios:
-			self.almacen.actualizar_agente_catalogo(cambio.id, modificado=ahora)
+			self.almacen.actualizar_skill_catalogo(cambio.id, modificado=ahora)
 
 	# -- Para las sesiones ------------------------------------------------------------
 
 	def datos_para_sesion(self, ids: Iterable[int]) -> list[dict[str, Any]]:
-		"""Lo que necesita una sesión de cada agente elegido, en el mismo orden (los ids que ya no existen se saltan).
+		"""Lo que necesita una sesión de cada skill elegida, en el mismo orden (los ids que ya no existen se saltan).
 
 		Cada diccionario: ``id``, ``nombre``, ``descripcion``, ``categoria``,
 		``carpeta``, ``skill`` (ruta del SKILL.md, aunque no exista), ``existe``
 		(si el SKILL.md está) y ``version``.
 		"""
 		datos: list[dict[str, Any]] = []
-		for id_agente in dict.fromkeys(ids):
-			agente = self.almacen.agente_catalogo(int(id_agente))
-			if agente is None:
+		for id_skill in dict.fromkeys(ids):
+			skill = self.almacen.skill_catalogo(int(id_skill))
+			if skill is None:
 				continue
-			archivo = ruta_skill(agente.carpeta)
+			archivo = ruta_skill(skill.carpeta)
 			datos.append({
-				"id": agente.id,
-				"nombre": agente.nombre,
-				"descripcion": agente.descripcion,
-				"categoria": agente.categoria,
-				"carpeta": agente.carpeta,
-				"skill": str(archivo or Path(agente.carpeta) / NOMBRES_SKILL[0]),
+				"id": skill.id,
+				"nombre": skill.nombre,
+				"descripcion": skill.descripcion,
+				"categoria": skill.categoria,
+				"carpeta": skill.carpeta,
+				"skill": str(archivo or Path(skill.carpeta) / NOMBRES_SKILL[0]),
 				"existe": archivo is not None,
-				"version": agente.version,
+				"version": skill.version,
 			})
 		return datos
 
 	# -- Exportar e importar (JSON) ------------------------------------------------------
 
 	def exportar_json(self, ruta: str | Path) -> int:
-		"""Guarda el catálogo en un JSON (sin el contenido de los SKILL.md). Devuelve cuántos agentes."""
-		agentes = self.almacen.agentes_catalogo()
+		"""Guarda el catálogo en un JSON (sin el contenido de los SKILL.md). Devuelve cuántas skills."""
+		skills = self.almacen.skills_catalogo()
 		datos = {
 			"formato": FORMATO_JSON,
 			"version": VERSION_JSON,
 			"exportado": time.time(),
-			"agentes": [
+			"skills": [
 				{
-					"nombre": a.nombre, "descripcion": a.descripcion, "categoria": a.categoria, "carpeta": a.carpeta,
-					"version": a.version, "origen": a.origen, "notas": a.notas,
+					"nombre": s.nombre, "descripcion": s.descripcion, "categoria": s.categoria, "carpeta": s.carpeta,
+					"version": s.version, "origen": s.origen, "notas": s.notas,
 				}
-				for a in agentes
+				for s in skills
 			],
 		}
 		ruta = Path(ruta)
@@ -1086,25 +1086,32 @@ class CatalogoAgentes:
 			_escribir_atomico(ruta, json.dumps(datos, ensure_ascii=False, indent=2) + "\n")
 		except OSError as error:
 			raise ErrorCatalogo(_("No se pudo guardar «{ruta}»: {error}").format(ruta=ruta, error=_motivo(error))) from error
-		return len(agentes)
+		return len(skills)
 
 	def importar_json(self, ruta: str | Path, actualizar: bool = False) -> ResultadoJson:
-		"""Añade los agentes de un JSON exportado. Los que ya están (misma carpeta) se omiten o, con ``actualizar``, se actualizan."""
+		"""Añade las skills de un JSON exportado. Las que ya están (misma carpeta) se omiten o, con ``actualizar``, se actualizan.
+
+		Acepta también los catálogos exportados con la 1.5.0 y anteriores (``proteccion_skills.FORMATO_JSON_ANTIGUO``).
+		"""
+		from app.services.proteccion_skills import CLAVE_JSON_ANTIGUA, FORMATO_JSON_ANTIGUO
+
 		ruta = Path(ruta)
 		try:
 			if ruta.stat().st_size > 20 * 1024 * 1024:
-				raise ErrorCatalogo(_("«{ruta}» es demasiado grande para ser un catálogo de agentes.").format(ruta=ruta))
+				raise ErrorCatalogo(_("«{ruta}» es demasiado grande para ser un catálogo de skills.").format(ruta=ruta))
 			datos = json.loads(ruta.read_text(encoding="utf-8-sig"))
 		except OSError as error:
 			raise ErrorCatalogo(_("No se pudo leer «{archivo}»: {error}").format(archivo=ruta, error=_motivo(error))) from error
 		except ValueError as error:
 			raise ErrorCatalogo(_("«{ruta}» no es un JSON válido: {error}").format(ruta=ruta, error=error)) from error
-		if not isinstance(datos, dict) or datos.get("formato") != FORMATO_JSON or not isinstance(datos.get("agentes"), list):
-			raise ErrorCatalogo(_("«{ruta}» no es un catálogo de agentes exportado desde Ctrl+IA.").format(ruta=ruta))
+		formato = datos.get("formato") if isinstance(datos, dict) else None
+		clave = "skills" if formato == FORMATO_JSON else CLAVE_JSON_ANTIGUA if formato == FORMATO_JSON_ANTIGUO else ""
+		if not clave or not isinstance(datos.get(clave), list):
+			raise ErrorCatalogo(_("«{ruta}» no es un catálogo de skills exportado desde Ctrl+IA.").format(ruta=ruta))
 		resultado = ResultadoJson()
-		for numero, elemento in enumerate(datos["agentes"], start=1):
+		for numero, elemento in enumerate(datos[clave], start=1):
 			if not isinstance(elemento, dict) or not str(elemento.get("carpeta") or "").strip():
-				resultado.errores.append(_("El agente número {n} no tiene carpeta.").format(n=numero))
+				resultado.errores.append(_("La skill número {n} no tiene carpeta.").format(n=numero))
 				continue
 			carpeta = normalizar_carpeta(str(elemento["carpeta"]))
 			nombre = una_linea(elemento.get("nombre")) or Path(carpeta).name
@@ -1115,21 +1122,21 @@ class CatalogoAgentes:
 				"version": una_linea(elemento.get("version")),
 				"notas": str(elemento.get("notas") or "").strip(),
 			}
-			existente = self.almacen.agente_por_carpeta(carpeta)
+			existente = self.almacen.skill_por_carpeta(carpeta)
 			if existente is not None:
 				if actualizar:
-					self.almacen.actualizar_agente_catalogo(existente.id, **campos)
+					self.almacen.actualizar_skill_catalogo(existente.id, **campos)
 					resultado.actualizados += 1
 				else:
 					resultado.omitidos += 1
 				continue
 			origen = elemento.get("origen") if elemento.get("origen") in (ORIGEN_IMPORTADO, ORIGEN_CREADO) else ORIGEN_IMPORTADO
-			self.almacen.crear_agente_catalogo(nombre, carpeta, descripcion=campos["descripcion"],
+			self.almacen.crear_skill_catalogo(nombre, carpeta, descripcion=campos["descripcion"],
 				categoria=campos["categoria"], version=campos["version"], origen=origen, notas=campos["notas"])
 			resultado.nuevos += 1
 		return resultado
 
 
 def datos_para_sesion(almacen: Almacen, ids: Iterable[int]) -> list[dict[str, Any]]:
-	"""Atajo de ``CatalogoAgentes(almacen).datos_para_sesion(ids)``."""
-	return CatalogoAgentes(almacen).datos_para_sesion(ids)
+	"""Atajo de ``CatalogoSkills(almacen).datos_para_sesion(ids)``."""
+	return CatalogoSkills(almacen).datos_para_sesion(ids)

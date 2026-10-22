@@ -46,7 +46,7 @@ htmlcov/
 # data/ y se readmiten, una a una, las carpetas que setup_cx.py distribuye
 # (DATA_DISTRIBUIBLE).
 /data/*
-!/data/agentes_ejemplo/
+!/data/skills_ejemplo/
 !/data/bin/
 !/data/docs/
 !/data/icons/

@@ -56,13 +56,13 @@ class DialogoAjustesSesion(wx.Dialog):
 			control.Enable(len(opciones) > 1)
 		self.modo.Bind(wx.EVT_CHOICE, lambda _e: self._ayuda_modo())
 		self._ayuda_modo()
-		from app.ui.dialogos.elegir_agentes import PanelAgentes
+		from app.ui.dialogos.elegir_skills import PanelSkills
 
-		self._agentes_antes = [int(i) for i in (getattr(sesion, "extra", None) or {}).get("agentes") or [] if isinstance(i, int)]
-		self.panel_agentes = PanelAgentes(self, seleccionados=self._agentes_antes,
-			etiqueta_filtro=_("Categoría &de agentes:"), etiqueta=_("A&gentes de la sesión:"),
-			etiqueta_boton=_("&Ver y gestionar el catálogo de agentes..."))
-		raiz.Add(self.panel_agentes, 0, wx.EXPAND)
+		self._skills_antes = [int(i) for i in (getattr(sesion, "extra", None) or {}).get("skills") or [] if isinstance(i, int)]
+		self.panel_skills = PanelSkills(self, seleccionados=self._skills_antes,
+			etiqueta_filtro=_("Categoría &de skills:"), etiqueta=_("&Skills de la sesión:"),
+			etiqueta_boton=_("&Ver y gestionar el catálogo de skills..."))
+		raiz.Add(self.panel_skills, 0, wx.EXPAND)
 		raiz.Add(crear_botonera(self, wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 6)
 		self.SetSizerAndFit(raiz)
 		self.Bind(wx.EVT_BUTTON, lambda _e: self._aceptar(), id=wx.ID_OK)
@@ -120,9 +120,9 @@ class DialogoAjustesSesion(wx.Dialog):
 			"modo_permiso": self._modos[self.modo.GetSelection()].id,
 		}
 		self.cambios = {k: v for k, v in nuevos.items() if v != getattr(self.sesion, k)}
-		agentes = self.panel_agentes.seleccionados()
-		if agentes != self._agentes_antes:
-			self.cambios["agentes"] = agentes
+		skills = self.panel_skills.seleccionados()
+		if skills != self._skills_antes:
+			self.cambios["skills"] = skills
 		if self.estilo is not None:
 			estilo = self._estilos[self.estilo.GetSelection()].id
 			if estilo != str((getattr(self.sesion, "extra", None) or {}).get("estilo") or ""):

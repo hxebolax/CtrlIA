@@ -159,7 +159,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("config_agentes", _("Configuración de los agen&tes...\tCtrl+Shift+W"), _("Cambia las opciones propias de Claude Code, Codex, Gemini CLI y Antigravity (sus settings.json y config.toml) de forma accesible."), "accion_config_agentes"),
 		("reglas", _("&Reglas de permisos de Antigravity..."), _("Qué puede hacer Antigravity sin preguntar."), "accion_reglas_antigravity"),
 		("acp_propios", _("Agentes A&CP personalizados..."), _("Añade otros agentes compatibles con el protocolo ACP indicando la orden que los arranca."), "accion_acp_personalizados"),
-		("gestor_agentes", _("Gestor de age&ntes...\tCtrl+Alt+G"), _("Tu catálogo de agentes (habilidades con su SKILL.md): añádelos desde sus carpetas, créalos, clasifícalos por categorías y edítalos, para elegir después cuáles usa cada sesión."), "accion_gestor_agentes"),
+		("gestor_skills", _("Gestor de s&kills...\tCtrl+Alt+G"), _("Tu catálogo de skills (habilidades con su SKILL.md): añádelas desde sus carpetas, créalas, clasifícalas por categorías y edítalas, para elegir después cuáles usa cada sesión."), "accion_gestor_skills"),
 		("equipos_ssh", _("&Equipos por SSH..."),_("Añade un Mac o un equipo Linux al que entras por SSH para que los agentes trabajen allí."), "accion_equipos_ssh"),
 		("limites", _("Lí&mites de uso de tus cuentas...\tCtrl+Shift+Y"), _("Pregunta a Claude Code, Codex y Antigravity cuánto llevas gastado del límite de 5 horas y del semanal, sin enviar mensajes ni gastar cuota."), "accion_limites"),
 		("informe", _("&Informe de sesiones...\tCtrl+I"), _("Todas las sesiones con su tamaño, sus mensajes y los totales, para decidir qué ocultar o archivar."), "accion_informe"),
@@ -201,7 +201,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		self.tareas = tareas.GestorTareas(max_hilos=4, nombre="ctrlia", ejecutor_interfaz=tareas.ejecutor_wx)
 		self.almacen = almacen or Almacen()
 		if almacen is None:
-			self._preparar_agentes_ejemplo()
+			self._preparar_skills_ejemplo()
 		if proveedores is None:
 			from app.services.agentes import crear_proveedores
 
@@ -354,19 +354,25 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		except (ValueError, KeyError):
 			log.warning("No se pudo guardar la opción %s", clave, exc_info=True)
 
-	def _preparar_agentes_ejemplo(self) -> None:
-		"""La primera vez, carga en el catálogo los agentes de ejemplo; siempre, corrige su carpeta si el programa se movió."""
-		try:
-			from app.services.catalogo_agentes import CatalogoAgentes
+	def _preparar_skills_ejemplo(self) -> None:
+		"""La primera vez, carga en el catálogo las skills de ejemplo; siempre, corrige su carpeta si el programa se movió.
 
-			catalogo = CatalogoAgentes(self.almacen)
-			if not self.opcion("agentes.ejemplos_cargados", False):
+		Antes apunta a las carpetas nuevas las skills que el catálogo aún tenga en las de la 1.5.0
+		(``proteccion_skills.reparar_rutas_catalogo``; las carpetas las mueve ``main.py`` al arrancar).
+		"""
+		try:
+			from app.services.catalogo_skills import CatalogoSkills
+			from app.services.proteccion_skills import reparar_rutas_catalogo
+
+			reparar_rutas_catalogo(self.almacen)
+			catalogo = CatalogoSkills(self.almacen)
+			if not self.opcion("skills.ejemplos_cargados", False):
 				catalogo.cargar_ejemplos()
-				self.poner_opcion("agentes.ejemplos_cargados", True)
+				self.poner_opcion("skills.ejemplos_cargados", True)
 			else:
 				catalogo.reparar_ejemplos()
 		except Exception:  # noqa: BLE001 - los ejemplos nunca deben impedir arrancar
-			log.warning("No se pudieron preparar los agentes de ejemplo", exc_info=True)
+			log.warning("No se pudieron preparar las skills de ejemplo", exc_info=True)
 
 	def en_segundo_plano(self, funcion: Callable[..., Any], *argumentos: Any,
 			al_terminar: Callable[[Any], None] | None = None, al_fallar: Callable[[BaseException], None] | None = None,
@@ -654,9 +660,9 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		self.poner_opcion("agentes.personalizados", agentes)
 		mostrar_mensaje(self, _("Lista guardada. Los cambios se aplican al reiniciar Ctrl+IA."), _("Agentes ACP personalizados"))
 
-	def accion_gestor_agentes(self) -> None:
-		"""Herramientas, «Gestor de agentes...» (Ctrl+Alt+G): el catálogo de agentes con su SKILL.md."""
-		from app.ui.dialogos.gestor_agentes import abrir_gestor
+	def accion_gestor_skills(self) -> None:
+		"""Herramientas, «Gestor de skills...» (Ctrl+Alt+G): el catálogo de skills con su SKILL.md."""
+		from app.ui.dialogos.gestor_skills import abrir_gestor
 
 		abrir_gestor(self, self.almacen, editor=str(self.opcion("agentes.editor_externo", "") or ""))
 

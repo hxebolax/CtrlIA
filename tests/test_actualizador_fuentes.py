@@ -316,10 +316,10 @@ def test_data_actualizable_coincide_con_lo_distribuido():
 		if isinstance(nodo, ast.Assign) and any(getattr(d, "id", "") == "DATA_DISTRIBUIBLE" for d in nodo.targets)
 	)
 	assert set(actualizador.DATA_ACTUALIZABLE) == set(distribuible)
-	assert {"agentes_ejemplo", "plugins"} <= set(actualizador.DATA_ACTUALIZABLE)
+	assert {"skills_ejemplo", "plugins"} <= set(actualizador.DATA_ACTUALIZABLE)
 
 
-def test_agentes_de_ejemplo_y_plugins_llegan_con_la_actualizacion(tmp_path):
+def test_skills_de_ejemplo_y_plugins_llegan_con_la_actualizacion(tmp_path):
 	from tests.apoyo_actualizador import crear_zip
 
 	config = actualizador.Configuracion(version_actual="1.0.0", carpeta_app=tmp_path / "app", comando=[])
@@ -327,13 +327,13 @@ def test_agentes_de_ejemplo_y_plugins_llegan_con_la_actualizacion(tmp_path):
 		tmp_path / "p.zip",
 		{
 			"CtrlIA.exe": b"EXE",
-			"data/agentes_ejemplo/revisor.md": b"agente nuevo",
+			"data/skills_ejemplo/revisor.md": b"skill nueva",
 			"data/plugins/extra/plugin.json": b"{}",
 			"data/config/settings.json": b"{}",
 		},
 	)
 	destino = actualizador.extraer_seguro(ruta, tmp_path / "nueva", config)
-	assert (destino / "recursos" / "agentes_ejemplo" / "revisor.md").read_bytes() == b"agente nuevo"
+	assert (destino / "recursos" / "skills_ejemplo" / "revisor.md").read_bytes() == b"skill nueva"
 	assert (destino / "recursos" / "plugins" / "extra" / "plugin.json").is_file()
 	assert not (destino / "recursos" / "config").exists()  # lo del usuario nunca
 

@@ -61,7 +61,7 @@ NOMBRE_ARCHIVO = "settings.json"
 CLAVE_VERSION = "version_esquema"
 
 # Versión actual del esquema. Súbela cuando añadas una migración.
-VERSION_ESQUEMA = 2
+VERSION_ESQUEMA = 3
 
 # ── Valores por defecto ──────────────────────────────────────────────────────
 # Un diccionario por sección. Cada valor fija también el TIPO esperado: si en el
@@ -94,9 +94,6 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		# Herramientas propias de Ctrl+IA para los agentes (servidor MCP «ctrlia»: avisar, dar por terminada,
 		# renombrar; app/services/herramientas_propias.py).
 		"herramientas_ctrlia": True,
-		# Los agentes de ejemplo de data/agentes_ejemplo ya se cargaron en el catálogo (solo la primera vez:
-		# si la persona los quita, no vuelven solos; se restauran desde el gestor).
-		"ejemplos_cargados": False,
 		# Minutos que Claude Code sigue abierto sin uso entre mensajes (0: un proceso por mensaje).
 		"claude_minutos_abierto": 15,
 		"adaptadores_acp": False,
@@ -110,6 +107,11 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"servidor_ollama": "",
 		# OpenCode, Goose, GitHub Copilot CLI y otros agentes ACP conocidos.
 		"otros_acp": False,
+	},
+	"skills": {
+		# Las skills de ejemplo de data/skills_ejemplo ya se cargaron en el catálogo (solo la primera vez:
+		# si la persona las quita, no vuelven solas; se restauran desde el gestor de skills).
+		"ejemplos_cargados": False,
 	},
 	"historial": {
 		"claude": True,
@@ -335,7 +337,12 @@ def _migrar_1_a_2(datos: dict) -> None:
 		agentes["chrome_claude"] = True
 
 
-MIGRACIONES: dict[int, Callable[[dict], None]] = {1: _migrar_1_a_2}
+def _migrar_2_a_3(datos: dict) -> None:
+	"""1.5.1: los «agentes» del catálogo pasan a llamarse skills (``agentes.ejemplos_cargados`` → ``skills.ejemplos_cargados``)."""
+	renombrar_clave(datos, "agentes.ejemplos_cargados", "skills.ejemplos_cargados")
+
+
+MIGRACIONES: dict[int, Callable[[dict], None]] = {1: _migrar_1_a_2, 2: _migrar_2_a_3}
 
 
 # ── Rutas ────────────────────────────────────────────────────────────────────

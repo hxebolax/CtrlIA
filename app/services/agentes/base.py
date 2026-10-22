@@ -247,8 +247,8 @@ class Capacidades:
 	enviar_ahora: bool = False
 	#: Puede recibir un mensaje dentro del turno en marcha sin detenerlo.
 	anadir_al_turno: bool = False
-	#: Carga los agentes del catálogo como habilidades propias (si no, se le presentan en el mensaje).
-	agentes_nativos: bool = False
+	#: Carga las skills del catálogo como habilidades propias (si no, se le presentan en el mensaje).
+	skills_nativas: bool = False
 	leer_historial_externo: bool = False
 
 
@@ -261,8 +261,8 @@ class Conversacion(ABC):
 	def __init__(self, ajustes: AjustesSesion, al_evento: ReceptorEventos) -> None:
 		self.ajustes = ajustes
 		self._al_evento = al_evento
-		#: Agentes del catálogo elegidos para la sesión (``catalogo_agentes.datos_para_sesion``); los pone el gestor.
-		self.agentes: list[dict[str, Any]] = []
+		#: Skills del catálogo elegidas para la sesión (``catalogo_skills.datos_para_sesion``); las pone el gestor.
+		self.skills: list[dict[str, Any]] = []
 		#: Identificador (uuid) del último mensaje del usuario enviado; solo lo dan los agentes que saben deshacer
 		#: los cambios de archivos de un mensaje (Claude Code, ``deshacer_archivos``).
 		self.ultimo_uuid_usuario = ""

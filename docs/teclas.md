@@ -35,7 +35,7 @@ Arriba, Abajo, Izquierda y Derecha son las teclas de flecha. Aplicaciones es la 
 | Ctrl+Alt+Mayús+Arriba | Un poco más de espacio para el cuadro de respuesta |
 | Ctrl+Alt+Mayús+Abajo | Un poco más de espacio para los mensajes |
 | Ctrl+Alt+H | Herramientas del agente: servidores MCP, complementos y habilidades que tiene cargados |
-| Ctrl+Alt+G | Gestor de agentes (tu catálogo de agentes con su SKILL.md) |
+| Ctrl+Alt+G | Gestor de skills (tu catálogo de skills con su SKILL.md) |
 | Ctrl+E | Exportar la sesión |
 | Ctrl+Mayús+E | Abrir la carpeta de la sesión en el Explorador |
 | Ctrl+O | Abrir la sesión en la app del agente |
@@ -197,7 +197,7 @@ Todas las listas de Ctrl+IA, también las de los diálogos, tienen menú context
 
 ## En todas las listas de casillas
 
-Valen en las listas de una sola columna con una casilla por elemento: «Columnas de la lista», los agentes de «Nueva sesión» y de «Opciones de la sesión», los agentes encontrados al añadirlos desde una carpeta en el gestor de agentes, «Añadir sesiones» y «Quitar varias sesiones» de un grupo, y «Sonidos».
+Valen en las listas de una sola columna con una casilla por elemento: «Columnas de la lista», las skills de «Nueva sesión» y de «Opciones de la sesión», las skills encontradas al añadirlas desde una carpeta en el gestor de skills, «Añadir sesiones» y «Quitar varias sesiones» de un grupo, y «Sonidos».
 
 | Atajo | Acción |
 |---|---|
@@ -292,24 +292,24 @@ Es el diálogo de bloques de código, enlaces, archivos cambiados, órdenes ejec
 
 Alt+M lleva a «Mostrar» (toda la sesión o este mensaje o turno) y Alt+F al filtro.
 
-## Gestor de agentes
+## Gestor de skills
 
-Es la ventana de Herramientas, «Gestor de agentes...» (Ctrl+Alt+G).
+Es la ventana de Herramientas, «Gestor de skills...» (Ctrl+Alt+G).
 
 | Atajo | Acción |
 |---|---|
-| Intro | Ver el SKILL.md del agente |
+| Intro | Ver el SKILL.md de la skill |
 | F2 | Editar nombre, descripción, categoría y notas |
 | Ctrl+E | Abrir el SKILL.md en el editor |
-| Ctrl+Mayús+E | Abrir la carpeta del agente |
+| Ctrl+Mayús+E | Abrir la carpeta de la skill |
 | Ctrl+C | En la lista, copiar la ruta del SKILL.md |
-| Suprimir | En la lista, quitar el agente del catálogo (pregunta antes) |
+| Suprimir | En la lista, quitar la skill del catálogo (pregunta antes) |
 | Ctrl+O | Añadir desde una carpeta |
-| Ctrl+I | Añadir uno |
-| Ctrl+N | Crear uno nuevo |
+| Ctrl+I | Añadir una |
+| Ctrl+N | Crear una nueva |
 | F5 | Refrescar el catálogo |
 | Ctrl+F | Ir a «Buscar» |
-| Aplicaciones | Todas las órdenes, también restaurar los agentes de ejemplo y exportar o importar el catálogo |
+| Aplicaciones | Todas las órdenes, también restaurar las skills de ejemplo y exportar o importar el catálogo |
 
 ## Mensajes favoritos
 

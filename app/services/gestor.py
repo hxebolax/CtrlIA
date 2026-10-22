@@ -998,8 +998,8 @@ class GestorSesiones(MixinPuntos):
 		id_mensaje = self.almacen.anadir_mensaje(clave, "usuario", texto, datos=datos)
 		self.almacen.actualizar_sesion(clave, actividad=time.time())
 		# Lo que se guarda y se ve es lo que escribió la persona; al agente le puede llegar con la
-		# presentación de los agentes elegidos delante.
-		texto = self._con_agentes(clave, conversacion, texto)
+		# presentación de las skills elegidas delante.
+		texto = self._con_skills(clave, conversacion, texto)
 		# La continuación de una importada le cuenta antes al agente la conversación anterior (#228).
 		texto = self._con_importada(clave, conversacion, texto)
 		# Tras deshacer cambios de archivos, el agente lo sabe con este mensaje.
@@ -1013,43 +1013,43 @@ class GestorSesiones(MixinPuntos):
 			conversacion.enviar(texto, adjuntos)
 		self._apuntar_uuid_claude(clave, conversacion, id_mensaje)
 
-	def _con_agentes(self, clave: str, conversacion: Conversacion, texto: str) -> str:
-		"""Da a la conversación los agentes del catálogo elegidos para la sesión (``extra["agentes"]``).
+	def _con_skills(self, clave: str, conversacion: Conversacion, texto: str) -> str:
+		"""Da a la conversación las skills del catálogo elegidas para la sesión (``extra["skills"]``).
 
-		Claude Code en este equipo los recibe de forma nativa (``conversacion.agentes``,
+		Claude Code en este equipo las recibe de forma nativa (``conversacion.skills``,
 		que monta su complemento). A los demás se les presentan delante del mensaje
-		la primera vez y cada vez que cambia la lista (``extra["agentes_presentados"]``).
+		la primera vez y cada vez que cambia la lista (``extra["skills_presentadas"]``).
 		"""
-		from app.services import agentes_sesion
+		from app.services import skills_sesion
 
 		extra = conversacion.ajustes.extra
-		ids = [i for i in extra.get("agentes") or [] if isinstance(i, int)]
+		ids = [i for i in extra.get("skills") or [] if isinstance(i, int)]
 		try:
-			from app.services import catalogo_agentes
+			from app.services import catalogo_skills
 
-			datos = catalogo_agentes.datos_para_sesion(self.almacen, ids) if ids else []
+			datos = catalogo_skills.datos_para_sesion(self.almacen, ids) if ids else []
 		except Exception:  # noqa: BLE001 - un catálogo ilegible no impide enviar el mensaje
-			log.warning("No se pudieron leer los agentes elegidos para la sesión", exc_info=True)
+			log.warning("No se pudieron leer las skills elegidas para la sesión", exc_info=True)
 			datos = []
 		datos = [d for d in datos if d.get("existe", True)]
-		conversacion.agentes = datos
+		conversacion.skills = datos
 		sesion = self.almacen.sesion(clave)
 		proveedor = self.proveedor(sesion.proveedor) if sesion is not None else None
 		remota = remoto.es_remota(extra)
-		nativo = proveedor is not None and getattr(proveedor.capacidades, "agentes_nativos", False) and not remota
-		firma = agentes_sesion.firma(datos)
-		anterior = str(extra.get("agentes_presentados") or "")
+		nativo = proveedor is not None and getattr(proveedor.capacidades, "skills_nativas", False) and not remota
+		firma = skills_sesion.firma(datos)
+		anterior = str(extra.get("skills_presentadas") or "")
 		if nativo or firma == anterior:
 			return texto
-		extra["agentes_presentados"] = firma
+		extra["skills_presentadas"] = firma
 		if sesion is not None:
 			guardado = dict(sesion.extra or {})
-			guardado["agentes_presentados"] = firma
+			guardado["skills_presentadas"] = firma
 			self.almacen.actualizar_sesion(clave, extra=guardado)
 		if not datos:
-			return "[Ctrl+IA] Ya no hay agentes elegidos para esta sesión: deja de usar los de antes.\n\n" + texto
+			return skills_sesion.AVISO_SIN_SKILLS + "\n\n" + texto
 		con_contenido = remota or (proveedor is not None and proveedor.id == "ollama")
-		return agentes_sesion.presentacion(datos, con_contenido) + "\n\n" + texto
+		return skills_sesion.presentacion(datos, con_contenido) + "\n\n" + texto
 
 	def detener(self, clave: str) -> list[str]:
 		"""Detiene el turno y devuelve los mensajes que estaban en cola."""
@@ -1197,14 +1197,14 @@ class GestorSesiones(MixinPuntos):
 		conversacion = self.conversacion(clave, crear=False)
 		if conversacion is not None:
 			conversacion.cambiar_ajustes(**campos)
-		for nombre in ("estilo", "agentes"):
+		for nombre in ("estilo", "skills"):
 			if nombre not in cambios:
 				continue
-			# El estilo (Claude Code) y los agentes del catálogo van en ``extra``: no hace falta tocar el esquema.
-			# Los agentes se le dicen (o se le cargan) al agente desde el próximo mensaje.
+			# El estilo (Claude Code) y las skills del catálogo van en ``extra``: no hace falta tocar el esquema.
+			# Las skills se le dicen (o se le cargan) al agente desde el próximo mensaje.
 			sesion = self.almacen.sesion(clave)
 			extra = dict(sesion.extra or {}) if sesion is not None else {}
-			valor = [int(i) for i in cambios[nombre] or []] if nombre == "agentes" else str(cambios[nombre] or "")
+			valor = [int(i) for i in cambios[nombre] or []] if nombre == "skills" else str(cambios[nombre] or "")
 			extra[nombre] = valor
 			self.almacen.actualizar_sesion(clave, extra=extra)
 			if conversacion is not None:
@@ -1275,10 +1275,10 @@ class GestorSesiones(MixinPuntos):
 		self.almacen.borrar_sesion(clave)
 		self._borrar_puntos(sesion)  # sus puntos de restauración, en segundo plano
 		if sesion is not None and sesion.proveedor == "claude" and sesion.id_externo:
-			# El complemento con los agentes de la sesión (enlaces); los originales no se tocan.
-			from app.services import agentes_sesion
+			# El complemento con las skills de la sesión (enlaces); los originales no se tocan.
+			from app.services import skills_sesion
 
-			agentes_sesion.limpiar_complemento("claude:" + sesion.id_externo)
+			skills_sesion.limpiar_complemento("claude:" + sesion.id_externo)
 
 	def borrar_importadas(self) -> int:
 		"""Borra la copia de todas las sesiones importadas. Devuelve cuántas había."""

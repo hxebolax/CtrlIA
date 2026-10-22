@@ -6,7 +6,7 @@
 - Codex guarda el modelo que sustituyó a uno retirado.
 - Sonidos de compactación y de límite de uso.
 - Herramientas del agente (inventario de Claude Code y de Codex).
-- Agentes del catálogo en las sesiones: complemento de Claude Code y presentación para los demás.
+- Skills del catálogo en las sesiones: complemento de Claude Code y presentación para los demás.
 - Estilo de las respuestas en «Nueva sesión».
 - El foco al abrir una sesión no cae en un aviso «Permitido…».
 
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services import agentes_sesion, inventario
+from app.services import skills_sesion, inventario
 from app.services.agentes.base import AjustesSesion, TipoEvento
 from app.services.agentes.claude import ProveedorClaude
 from app.services.agentes.codex import url_abrir_en_codex
@@ -90,13 +90,13 @@ def test_indice_al_abrir_salta_los_avisos_de_regla():
 
 def test_inventario_de_claude():
 	datos = {"mcp_servers": [{"name": "claude-in-chrome", "status": "connected"}, {"name": "gmail", "status": "needs-auth"}],
-		"plugins": [{"name": "ctrlia-agentes", "version": "1.0.0"}], "skills": ["ctrlia-agentes:pruebas", "loop"],
+		"plugins": [{"name": "ctrlia-skills", "version": "1.0.0"}], "skills": ["ctrlia-skills:pruebas", "loop"],
 		"agents": ["general-purpose"], "tools": ["Bash", "Read", "mcp__gmail__buscar"]}
 	resultado = inventario.desde_init_claude(datos)
 	texto = inventario.describir(resultado, "Web")
 	assert "Herramientas de Claude Code en «Web»" in texto
 	assert "- claude-in-chrome: conectado" in texto and "- gmail: necesita que inicies sesión" in texto
-	assert "- ctrlia-agentes: versión 1.0.0" in texto
+	assert "- ctrlia-skills: versión 1.0.0" in texto
 	assert "Habilidades (2):" in texto and "Subagentes (1):" in texto
 	assert "Herramientas (3): 2 propias del agente y 1 de servidores MCP." in texto
 
@@ -125,59 +125,59 @@ def test_claude_dice_su_inventario_tras_el_inicio(tmp_path):
 	assert conversacion.inventario().servidores_mcp == [("claude-in-chrome", "conectado")]
 
 
-# -- Agentes del catálogo en las sesiones -----------------------------------------------
+# -- Skills del catálogo en las sesiones ------------------------------------------------
 
 
 @pytest.fixture
-def agente_real(tmp_path, monkeypatch):
+def skill_real(tmp_path, monkeypatch):
 	monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
-	carpeta = tmp_path / "agentes" / "pruebas"
+	carpeta = tmp_path / "skills" / "pruebas"
 	carpeta.mkdir(parents=True)
 	(carpeta / "SKILL.md").write_text("---\nname: pruebas\ndescription: Escribe pruebas.\n---\nCuerpo.", encoding="utf-8")
 	(carpeta / "plantilla.txt").write_text("importante", encoding="utf-8")
 	return {"nombre": "Pruebas", "descripcion": "Escribe pruebas con pytest.", "carpeta": str(carpeta), "existe": True}
 
 
-def test_complemento_de_claude_enlaza_y_limpiar_no_toca_el_original(agente_real):
-	carpeta = agentes_sesion.preparar_complemento("claude:" + UUID, [agente_real])
+def test_complemento_de_claude_enlaza_y_limpiar_no_toca_el_original(skill_real):
+	carpeta = skills_sesion.preparar_complemento("claude:" + UUID, [skill_real])
 	assert carpeta is not None
 	plugin = json.loads((carpeta / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-	assert plugin["name"] == agentes_sesion.NOMBRE_COMPLEMENTO
+	assert plugin["name"] == skills_sesion.NOMBRE_COMPLEMENTO
 	habilidad = carpeta / "skills" / "pruebas"
 	assert (habilidad / "SKILL.md").is_file()
 	# Volver a prepararla (otro arranque) y limpiarla no borra NUNCA la carpeta original.
-	agentes_sesion.preparar_complemento("claude:" + UUID, [agente_real])
-	agentes_sesion.limpiar_complemento("claude:" + UUID)
+	skills_sesion.preparar_complemento("claude:" + UUID, [skill_real])
+	skills_sesion.limpiar_complemento("claude:" + UUID)
 	assert not carpeta.exists()
-	assert sorted(p.name for p in Path(agente_real["carpeta"]).iterdir()) == ["SKILL.md", "plantilla.txt"]
+	assert sorted(p.name for p in Path(skill_real["carpeta"]).iterdir()) == ["SKILL.md", "plantilla.txt"]
 
 
-def test_complemento_sin_agentes_validos(agente_real, tmp_path):
-	assert agentes_sesion.preparar_complemento("claude:x", [{"nombre": "No", "carpeta": str(tmp_path / "no")}]) is None
+def test_complemento_sin_skills_validas(skill_real, tmp_path):
+	assert skills_sesion.preparar_complemento("claude:x", [{"nombre": "No", "carpeta": str(tmp_path / "no")}]) is None
 
 
-def test_claude_carga_los_agentes_con_plugin_dir(agente_real, tmp_path):
+def test_claude_carga_las_skills_con_plugin_dir(skill_real, tmp_path):
 	ajustes = AjustesSesion(carpeta=tmp_path, id_externo=UUID)
 	conversacion = ProveedorClaude(orden_base=["claude"]).crear_conversacion(ajustes, lambda e: None)
-	sin_agentes = conversacion._firma(True, True)
-	conversacion.agentes = [agente_real]
+	sin_skills = conversacion._firma(True, True)
+	conversacion.skills = [skill_real]
 	orden = conversacion.construir_orden()
 	complemento = Path(orden[orden.index("--plugin-dir") + 1])
 	assert (complemento / "skills" / "pruebas" / "SKILL.md").is_file()
-	assert conversacion._firma(True, True) != sin_agentes
-	agentes_sesion.limpiar_complemento("claude:" + UUID)
+	assert conversacion._firma(True, True) != sin_skills
+	skills_sesion.limpiar_complemento("claude:" + UUID)
 
 
-def test_presentacion_para_los_demas(agente_real):
-	texto = agentes_sesion.presentacion([agente_real])
-	assert texto.startswith(agentes_sesion.CABECERA_PRESENTACION)
+def test_presentacion_para_los_demas(skill_real):
+	texto = skills_sesion.presentacion([skill_real])
+	assert texto.startswith(skills_sesion.CABECERA_PRESENTACION)
 	assert "- Pruebas: Escribe pruebas con pytest." in texto and "SKILL.md" in texto
 	assert "Cuerpo." not in texto
-	completo = agentes_sesion.presentacion([agente_real], con_contenido=True)
+	completo = skills_sesion.presentacion([skill_real], con_contenido=True)
 	assert "Cuerpo." in completo
-	assert agentes_sesion.presentacion([]) == ""
-	assert agentes_sesion.firma([agente_real]) == agentes_sesion.firma([dict(agente_real)])
-	assert agentes_sesion.firma([]) == ""
+	assert skills_sesion.presentacion([]) == ""
+	assert skills_sesion.firma([skill_real]) == skills_sesion.firma([dict(skill_real)])
+	assert skills_sesion.firma([]) == ""
 
 
 # -- Estilo en «Nueva sesión» ----------------------------------------------------------------
@@ -264,92 +264,94 @@ def test_herramientas_del_agente_desde_el_menu(ventana, tmp_path, monkeypatch):
 	assert vistos and "claude-in-chrome: conectado" in vistos[0] and "«Con herramientas»" in vistos[0]
 
 
-def test_regla_de_lectura_de_la_carpeta_de_un_agente():
-	assert agentes_sesion.regla_lectura(r"E:\Proyectos\agentes\traducciones") == \
-		"Read(//e/Proyectos/agentes/traducciones/**)"
-	assert agentes_sesion.regla_lectura("C:\\") == ""
-	assert agentes_sesion.regla_lectura("/home/ana/agente") == ""
-	assert agentes_sesion.regla_lectura(r"C:\raro(1)") == ""
+def test_regla_de_lectura_de_la_carpeta_de_una_skill():
+	assert skills_sesion.regla_lectura(r"E:\Proyectos\skills\traducciones") == \
+		"Read(//e/Proyectos/skills/traducciones/**)"
+	assert skills_sesion.regla_lectura("C:\\") == ""
+	assert skills_sesion.regla_lectura("/home/ana/skill") == ""
+	assert skills_sesion.regla_lectura(r"C:\raro(1)") == ""
 
 
-def test_claude_dice_que_agentes_tiene_y_puede_leerlos(agente_real, tmp_path):
+def test_claude_dice_que_skills_tiene_y_puede_leerlas(skill_real, tmp_path):
 	ajustes = AjustesSesion(carpeta=tmp_path, id_externo=UUID)
 	conversacion = ProveedorClaude(orden_base=["claude"]).crear_conversacion(ajustes, lambda e: None)
-	conversacion.agentes = [agente_real]
+	conversacion.skills = [skill_real]
 	orden = conversacion.construir_orden()
 	indicacion = orden[orden.index("--append-system-prompt") + 1]
-	assert "ctrlia-agentes:pruebas" in indicacion and "SKILL.md" in indicacion
-	lectura = agentes_sesion.regla_lectura(agente_real["carpeta"])
+	assert "ctrlia-skills:pruebas" in indicacion and "SKILL.md" in indicacion
+	lectura = skills_sesion.regla_lectura(skill_real["carpeta"])
 	assert lectura and lectura in orden
-	agentes_sesion.limpiar_complemento("claude:" + UUID)
+	skills_sesion.limpiar_complemento("claude:" + UUID)
 
 
-def test_el_gestor_presenta_los_agentes_una_vez(agente_real, tmp_path):
+def test_el_gestor_presenta_las_skills_una_vez(skill_real, tmp_path):
 	from app.services.almacen import Almacen
-	from app.services.catalogo_agentes import CatalogoAgentes
+	from app.services.catalogo_skills import CatalogoSkills
 	from app.services.gestor import GestorSesiones
 	from tests.test_gestor import ProveedorFalso
 
 	almacen = Almacen(tmp_path / "prueba.db")
-	CatalogoAgentes(almacen).importar_carpeta(agente_real["carpeta"])
-	ids = [a.id for a in almacen.agentes_catalogo()]
+	CatalogoSkills(almacen).importar_carpeta(skill_real["carpeta"])
+	ids = [a.id for a in almacen.skills_catalogo()]
 	proveedor = ProveedorFalso()
 	gestor = GestorSesiones(almacen, {"falso": proveedor}, lambda c, e: None, lambda clave, defecto: defecto)
-	clave = gestor.nueva_sesion("falso", AjustesSesion(carpeta=tmp_path, extra={"agentes": ids}))
+	clave = gestor.nueva_sesion("falso", AjustesSesion(carpeta=tmp_path, extra={"skills": ids}))
 	gestor.enviar(clave, "hola")
 	gestor.enviar(clave, "otra vez")
 	enviados = proveedor.conversaciones[0].enviados
-	assert enviados[0].startswith(agentes_sesion.CABECERA_PRESENTACION) and enviados[0].endswith("hola")
+	assert enviados[0].startswith(skills_sesion.CABECERA_PRESENTACION) and enviados[0].endswith("hola")
 	assert enviados[1] == "otra vez"
 	# Lo guardado y lo que se ve es lo que escribió la persona.
 	assert [m.texto for m in almacen.mensajes(clave) if m.rol == "usuario"][:2] == ["hola", "otra vez"]
-	# Si se quitan los agentes, se le dice una vez.
-	gestor.cambiar_ajustes(clave, agentes=[])
-	gestor.enviar(clave, "sin agentes")
-	assert enviados[2].startswith("[Ctrl+IA] Ya no hay agentes") and enviados[2].endswith("sin agentes")
-	assert almacen.sesion(clave).extra["agentes"] == []
+	# Si se quitan las skills, se le dice una vez.
+	gestor.cambiar_ajustes(clave, skills=[])
+	gestor.enviar(clave, "sin skills")
+	assert enviados[2] == skills_sesion.AVISO_SIN_SKILLS + "\n\nsin skills"
+	assert enviados[2].startswith("[Ctrl+IA] Ya no hay skills elegidas")
+	assert almacen.sesion(clave).extra["skills"] == []
+	assert "skills_presentadas" in almacen.sesion(clave).extra
 	almacen.cerrar()
 
 
-# -- Agentes de ejemplo ---------------------------------------------------------------------------
+# -- Skills de ejemplo ----------------------------------------------------------------------------
 
 
-def test_los_agentes_de_ejemplo_viajan_con_el_programa():
-	from app.core.paths import ruta_agentes_ejemplo
+def test_las_skills_de_ejemplo_viajan_con_el_programa():
+	from app.core.paths import ruta_skills_ejemplo
 
-	carpeta = ruta_agentes_ejemplo()
-	agentes = sorted(p.name for p in carpeta.iterdir() if (p / "SKILL.md").is_file())
-	assert len(agentes) >= 10 and "accesibilidad-wx" in agentes and "traducciones" in agentes
+	carpeta = ruta_skills_ejemplo()
+	skills = sorted(p.name for p in carpeta.iterdir() if (p / "SKILL.md").is_file())
+	assert len(skills) >= 10 and "accesibilidad-wx" in skills and "traducciones" in skills
 	assert not list(carpeta.rglob("__pycache__")) and not list(carpeta.rglob("*.pyc"))
 
 
 def test_cargar_restaurar_y_reparar_ejemplos(tmp_path):
 	import shutil
 
-	from app.core.paths import ruta_agentes_ejemplo
+	from app.core.paths import ruta_skills_ejemplo
 	from app.services.almacen import Almacen
-	from app.services.catalogo_agentes import CATEGORIA_EJEMPLOS, CatalogoAgentes
+	from app.services.catalogo_skills import CATEGORIA_EJEMPLOS, CatalogoSkills
 
 	almacen = Almacen(tmp_path / "prueba.db")
-	catalogo = CatalogoAgentes(almacen)
-	total = len([p for p in ruta_agentes_ejemplo().iterdir() if (p / "SKILL.md").is_file()])
+	catalogo = CatalogoSkills(almacen)
+	total = len([p for p in ruta_skills_ejemplo().iterdir() if (p / "SKILL.md").is_file()])
 	assert catalogo.cargar_ejemplos() == total
 	assert catalogo.cargar_ejemplos() == 0  # no se duplican
-	agentes = almacen.agentes_catalogo()
-	assert {a.categoria for a in agentes} == {CATEGORIA_EJEMPLOS}
-	# Cada uno dice que es de ejemplo: en el nombre y en sus notas.
-	assert all(a.nombre.endswith(" (ejemplo)") and "Agente de ejemplo" in a.notas for a in agentes)
-	assert any(a.nombre == "traducciones (ejemplo)" for a in agentes)
-	# Quitar uno y restaurarlo.
-	almacen.borrar_agente_catalogo(agentes[0].id)
+	skills = almacen.skills_catalogo()
+	assert {a.categoria for a in skills} == {CATEGORIA_EJEMPLOS}
+	# Cada una dice que es de ejemplo: en el nombre y en sus notas.
+	assert all(a.nombre.endswith(" (ejemplo)") and "Skill de ejemplo" in a.notas for a in skills)
+	assert any(a.nombre == "traducciones (ejemplo)" for a in skills)
+	# Quitar una y restaurarla.
+	almacen.borrar_skill_catalogo(skills[0].id)
 	assert catalogo.cargar_ejemplos() == 1
 	# El programa portable se mueve: las rutas se corrigen al arrancar.
-	movida = tmp_path / "otra" / "data" / "agentes_ejemplo"
-	shutil.copytree(ruta_agentes_ejemplo(), movida)
-	for agente in almacen.agentes_catalogo():
-		almacen.actualizar_agente_catalogo(agente.id, carpeta=str(tmp_path / "vieja" / "data" / "agentes_ejemplo" / Path(agente.carpeta).name))
+	movida = tmp_path / "otra" / "data" / "skills_ejemplo"
+	shutil.copytree(ruta_skills_ejemplo(), movida)
+	for skill in almacen.skills_catalogo():
+		almacen.actualizar_skill_catalogo(skill.id, carpeta=str(tmp_path / "vieja" / "data" / "skills_ejemplo" / Path(skill.carpeta).name))
 	assert catalogo.reparar_ejemplos(movida) == total
-	assert all(Path(a.carpeta).is_dir() for a in almacen.agentes_catalogo())
+	assert all(Path(a.carpeta).is_dir() for a in almacen.skills_catalogo())
 	almacen.cerrar()
 
 
@@ -363,11 +365,11 @@ def test_la_ventana_los_carga_solo_la_primera_vez(tmp_path):
 	opciones = {}
 	falsa = SimpleNamespace(almacen=almacen, opcion=lambda c, d=None: opciones.get(c, d),
 		poner_opcion=lambda c, v: opciones.__setitem__(c, v))
-	VentanaPrincipal._preparar_agentes_ejemplo(falsa)
-	cargados = len(almacen.agentes_catalogo())
-	assert cargados >= 10 and opciones["agentes.ejemplos_cargados"] is True
-	for agente in almacen.agentes_catalogo():
-		almacen.borrar_agente_catalogo(agente.id)
-	VentanaPrincipal._preparar_agentes_ejemplo(falsa)
-	assert almacen.agentes_catalogo() == []  # si la persona los quitó, no vuelven solos
+	VentanaPrincipal._preparar_skills_ejemplo(falsa)
+	cargados = len(almacen.skills_catalogo())
+	assert cargados >= 10 and opciones["skills.ejemplos_cargados"] is True
+	for skill in almacen.skills_catalogo():
+		almacen.borrar_skill_catalogo(skill.id)
+	VentanaPrincipal._preparar_skills_ejemplo(falsa)
+	assert almacen.skills_catalogo() == []  # si la persona los quitó, no vuelven solos
 	almacen.cerrar()

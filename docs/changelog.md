@@ -2,10 +2,12 @@
 
 Cada versión tiene su apartado, de la más reciente a la más antigua. Los cambios se cuentan con palabras de quien usa el programa: qué puedes hacer y dónde.
 
-## Versión 1.5.0 - 2026-10-21
+## Versión 1.5.1 - 2026-10-22
 
 ### Novedades
 
+- Los «agentes» del catálogo se llaman ahora por su nombre: **skills** (habilidades), carpetas con un SKILL.md que explican al agente de IA cómo hacer un trabajo. Herramientas, «Gestor de skills...» (Ctrl+Alt+G); en «Nueva sesión», «Skills del catálogo para la sesión»; en «Opciones de la sesión», «Skills de la sesión»; «Restaurar las skills de ejemplo»; y en Claude Code salen como «ctrlia-skills:nombre». Funcionan igual que antes, con cualquier agente de IA. Al abrir esta versión, Ctrl+IA pasa solo tu catálogo, tus skills (data\skills) y las de ejemplo (data\skills_ejemplo) a los nombres nuevos, sin perder nada.
+- Esta versión incluye todas las novedades de la 1.5.0, la primera publicada también en GitHub (github.com/hxebolax/CtrlIA): están a continuación.
 - Deshacer los cambios de archivos desde un mensaje (Ctrl+Alt+Z, en el menú Sesión y en el menú contextual de tus mensajes), con Claude Code, Codex, Antigravity, Gemini y los agentes ACP. Antes de cada mensaje, Ctrl+IA guarda cómo están los archivos de la carpeta en un repositorio aparte que nunca toca el tuyo, y puedes devolverlos a como estaban antes de cualquiera de tus mensajes, viendo antes qué pasará con cada archivo. «Rehacer los cambios de archivos deshechos» (Ctrl+Alt+Mayús+Z) vuelve atrás el último deshacer. Con tu siguiente mensaje, el agente sabe qué archivos han vuelto atrás. En las sesiones por SSH, solo con Claude Code. Se desactiva en Preferencias, Agentes; necesita Git para Windows.
 - Herramientas de Ctrl+IA para los agentes: pueden avisarte de algo importante (con voz y braille y, si no estás en la ventana de Ctrl+IA, con sonido y notificación de Windows), dar su sesión por terminada como con Ctrl+D y cambiarle el título. Solo afectan a su sesión, y cada uso queda en la conversación como mensaje de Ctrl+IA. Valen para Claude Code (también por SSH), Codex, Antigravity, Gemini y los agentes ACP de este equipo, y salen como «ctrlia» en «Herramientas del agente» (Ctrl+Alt+H). Se desactivan en Preferencias, Agentes.
 - Estado de la PR y de las comprobaciones automáticas (CI) de cada sesión, con cualquier agente: si la carpeta es un repositorio de GitHub y su rama tiene una PR, Ctrl+IA te avisa una vez cuando las comprobaciones fallan o pasan, cuando la PR se fusiona y cuando en la revisión piden cambios. En el menú Sesión, «PR y comprobaciones» (también en el menú contextual de la lista de sesiones): ver el estado (Ctrl+Alt+P), abrir la PR en el navegador, copiar su enlace, leer el fallo de las comprobaciones y pedir al agente que lo arregle (prepara el mensaje sin enviarlo). Propiedades y Estado del turno dicen cómo va. Necesita la herramienta gh con tu sesión de GitHub; se desactiva en Preferencias, Anuncios.
@@ -17,13 +19,18 @@ Cada versión tiene su apartado, de la más reciente a la más antigua. Los camb
 - Manual reescrito (F1): la mitad de largo y con todo lo que hace el programa, comprobado contra el propio programa, con una tabla de lo que puede hacer cada agente. La lista de teclas (Ctrl+F1) está completa: añade las del panel de lectura, las listas de casillas, enviar a otra sesión y la conversación entre sesiones, y corrige varias descripciones.
 - Opción nueva en Preferencias, Anuncios, desactivada de fábrica: palabras curiosas en la barra de estado mientras el agente escribe («Cavilando…», «Hilvanando…»). Nunca se dicen por voz.
 
-- Actualizaciones desde dos sitios: el servidor de Ctrl+IA y GitHub (github.com/hxebolax/CtrlIA, donde además está ya el código del programa). Si uno no responde se usa el otro, y si GitHub tiene una versión más nueva se ofrece esa; siempre se comprueban la firma y la huella del paquete antes de instalar. También traen los agentes de ejemplo nuevos.
+- Actualizaciones desde dos sitios: el servidor de Ctrl+IA y GitHub (github.com/hxebolax/CtrlIA, donde además está ya el código del programa). Si uno no responde se usa el otro, y si GitHub tiene una versión más nueva se ofrece esa; siempre se comprueban la firma y la huella del paquete antes de instalar. También traen las skills de ejemplo nuevas.
 - Cuando la versión nueva está descargada, Ctrl+IA pregunta una sola vez si quieres reiniciar ahora para aplicar la actualización, y avisa de las sesiones con el agente trabajando. Ya no pregunta después si quieres salir. Con «Más tarde» no se instala nada y la descarga se guarda para cuando la pidas desde Ayuda, «Buscar actualizaciones...».
 
 ### Correcciones
 
+- «Nueva sesión» ya no da «Error inesperado» (wxAssertionError en IsChecked) al abrirse con NVDA: el lector preguntaba por una casilla de la lista de skills que acababa de cambiar y Ctrl+IA no lo comprobaba. Afectaba a todas las listas de casillas.
 - El cuadro de versión nueva muestra las novedades solo cuando vienen publicadas; ya no dice que el servidor no las ha publicado. El progreso de la actualización se dice por voz también cuando el aviso llega solo.
 - Antigravity: la lista de modelos de «Nueva sesión» y «Opciones de la sesión» trae solo los que anuncia tu Antigravity CLI. Desde su versión 1.4.4 ya no acepta los nombres genéricos «flash», «pro» y «flash_lite», y elegirlos hacía fallar la sesión. Si una sesión ya guardada usa un modelo que Antigravity no reconoce, Ctrl+IA te lo dice, sigue con el modelo predeterminado y lo recuerda; solo tienes que volver a enviar el mensaje.
+
+## Versión 1.5.0 - 2026-10-21
+
+Primera versión publicada también en GitHub. Todas sus novedades y correcciones están en la 1.5.1.
 
 ## Versión 1.4.4 - 2026-10-21
 

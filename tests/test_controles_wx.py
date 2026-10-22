@@ -153,6 +153,19 @@ def test_checklistbox_expone_rol_y_estado(marco, dichos):
 	assert dichos[-1] == "Todas desmarcadas"
 
 
+def test_checklistbox_estado_de_un_elemento_que_ya_no_existe(marco):
+	# Fallo de la 1.4.4 («Nueva sesión»): el lector preguntaba por un elemento de una lista que se acababa
+	# de vaciar o filtrar y wx lanzaba «IsValid(uiIndex)» en IsChecked, que salía como «Error inesperado».
+	casillas = CheckListBoxAccesible(marco, "Skills", ["Pruebas", "Traducciones"], forzar_accesible=True)
+	accesible = casillas.GetAccessible()
+	casillas.Set([])
+	for hijo in (1, 2, 5):
+		resultado, estados = accesible.GetState(hijo)
+		assert resultado == wx.ACC_OK and not estados & wx.ACC_STATE_SYSTEM_CHECKED
+	casillas.Set(["Solo una"])
+	assert accesible.GetState(3)[0] == wx.ACC_OK
+
+
 def test_crear_campo_etiqueta_antes_y_nombre(marco):
 	panel = wx.Panel(marco)
 	etiqueta, campo = crear_campo(panel, "&Carpeta de destino:", wx.TextCtrl, ayuda="Dónde se guarda.")

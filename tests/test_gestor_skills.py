@@ -1,4 +1,4 @@
-"""Catálogo de agentes (habilidades con SKILL.md): servicio, gestor, elegir agentes y lista de casillas."""
+"""Catálogo de skills (habilidades con SKILL.md): servicio, gestor, elegir skills y lista de casillas."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from app.services import catalogo_agentes as servicio
+from app.services import catalogo_skills as servicio
 from app.services.almacen import Almacen
-from app.services.catalogo_agentes import CatalogoAgentes, ErrorCatalogo
+from app.services.catalogo_skills import CatalogoSkills, ErrorCatalogo
 
-#: Frontmatter con el formato real de los agentes de ejemplo (accesibilidad-wx, recortado).
+#: Frontmatter con el formato real de las skills de ejemplo (accesibilidad-wx, recortado).
 SKILL_REAL = """---
 name: accesibilidad-wx
 description: Especialista en accesibilidad de aplicaciones de escritorio wxPython en Windows para lectores de pantalla (NVDA, JAWS, Narrador), teclado, braille y baja visión. Úsalo cuando el usuario diga «usa el agente de accesibilidad».
@@ -29,8 +29,8 @@ metadata:
 Eres un especialista en accesibilidad.
 """
 
-#: Agentes reales: los de ejemplo que trae el propio proyecto.
-CARPETA_AGENTES_REAL = Path(__file__).resolve().parents[1] / "data" / "agentes_ejemplo"
+#: Skills reales: las de ejemplo que trae el propio proyecto.
+CARPETA_SKILLS_REAL = Path(__file__).resolve().parents[1] / "data" / "skills_ejemplo"
 
 
 def escribir_skill(carpeta: Path, texto: str | None = None, nombre: str = "SKILL.md", **campos: str) -> Path:
@@ -53,7 +53,7 @@ def almacen(tmp_path):
 
 @pytest.fixture
 def catalogo(almacen, tmp_path):
-	return CatalogoAgentes(almacen, tmp_path / "creados")
+	return CatalogoSkills(almacen, tmp_path / "creados")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -72,22 +72,22 @@ def test_lee_un_skill_real(tmp_path):
 	assert ficha.aviso == ""
 
 
-@pytest.mark.skipif(not CARPETA_AGENTES_REAL.is_dir(), reason="Faltan los agentes de ejemplo del proyecto")
-def test_lee_los_skill_de_la_carpeta_de_agentes_copiados(tmp_path):
+@pytest.mark.skipif(not CARPETA_SKILLS_REAL.is_dir(), reason="Faltan las skills de ejemplo del proyecto")
+def test_lee_los_skill_de_la_carpeta_de_skills_copiadas(tmp_path):
 	# Se copian solo los SKILL.md (nunca se escribe en la carpeta real).
 	copiados = 0
-	for original in sorted(CARPETA_AGENTES_REAL.glob("*/SKILL.md"))[:6]:
-		destino = tmp_path / "agentes" / original.parent.name
+	for original in sorted(CARPETA_SKILLS_REAL.glob("*/SKILL.md"))[:6]:
+		destino = tmp_path / "skills" / original.parent.name
 		destino.mkdir(parents=True)
 		shutil.copyfile(original, destino / "SKILL.md")
 		copiados += 1
-	resultado = servicio.buscar_agentes(tmp_path)
+	resultado = servicio.buscar_skills(tmp_path)
 	assert len(resultado.encontrados) == copiados > 0
 	for ficha in resultado.encontrados:
 		assert ficha.nombre == ficha.carpeta.name
 		assert len(ficha.descripcion) > 50 and "\n" not in ficha.descripcion
 		assert ficha.version
-		# «agentes» es una carpeta genérica: no se propone como categoría.
+		# «skills» es una carpeta genérica: no se propone como categoría.
 		assert servicio.categoria_propuesta(ficha, tmp_path) == ""
 
 
@@ -123,9 +123,9 @@ def test_yaml_roto_no_lanza():
 
 
 def test_skill_sin_frontmatter_usa_carpeta_y_primer_parrafo(tmp_path):
-	escribir_skill(tmp_path / "mi-agente", "# Título\n\nHace cosas útiles\nen dos líneas.\n\nSegundo párrafo.\n")
-	ficha = servicio.leer_skill(tmp_path / "mi-agente" / "SKILL.md")
-	assert ficha.nombre == "mi-agente"
+	escribir_skill(tmp_path / "mi-skill", "# Título\n\nHace cosas útiles\nen dos líneas.\n\nSegundo párrafo.\n")
+	ficha = servicio.leer_skill(tmp_path / "mi-skill" / "SKILL.md")
+	assert ficha.nombre == "mi-skill"
 	assert ficha.descripcion == "Hace cosas útiles en dos líneas."
 	assert "frontmatter" in ficha.aviso
 
@@ -168,28 +168,28 @@ def test_busqueda_recursiva_con_limites(tmp_path):
 	escribir_skill(tmp_path / "web" / "html", name="html", description="Páginas")
 	escribir_skill(tmp_path / "web" / "css", name="css", description="Estilos")
 	escribir_skill(tmp_path / "uno" / "dos" / "tres" / "hondo", name="hondo", description="Profundo")
-	# Dentro de un agente no se busca; las carpetas de herramientas se saltan; las plantillas no cuentan.
+	# Dentro de una skill no se busca; las carpetas de herramientas se saltan; las plantillas no cuentan.
 	escribir_skill(tmp_path / "web" / "html" / "plantillas" / "interno", name="interno", description="No")
 	escribir_skill(tmp_path / "proyecto" / "node_modules" / "paquete", name="paquete", description="No")
 	escribir_skill(tmp_path / "proyecto" / ".git" / "x", name="x", description="No")
-	escribir_skill(tmp_path / "plantillas" / "agente-nuevo", name="{{NOMBRE}}", description="{{DESCRIPCION}}")
-	resultado = servicio.buscar_agentes(tmp_path)
+	escribir_skill(tmp_path / "plantillas" / "skill-nueva", name="{{NOMBRE}}", description="{{DESCRIPCION}}")
+	resultado = servicio.buscar_skills(tmp_path)
 	assert sorted(f.nombre for f in resultado.encontrados) == ["css", "hondo", "html"]
 	assert resultado.plantillas == 1 and not resultado.truncado
-	poco_hondo = servicio.buscar_agentes(tmp_path, profundidad=2)
+	poco_hondo = servicio.buscar_skills(tmp_path, profundidad=2)
 	assert sorted(f.nombre for f in poco_hondo.encontrados) == ["css", "html"]
-	cortado = servicio.buscar_agentes(tmp_path, max_entradas=3)
+	cortado = servicio.buscar_skills(tmp_path, max_entradas=3)
 	assert cortado.truncado
-	uno = servicio.buscar_agentes(tmp_path, max_agentes=1)
+	uno = servicio.buscar_skills(tmp_path, max_skills=1)
 	assert len(uno.encontrados) == 1 and uno.truncado
-	cancelado = servicio.buscar_agentes(tmp_path, cancelado=lambda: True)
+	cancelado = servicio.buscar_skills(tmp_path, cancelado=lambda: True)
 	assert cancelado.truncado and not cancelado.encontrados
 
 
-def test_busqueda_en_la_propia_carpeta_del_agente_y_errores(tmp_path):
+def test_busqueda_en_la_propia_carpeta_de_la_skill_y_errores(tmp_path):
 	escribir_skill(tmp_path / "solo", name="solo", description="Uno")
-	assert [f.nombre for f in servicio.buscar_agentes(tmp_path / "solo").encontrados] == ["solo"]
-	resultado = servicio.buscar_agentes(tmp_path / "no-existe")
+	assert [f.nombre for f in servicio.buscar_skills(tmp_path / "solo").encontrados] == ["solo"]
+	resultado = servicio.buscar_skills(tmp_path / "no-existe")
 	assert resultado.errores and not resultado.encontrados
 
 
@@ -201,7 +201,7 @@ def test_busqueda_no_sigue_uniones(tmp_path):
 		_winapi.CreateJunction(str(tmp_path / "fuera"), str(tmp_path / "raiz" / "enlace"))
 	except OSError:
 		pytest.skip("No se pueden crear uniones aquí")
-	assert servicio.buscar_agentes(tmp_path / "raiz").encontrados == []
+	assert servicio.buscar_skills(tmp_path / "raiz").encontrados == []
 
 
 def test_categoria_propuesta(tmp_path):
@@ -220,8 +220,8 @@ def test_categoria_propuesta(tmp_path):
 def test_nombre_seguro():
 	assert servicio.nombre_seguro("Revisión de código") == "revision-de-codigo"
 	assert servicio.nombre_seguro("  ¡¡Hola!!  mundo//") == "hola-mundo"
-	assert servicio.nombre_seguro("???") == "agente"
-	assert servicio.nombre_seguro("CON") == "con-agente"
+	assert servicio.nombre_seguro("???") == "skill"
+	assert servicio.nombre_seguro("CON") == "con-skill"
 	assert len(servicio.nombre_seguro("x" * 300)) <= servicio.MAX_NOMBRE_CARPETA
 
 
@@ -241,9 +241,9 @@ def test_importar_sin_duplicar(catalogo, tmp_path):
 	assert len(catalogo.listar()) == 1
 	escribir_skill(tmp_path / "web" / "html", name="html", description="Páginas web nuevas", version="1.1")
 	tercero = catalogo.importar(servicio.leer_skill(tmp_path / "web" / "html"), actualizar_descripcion=True)
-	agente = catalogo.obtener(primero.id)
-	assert tercero.actualizado and agente.descripcion == "Páginas web nuevas" and agente.version == "1.1"
-	assert agente.categoria == "Web" and agente.origen == "importado"
+	skill = catalogo.obtener(primero.id)
+	assert tercero.actualizado and skill.descripcion == "Páginas web nuevas" and skill.version == "1.1"
+	assert skill.categoria == "Web" and skill.origen == "importado"
 	assert catalogo.en_catalogo(tmp_path / "web" / "html").id == primero.id
 
 
@@ -278,12 +278,12 @@ def test_listar_filtrar_y_editar(catalogo, tmp_path):
 		catalogo.editar(html.id, nombre="   ")
 
 
-def test_crear_nuevo(catalogo, tmp_path):
+def test_crear_nueva(catalogo, tmp_path):
 	identificador = catalogo.crear("Revisión de código", 'Revisa "todo" en C:\\proyectos', "Programación", "nota")
-	agente = catalogo.obtener(identificador)
-	carpeta = Path(agente.carpeta)
+	skill = catalogo.obtener(identificador)
+	carpeta = Path(skill.carpeta)
 	assert carpeta == tmp_path / "creados" / "revision-de-codigo"
-	assert agente.origen == "creado" and agente.version == "0.1.0" and agente.notas == "nota"
+	assert skill.origen == "creado" and skill.version == "0.1.0" and skill.notas == "nota"
 	ficha = servicio.leer_skill(carpeta)
 	assert ficha.nombre == "revision-de-codigo"
 	assert ficha.descripcion == 'Revisa "todo" en C:\\proyectos'
@@ -295,17 +295,17 @@ def test_crear_nuevo(catalogo, tmp_path):
 		catalogo.crear("   ", "x")
 
 
-def test_crear_en_data_agentes_por_defecto(almacen):
+def test_crear_en_data_skills_por_defecto(almacen):
 	from app.core.paths import ruta_datos
 
-	identificador = CatalogoAgentes(almacen).crear("Nuevo", "Descripción")
-	assert Path(almacen.agente_catalogo(identificador).carpeta).parent == ruta_datos() / "agentes"
+	identificador = CatalogoSkills(almacen).crear("Nuevo", "Descripción")
+	assert Path(almacen.skill_catalogo(identificador).carpeta).parent == ruta_datos() / "skills"
 
 
 def test_eliminar_con_y_sin_borrar_carpeta(catalogo, tmp_path):
 	escribir_skill(tmp_path / "ajeno", name="ajeno", description="De la persona")
 	importado = catalogo.importar(servicio.leer_skill(tmp_path / "ajeno")).id
-	# Un agente importado nunca borra su carpeta (y sigue en el catálogo si se pide).
+	# Una skill importada nunca borra su carpeta (y sigue en el catálogo si se pide).
 	with pytest.raises(ErrorCatalogo):
 		catalogo.eliminar(importado, borrar_carpeta=True)
 	assert catalogo.obtener(importado) is not None
@@ -322,12 +322,12 @@ def test_eliminar_con_y_sin_borrar_carpeta(catalogo, tmp_path):
 
 def test_no_borra_carpetas_sospechosas(catalogo, monkeypatch):
 	creado = catalogo.crear("Mío", "Creado aquí")
-	agente = catalogo.obtener(creado)
-	(Path(agente.carpeta) / "SKILL.md").unlink()
-	assert "SKILL.md" in catalogo.se_puede_borrar_carpeta(agente)
-	(Path(agente.carpeta) / "SKILL.md").write_text("---\nname: x\n---\n", encoding="utf-8")
+	skill = catalogo.obtener(creado)
+	(Path(skill.carpeta) / "SKILL.md").unlink()
+	assert "SKILL.md" in catalogo.se_puede_borrar_carpeta(skill)
+	(Path(skill.carpeta) / "SKILL.md").write_text("---\nname: x\n---\n", encoding="utf-8")
 	monkeypatch.setattr(servicio, "MAX_ENTRADAS_BORRAR", 0)
-	assert "más de" in catalogo.se_puede_borrar_carpeta(agente)
+	assert "más de" in catalogo.se_puede_borrar_carpeta(skill)
 
 
 def test_refrescar(catalogo, tmp_path):
@@ -361,7 +361,7 @@ def test_refrescar_descartar_no_vuelve_a_preguntar(catalogo, tmp_path):
 	os.utime(archivo, (futuro, futuro))
 	cambios = catalogo.refrescar().cambiados
 	assert len(cambios) == 1
-	catalogo.almacen.actualizar_agente_catalogo(identificador, modificado=futuro + 1)
+	catalogo.almacen.actualizar_skill_catalogo(identificador, modificado=futuro + 1)
 	assert catalogo.refrescar().cambiados == []
 	assert catalogo.obtener(identificador).descripcion == "Mi descripción"
 
@@ -389,7 +389,7 @@ def test_exportar_e_importar_json(catalogo, almacen, tmp_path):
 	assert catalogo.exportar_json(ruta) == 2
 	otro_almacen = Almacen(tmp_path / "otro.db")
 	try:
-		otro = CatalogoAgentes(otro_almacen)
+		otro = CatalogoSkills(otro_almacen)
 		resultado = otro.importar_json(ruta)
 		assert (resultado.nuevos, resultado.omitidos) == (2, 0)
 		assert {a.origen for a in otro.listar()} == {"importado", "creado"}
@@ -427,9 +427,9 @@ def anuncios(monkeypatch):
 
 @pytest.fixture
 def gestor(app_wx, almacen, tmp_path, anuncios):
-	from app.ui.dialogos.gestor_agentes import DialogoGestorAgentes
+	from app.ui.dialogos.gestor_skills import DialogoGestorSkills
 
-	dialogo = DialogoGestorAgentes(None, almacen, carpeta_creados=tmp_path / "creados")
+	dialogo = DialogoGestorSkills(None, almacen, carpeta_creados=tmp_path / "creados")
 	yield dialogo
 	dialogo.Destroy()
 
@@ -453,15 +453,15 @@ def test_gestor_lista_columnas_estado_y_filtros(gestor, tmp_path):
 	gestor.recargar()
 	assert gestor.lista.numero_filas() == 2
 	assert gestor.lista.valores_fila(0) == ["pruebas", "Programación", "Descripción de pruebas", str(tmp_path / "pruebas"), "Disponible"]
-	assert gestor.lista.valores_fila(1)[4] == "No encontrado"
-	assert gestor.etiqueta.GetLabel() == "&Agentes (2):"
+	assert gestor.lista.valores_fila(1)[4] == "No encontrada"
+	assert gestor.etiqueta.GetLabel() == "&Skills (2):"
 	assert list(gestor.campo_categoria.GetItems()) == ["Todas", "Sin categoría", "Programación", "Web"]
 	gestor.campo_categoria.SetSelection(3)
 	gestor.recargar()
-	assert [a.nombre for a in gestor.agentes] == ["html"]
+	assert [a.nombre for a in gestor.skills] == ["html"]
 	gestor.campo_categoria.SetSelection(0)
 	gestor.campo_buscar.SetValue("PRUEBAS")  # EVT_TEXT recarga
-	assert [a.nombre for a in gestor.agentes] == ["pruebas"]
+	assert [a.nombre for a in gestor.skills] == ["pruebas"]
 
 
 def test_gestor_menu_contextual(gestor, tmp_path):
@@ -472,7 +472,7 @@ def test_gestor_menu_contextual(gestor, tmp_path):
 		menu.Destroy()
 	assert etiquetas["Ver el SKILL.md"] is False  # lista vacía
 	assert etiquetas["Añadir desde una carpeta..."] is True
-	assert etiquetas["Crear uno nuevo..."] is True
+	assert etiquetas["Crear una nueva..."] is True
 	assert "Quitar del catálogo..." in etiquetas and "Refrescar" in etiquetas
 
 
@@ -509,7 +509,7 @@ def test_gestor_anadir_desde_carpeta(gestor, dialogo_modal, tmp_path, anuncios):
 	dialogo_modal.responder(elegir)
 	assert gestor.anadir_desde_carpeta(tmp_path / "busca") == 2
 	assert {(a.nombre, a.categoria) for a in gestor.catalogo.listar()} == {("css", "Diseño"), ("html", "web")}
-	assert anuncios[-1] == "2 agentes añadidos"
+	assert anuncios[-1] == "2 skills añadidas"
 
 	# Otra vez: los que ya están salen sin marcar y con su aviso.
 	def revisar(dialogo):
@@ -522,21 +522,21 @@ def test_gestor_anadir_desde_carpeta(gestor, dialogo_modal, tmp_path, anuncios):
 	assert gestor.anadir_desde_carpeta(tmp_path / "busca") == 0
 
 
-def test_gestor_anadir_desde_carpeta_sin_agentes(gestor, dialogo_modal, tmp_path):
+def test_gestor_anadir_desde_carpeta_sin_skills(gestor, dialogo_modal, tmp_path):
 	(tmp_path / "vacia").mkdir()
 	assert gestor.anadir_desde_carpeta(tmp_path / "vacia") == 0
 	assert "ninguna carpeta con un archivo SKILL.md" in " ".join(dialogo_modal.ultimo.textos)
 
 
 def test_gestor_encontrados_sin_marcar_no_cierra(app_wx, catalogo, tmp_path, dialogo_modal):
-	from app.ui.dialogos.gestor_agentes import DialogoAgentesEncontrados
+	from app.ui.dialogos.gestor_skills import DialogoSkillsEncontradas
 
 	escribir_skill(tmp_path / "a", name="a", description="A")
-	dialogo = DialogoAgentesEncontrados(None, catalogo, servicio.buscar_agentes(tmp_path), tmp_path)
+	dialogo = DialogoSkillsEncontradas(None, catalogo, servicio.buscar_skills(tmp_path), tmp_path)
 	try:
 		dialogo.lista.marcar_todas(False)
 		assert dialogo.aceptar() is False
-		assert dialogo_modal.ultimo.titulo == "Ningún agente marcado"
+		assert dialogo_modal.ultimo.titulo == "Ninguna skill marcada"
 		menu = dialogo.lista.crear_menu_contextual()
 		assert [i.GetItemLabelText() for i in menu.GetMenuItems()][0] == "Marcar o desmarcar"
 		menu.Destroy()
@@ -544,20 +544,20 @@ def test_gestor_encontrados_sin_marcar_no_cierra(app_wx, catalogo, tmp_path, dia
 		dialogo.Destroy()
 
 
-def test_gestor_anadir_uno_editar_y_ver(gestor, dialogo_modal, tmp_path, monkeypatch, anuncios):
+def test_gestor_anadir_una_editar_y_ver(gestor, dialogo_modal, tmp_path, monkeypatch, anuncios):
 	from app.ui import visor_ayuda
 
 	escribir_skill(tmp_path / "web" / "html", name="html", description="Páginas")
 	dialogo_modal.responder(_rellenar(campo_nombre="HTML", campo_categoria="Web", campo_notas="apunte"))
-	identificador = gestor.anadir_uno(tmp_path / "web" / "html")
-	agente = gestor.catalogo.obtener(identificador)
-	assert (agente.nombre, agente.categoria, agente.notas, agente.descripcion) == ("HTML", "Web", "apunte", "Páginas")
+	identificador = gestor.anadir_una(tmp_path / "web" / "html")
+	skill = gestor.catalogo.obtener(identificador)
+	assert (skill.nombre, skill.categoria, skill.notas, skill.descripcion) == ("HTML", "Web", "apunte", "Páginas")
 	assert gestor.actual().id == identificador
 
 	# Ya está: se ofrece poner la descripción nueva del SKILL.md.
 	escribir_skill(tmp_path / "web" / "html", name="html", description="Páginas nuevas")
 	dialogo_modal.responder(wx.ID_YES)
-	assert gestor.anadir_uno(tmp_path / "web" / "html") == identificador
+	assert gestor.anadir_una(tmp_path / "web" / "html") == identificador
 	assert gestor.catalogo.obtener(identificador).descripcion == "Páginas nuevas"
 
 	dialogo_modal.responder(_rellenar(campo_descripcion="Otra\ncosa"))
@@ -570,19 +570,19 @@ def test_gestor_anadir_uno_editar_y_ver(gestor, dialogo_modal, tmp_path, monkeyp
 	assert vistos[0][0] == "HTML (SKILL.md)" and "Páginas nuevas" in vistos[0][1]
 
 	dialogo_modal.responder(wx.ID_OK)
-	assert gestor.anadir_uno(tmp_path / "no-existe") is None
+	assert gestor.anadir_una(tmp_path / "no-existe") is None
 
 
-def test_gestor_crear_nuevo(gestor, dialogo_modal, tmp_path):
+def test_gestor_crear_nueva(gestor, dialogo_modal, tmp_path):
 	dialogo_modal.responder(_rellenar(campo_nombre="Revisor de textos", campo_descripcion="Revisa textos"), wx.ID_NO)
-	identificador = gestor.crear_nuevo()
-	agente = gestor.catalogo.obtener(identificador)
-	assert Path(agente.carpeta) == tmp_path / "creados" / "revisor-de-textos"
-	assert (Path(agente.carpeta) / "SKILL.md").is_file()
-	assert dialogo_modal.ultimo.titulo == "Agente creado"
+	identificador = gestor.crear_nueva()
+	skill = gestor.catalogo.obtener(identificador)
+	assert Path(skill.carpeta) == tmp_path / "creados" / "revisor-de-textos"
+	assert (Path(skill.carpeta) / "SKILL.md").is_file()
+	assert dialogo_modal.ultimo.titulo == "Skill creada"
 	# Sin descripción no se crea.
 	dialogo_modal.responder(_rellenar(campo_nombre="Otro", campo_descripcion=""), wx.ID_CANCEL)
-	assert gestor.crear_nuevo() is None
+	assert gestor.crear_nueva() is None
 
 
 def test_gestor_eliminar(gestor, dialogo_modal, tmp_path, anuncios):
@@ -594,14 +594,14 @@ def test_gestor_eliminar(gestor, dialogo_modal, tmp_path, anuncios):
 	dialogo_modal.responder(wx.ID_YES)
 	assert gestor.eliminar() is True and gestor.lista.numero_filas() == 0
 	assert (tmp_path / "ajeno" / "SKILL.md").is_file()
-	assert anuncios[-1] == "Agente quitado del catálogo"
+	assert anuncios[-1] == "Skill quitada del catálogo"
 
 	creado = gestor.catalogo.crear("Mío", "Creado")
 	carpeta = Path(gestor.catalogo.obtener(creado).carpeta)
 	gestor.recargar(creado)
 	dialogo_modal.responder(wx.ID_YES, wx.ID_YES)
 	assert gestor.eliminar() is True
-	assert not carpeta.exists() and anuncios[-1] == "Agente quitado y carpeta borrada"
+	assert not carpeta.exists() and anuncios[-1] == "Skill quitada y carpeta borrada"
 	assert "No se puede deshacer" in " ".join(dialogo_modal.ultimo.textos)
 
 
@@ -609,7 +609,7 @@ def test_gestor_confirmacion_de_quitar_tiene_no_por_defecto(gestor, tmp_path, mo
 	escribir_skill(tmp_path / "a", name="a", description="A")
 	gestor.catalogo.importar(servicio.leer_skill(tmp_path / "a"))
 	gestor.recargar()
-	from app.ui.dialogos import gestor_agentes as modulo
+	from app.ui.dialogos import gestor_skills as modulo
 
 	peligrosos = []
 
@@ -635,8 +635,8 @@ def test_gestor_refrescar(gestor, dialogo_modal, tmp_path, anuncios):
 	dialogo_modal.responder(wx.ID_YES)
 	resultado = gestor.refrescar()
 	assert len(resultado.cambiados) == 1 and gestor.catalogo.obtener(ida).descripcion == "A nueva"
-	assert anuncios[-1] == "Catálogo revisado: 2 agentes, 1 no encontrados, 1 con descripción nueva"
-	assert [gestor.lista.valores_fila(i)[4] for i in range(2)] == ["Disponible", "No encontrado"]
+	assert anuncios[-1] == "Catálogo revisado: 2 skills, 1 no encontradas, 1 con descripción nueva"
+	assert [gestor.lista.valores_fila(i)[4] for i in range(2)] == ["Disponible", "No encontrada"]
 
 
 def test_gestor_exportar_importar(gestor, tmp_path, anuncios):
@@ -648,7 +648,7 @@ def test_gestor_exportar_importar(gestor, tmp_path, anuncios):
 
 def test_gestor_teclas(gestor, monkeypatch):
 	llamadas = []
-	for nombre in ("editar", "refrescar", "crear_nuevo", "anadir_desde_carpeta", "anadir_uno", "editar_skill",
+	for nombre in ("editar", "refrescar", "crear_nueva", "anadir_desde_carpeta", "anadir_una", "editar_skill",
 			"abrir_carpeta", "eliminar", "copiar_ruta"):
 		monkeypatch.setattr(gestor, nombre, lambda n=nombre: llamadas.append(n))
 
@@ -670,26 +670,26 @@ def test_gestor_teclas(gestor, monkeypatch):
 	pulsar(wx.WXK_DELETE)
 	pulsar(ord("C"), wx.MOD_CONTROL)
 	pulsar(wx.WXK_DELETE, en_lista=False)  # en el cuadro de búsqueda, Supr borra texto
-	assert llamadas == ["editar", "refrescar", "crear_nuevo", "anadir_desde_carpeta", "anadir_uno", "editar_skill",
+	assert llamadas == ["editar", "refrescar", "crear_nueva", "anadir_desde_carpeta", "anadir_una", "editar_skill",
 		"abrir_carpeta", "eliminar", "copiar_ruta"]
 
 
 def test_abrir_gestor_y_menu_de_la_ventana_principal(app_wx, almacen, dialogo_modal):
-	from app.ui.dialogos.gestor_agentes import abrir_gestor
+	from app.ui.dialogos.gestor_skills import abrir_gestor
 	from app.ui.ventana_principal import MENUS, VentanaPrincipal
 
 	assert abrir_gestor(None, almacen) is False
-	assert dialogo_modal.ultimo.titulo == "Gestor de agentes"
+	assert dialogo_modal.ultimo.titulo == "Gestor de skills"
 	herramientas = dict(MENUS)[next(t for t, _e in MENUS if "Herramientas" in t)]
-	entrada = next(e for e in herramientas if e[0] == "gestor_agentes")
-	assert entrada[1].endswith("\tCtrl+Alt+G") and entrada[3] == "accion_gestor_agentes"
-	assert callable(VentanaPrincipal.accion_gestor_agentes)
+	entrada = next(e for e in herramientas if e[0] == "gestor_skills")
+	assert entrada[1].endswith("\tCtrl+Alt+G") and entrada[3] == "accion_gestor_skills"
+	assert callable(VentanaPrincipal.accion_gestor_skills)
 
 
-# ── Elegir agentes para una sesión ────────────────────────────────────────────
+# ── Elegir skills para una sesión ─────────────────────────────────────────────
 
 @pytest.fixture
-def con_agentes(catalogo, tmp_path):
+def con_skills(catalogo, tmp_path):
 	ids = {}
 	for nombre, categoria in (("html", "Web"), ("css", "Web"), ("pruebas", "Programación"), ("suelto", "")):
 		escribir_skill(tmp_path / "ag" / nombre, name=nombre, description=f"Hace {nombre}")
@@ -697,15 +697,15 @@ def con_agentes(catalogo, tmp_path):
 	return ids
 
 
-def test_panel_agentes_marcar_filtrar_y_seleccionar(marco, almacen, con_agentes, anuncios):
-	from app.ui.dialogos.elegir_agentes import PanelAgentes
+def test_panel_skills_marcar_filtrar_y_seleccionar(marco, almacen, con_skills, anuncios):
+	from app.ui.dialogos.elegir_skills import PanelSkills
 
-	panel = PanelAgentes(marco, almacen, seleccionados=[con_agentes["css"]])
+	panel = PanelSkills(marco, almacen, seleccionados=[con_skills["css"]])
 	textos = [panel.lista.GetString(i) for i in range(panel.lista.GetCount())]
 	assert textos[0] == "suelto — Hace suelto"
 	assert textos[1] == "pruebas (Programación) — Hace pruebas"
-	assert panel.lista.GetName() == "Agentes para la sesión (4)"
-	assert panel.seleccionados() == [con_agentes["css"]]
+	assert panel.lista.GetName() == "Skills para la sesión (4)"
+	assert panel.seleccionados() == [con_skills["css"]]
 	# Filtrar a Programación y marcar «pruebas»: «css» sigue marcado aunque no se vea.
 	panel.campo_categoria.SetSelection(list(panel.campo_categoria.GetItems()).index("Programación"))
 	panel.cargar()
@@ -713,38 +713,38 @@ def test_panel_agentes_marcar_filtrar_y_seleccionar(marco, almacen, con_agentes,
 	panel.lista.SetSelection(0)
 	assert panel.lista.alternar() is True
 	assert anuncios[-1] == "pruebas (Programación) — Hace pruebas, marcada"
-	assert set(panel.seleccionados()) == {con_agentes["css"], con_agentes["pruebas"]}
+	assert set(panel.seleccionados()) == {con_skills["css"], con_skills["pruebas"]}
 	# Ctrl+A no envía eventos: se recoge igualmente.
 	panel.campo_categoria.SetSelection(0)
 	panel.cargar()
 	panel.lista.marcar_todas(True)
-	assert set(panel.seleccionados()) == set(con_agentes.values())
-	panel.seleccionar([con_agentes["html"], 9999])
-	assert panel.seleccionados() == [con_agentes["html"]]
+	assert set(panel.seleccionados()) == set(con_skills.values())
+	panel.seleccionar([con_skills["html"], 9999])
+	assert panel.seleccionados() == [con_skills["html"]]
 	assert panel.lista.indices_marcados() == [3]
 	menu = panel.lista.crear_menu_contextual()
-	assert [i.GetItemLabelText() for i in menu.GetMenuItems()][-1] == "Gestionar agentes..."
+	assert [i.GetItemLabelText() for i in menu.GetMenuItems()][-1] == "Gestionar skills..."
 	menu.Destroy()
 
 
-def test_panel_agentes_gestionar_recarga(marco, almacen, con_agentes, monkeypatch, tmp_path):
-	from app.ui.dialogos import elegir_agentes as modulo
+def test_panel_skills_gestionar_recarga(marco, almacen, con_skills, monkeypatch, tmp_path):
+	from app.ui.dialogos import elegir_skills as modulo
 
-	panel = modulo.PanelAgentes(marco, almacen, seleccionados=[con_agentes["html"]], editor="")
+	panel = modulo.PanelSkills(marco, almacen, seleccionados=[con_skills["html"]], editor="")
 
 	def gestor_falso(padre, almacen_recibido, editor):
 		assert almacen_recibido is almacen
-		almacen_recibido.borrar_agente_catalogo(con_agentes["suelto"])
+		almacen_recibido.borrar_skill_catalogo(con_skills["suelto"])
 		return True
 
 	monkeypatch.setattr(modulo, "abrir_gestor", gestor_falso)
 	assert panel.gestionar() is True
 	assert panel.lista.GetCount() == 3
-	assert panel.seleccionados() == [con_agentes["html"]]
+	assert panel.seleccionados() == [con_skills["html"]]
 
 
-def test_panel_agentes_busca_el_almacen_en_la_ventana(app_wx, almacen, con_agentes):
-	from app.ui.dialogos.elegir_agentes import PanelAgentes, almacen_de, editor_de
+def test_panel_skills_busca_el_almacen_en_la_ventana(app_wx, almacen, con_skills):
+	from app.ui.dialogos.elegir_skills import PanelSkills, almacen_de, editor_de
 
 	ventana = wx.Frame(None)
 	try:
@@ -753,33 +753,33 @@ def test_panel_agentes_busca_el_almacen_en_la_ventana(app_wx, almacen, con_agent
 		interior = wx.Panel(ventana)
 		assert almacen_de(interior) is almacen
 		assert editor_de(interior) == "notepad++.exe"
-		panel = PanelAgentes(interior, con_filtro=False)
+		panel = PanelSkills(interior, con_filtro=False)
 		assert panel.campo_categoria is None and panel.lista.GetCount() == 4
 	finally:
 		ventana.Destroy()
 
 
-def test_panel_agentes_catalogo_vacio(marco, almacen):
-	from app.ui.dialogos.elegir_agentes import PanelAgentes
+def test_panel_skills_catalogo_vacio(marco, almacen):
+	from app.ui.dialogos.elegir_skills import PanelSkills
 
-	panel = PanelAgentes(marco, almacen)
+	panel = PanelSkills(marco, almacen)
 	assert panel.lista.GetCount() == 0 and "vacío" in panel.lista.GetName()
 	assert panel.seleccionados() == []
 
 
-def test_elegir_agentes(app_wx, almacen, con_agentes, dialogo_modal):
-	from app.ui.dialogos.elegir_agentes import elegir_agentes
+def test_elegir_skills(app_wx, almacen, con_skills, dialogo_modal):
+	from app.ui.dialogos.elegir_skills import elegir_skills
 
 	def marcar(dialogo):
-		assert dialogo.GetTitle() == "Agentes de la sesión"
+		assert dialogo.GetTitle() == "Skills de la sesión"
 		dialogo.panel.lista.Check(1, True)  # «pruebas»
 		dialogo.aceptar()
 		return wx.ID_OK
 
 	dialogo_modal.responder(marcar)
-	assert elegir_agentes(None, [con_agentes["html"]], almacen) == [con_agentes["pruebas"], con_agentes["html"]]
+	assert elegir_skills(None, [con_skills["html"]], almacen) == [con_skills["pruebas"], con_skills["html"]]
 	dialogo_modal.responder(wx.ID_CANCEL)
-	assert elegir_agentes(None, [con_agentes["html"]], almacen) is None
+	assert elegir_skills(None, [con_skills["html"]], almacen) is None
 
 
 # ── Lista de casillas ─────────────────────────────────────────────────────────

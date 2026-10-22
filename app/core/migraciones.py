@@ -11,7 +11,125 @@ REGLAS:
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+import sqlite3
+from collections.abc import Iterable
+from pathlib import Path
+
 from app.core.base_datos import Migracion
+
+log = logging.getLogger(__name__)
+
+
+# ── Migración 5: los «agentes» del catálogo pasan a llamarse skills ───────────────
+# Nombra a propósito lo de la 1.5.0 y anteriores (la tabla ``agentes``, ``data\agentes`` y
+# ``data\agentes_ejemplo``, las claves ``agentes`` y ``agentes_presentados`` de ``sesiones.extra``).
+# Las carpetas las mueve antes ``app.services.proteccion_skills`` al arrancar.
+
+#: Carpetas de ``data`` de la 1.5.0 y anteriores → sus nombres nuevos.
+CARPETAS_RENOMBRADAS = {"agentes_ejemplo": "skills_ejemplo", "agentes": "skills"}
+#: Claves de ``sesiones.extra`` de la 1.5.0 y anteriores → sus nombres nuevos.
+CLAVES_EXTRA_RENOMBRADAS = {"agentes": "skills", "agentes_presentados": "skills_presentadas"}
+
+
+def _misma_ruta(una: str | Path, otra: str | Path) -> bool:
+	return os.path.normcase(os.path.normpath(str(una))) == os.path.normcase(os.path.normpath(str(otra)))
+
+
+def ruta_skill_renombrada(carpeta: str, carpetas_datos: Iterable[str | Path] = ()) -> str | None:
+	"""Ruta nueva de una skill del catálogo que estaba en ``data\\agentes`` o ``data\\agentes_ejemplo``.
+
+	Devuelve ``None`` si no hay que cambiarla:
+
+	- no está dentro de una de esas carpetas;
+	- su carpeta vieja sigue existiendo: es una skill de la persona que chocaba con
+	  otra del mismo nombre en ``data\\skills`` y se quedó en su sitio, una carpeta
+	  ajena que también se llama así, o una carpeta que aún no se ha movido;
+	- no existe ni la vieja ni la nueva y su ``data`` no es una de ``carpetas_datos``
+	  (las de Ctrl+IA): no es nuestra y no se toca.
+	"""
+	texto = str(carpeta or "").strip()
+	if not texto:
+		return None
+	ruta = Path(texto)
+	partes = ruta.parts
+	indice = next((i for i in range(len(partes) - 2, -1, -1)
+		if partes[i].lower() == "data" and partes[i + 1].lower() in CARPETAS_RENOMBRADAS), None)
+	if indice is None:
+		return None
+	nueva = Path(*partes[: indice + 1], CARPETAS_RENOMBRADAS[partes[indice + 1].lower()], *partes[indice + 2:])
+	try:
+		if ruta.is_dir():
+			return None
+		if not nueva.is_dir() and not any(_misma_ruta(Path(*partes[: indice + 1]), propia) for propia in carpetas_datos):
+			return None
+	except OSError:
+		return None
+	return os.path.normpath(str(nueva))
+
+
+def carpetas_datos_propias() -> list[Path]:
+	"""Las carpetas ``data`` de Ctrl+IA: la de los datos de la persona y la del programa."""
+	try:
+		from app.core.paths import ruta_base, ruta_datos
+
+		return [ruta_datos(), ruta_base() / "data"]
+	except Exception:  # noqa: BLE001 - sin rutas solo se cambian las que ya existen en su sitio nuevo
+		log.debug("No se pudieron calcular las carpetas de datos", exc_info=True)
+		return []
+
+
+def renombrar_rutas_skills(conexion: sqlite3.Connection, carpetas_datos: Iterable[str | Path] | None = None) -> int:
+	"""Apunta a ``data\\skills`` y ``data\\skills_ejemplo`` las skills de la tabla ``skills`` que estaban en las viejas.
+
+	Nunca deja dos filas con la misma carpeta: si la nueva ya está en el catálogo, la fila se queda como estaba.
+	Devuelve cuántas se han cambiado.
+	"""
+	propias = list(carpetas_datos) if carpetas_datos is not None else carpetas_datos_propias()
+	cambiadas = 0
+	for fila in conexion.execute("SELECT id, carpeta FROM skills").fetchall():
+		identificador, carpeta = fila[0], fila[1]
+		nueva = ruta_skill_renombrada(carpeta, propias)
+		if nueva is None or _misma_ruta(nueva, carpeta):
+			continue
+		if conexion.execute("SELECT 1 FROM skills WHERE carpeta = ? COLLATE NOCASE AND id != ?", (nueva, identificador)).fetchone():
+			log.warning("La skill %s no se ha apuntado a %s: esa carpeta ya está en el catálogo", carpeta, nueva)
+			continue
+		conexion.execute("UPDATE skills SET carpeta = ? WHERE id = ?", (nueva, identificador))
+		log.info("Skill del catálogo apuntada a su carpeta nueva: %s → %s", carpeta, nueva)
+		cambiadas += 1
+	return cambiadas
+
+
+def _renombrar_claves_extra(conexion: sqlite3.Connection) -> int:
+	"""``sesiones.extra``: ``agentes`` → ``skills`` y ``agentes_presentados`` → ``skills_presentadas``."""
+	cambiadas = 0
+	for fila in conexion.execute("SELECT clave, extra FROM sesiones").fetchall():
+		clave, texto = fila[0], fila[1]
+		try:
+			extra = json.loads(texto or "{}")
+		except ValueError:
+			log.warning("El extra de la sesión %s no es JSON válido; se deja como está", clave)
+			continue
+		if not isinstance(extra, dict) or not any(vieja in extra for vieja in CLAVES_EXTRA_RENOMBRADAS):
+			continue
+		for vieja, nueva in CLAVES_EXTRA_RENOMBRADAS.items():
+			if vieja in extra:
+				valor = extra.pop(vieja)
+				extra.setdefault(nueva, valor)
+		conexion.execute("UPDATE sesiones SET extra = ? WHERE clave = ?", (json.dumps(extra, ensure_ascii=False), clave))
+		cambiadas += 1
+	return cambiadas
+
+
+def _migrar_catalogo_a_skills(conexion: sqlite3.Connection) -> None:
+	"""Migración 5 (tras renombrar la tabla): rutas de las skills y claves de ``sesiones.extra``."""
+	rutas = renombrar_rutas_skills(conexion)
+	sesiones = _renombrar_claves_extra(conexion)
+	log.info("Catálogo de skills migrado: %d rutas y %d sesiones actualizadas", rutas, sesiones)
+
 
 MIGRACIONES: tuple[Migracion, ...] = (
 	Migracion(
@@ -149,5 +267,15 @@ MIGRACIONES: tuple[Migracion, ...] = (
 			);
 			CREATE INDEX idx_agentes_categoria ON agentes (categoria, nombre);
 		""",
+	),
+	Migracion(
+		"Catálogo de skills (en la 1.5.0 y anteriores, «agentes»)",
+		sql="""
+			-- Los «agentes» del catálogo de la 1.5.0 y anteriores son skills (carpetas con su SKILL.md).
+			ALTER TABLE agentes RENAME TO skills;
+			DROP INDEX IF EXISTS idx_agentes_categoria;
+			CREATE INDEX idx_skills_categoria ON skills (categoria, nombre);
+		""",
+		funcion=_migrar_catalogo_a_skills,
 	),
 )

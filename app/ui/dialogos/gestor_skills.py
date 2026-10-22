@@ -1,21 +1,21 @@
-"""Gestor de agentes: el catálogo de las habilidades (*skills*) de la persona.
+"""Gestor de skills: el catálogo de las habilidades de la persona, cada una con su SKILL.md.
 
-Cada agente es una carpeta con un SKILL.md (ver ``app.services.catalogo_agentes``).
+Cada skill es una carpeta con un SKILL.md (ver ``app.services.catalogo_skills``).
 La lista tiene Nombre, Categoría, Descripción, Carpeta y Estado («Disponible»
-o «No encontrado»), un filtro por categoría y un cuadro de búsqueda. Todas las
+o «No encontrada»), un filtro por categoría y un cuadro de búsqueda. Todas las
 acciones están en el menú contextual (tecla Aplicaciones o botón «Acciones») y
 con teclas:
 
 - Intro: ver el SKILL.md en el visor de texto.
 - F2: editar nombre, descripción, categoría y notas (solo en el catálogo).
 - Ctrl+E: abrir el SKILL.md en el editor externo (Preferencias).
-- Ctrl+Mayús+E: abrir la carpeta del agente en el Explorador.
+- Ctrl+Mayús+E: abrir la carpeta de la skill en el Explorador.
 - Ctrl+C: copiar la ruta del SKILL.md.
-- Supr: quitarlo del catálogo (Intro en la confirmación es «No»); si se creó
+- Supr: quitarla del catálogo (Intro en la confirmación es «No»); si se creó
   aquí, se pregunta aparte si se borra también su carpeta.
 - Ctrl+O: añadir desde una carpeta (busca dentro y deja elegir con casillas).
-- Ctrl+I: añadir uno (elegir la carpeta que tiene su SKILL.md).
-- Ctrl+N: crear uno nuevo (carpeta y SKILL.md de plantilla).
+- Ctrl+I: añadir una (elegir la carpeta que tiene su SKILL.md).
+- Ctrl+N: crear una nueva (carpeta y SKILL.md de plantilla).
 - F5: refrescar (qué cambió en los SKILL.md y qué carpetas ya no están).
 - Ctrl+F: ir al cuadro de búsqueda.
 - Exportar e importar el catálogo en JSON: en el menú contextual.
@@ -29,9 +29,9 @@ from pathlib import Path
 
 import wx
 
-from app.services import catalogo_agentes as servicio
-from app.services.almacen import AgenteCatalogo, Almacen
-from app.services.catalogo_agentes import CATEGORIA_EJEMPLOS, CatalogoAgentes, ErrorCatalogo, FichaAgente, ResultadoBusqueda
+from app.services import catalogo_skills as servicio
+from app.services.almacen import Almacen, SkillCatalogo
+from app.services.catalogo_skills import CATEGORIA_EJEMPLOS, CatalogoSkills, ErrorCatalogo, FichaSkill, ResultadoBusqueda
 from app.ui import avisos, visor_ayuda
 from app.ui.accesibilidad import voz
 from app.ui.accesibilidad.casillas import CheckListBoxAccesible
@@ -59,9 +59,9 @@ MAX_NOTAS = 8000
 RESUMEN_DESCRIPCION = 160
 
 
-def texto_estado(agente: AgenteCatalogo) -> str:
-	"""«Disponible» o «No encontrado» (su carpeta o su SKILL.md ya no están)."""
-	return _("Disponible") if servicio.disponible(agente) else _("No encontrado")
+def texto_estado(skill: SkillCatalogo) -> str:
+	"""«Disponible» o «No encontrada» (su carpeta o su SKILL.md ya no están)."""
+	return _("Disponible") if servicio.disponible(skill) else _("No encontrada")
 
 
 def resumen(texto: str, maximo: int = RESUMEN_DESCRIPCION) -> str:
@@ -74,7 +74,7 @@ def mostrar_skill(padre: wx.Window | None, nombre: str, archivo: Path | None) ->
 	"""Muestra un SKILL.md en el visor de texto. Avisa si no existe o es demasiado grande."""
 	if archivo is None or not archivo.is_file():
 		mostrar_mensaje(padre, _("No se encuentra el SKILL.md de «{nombre}». Puede que su carpeta se haya movido o borrado; "
-			"pulsa F5 en el gestor de agentes para revisar el catálogo.").format(nombre=nombre), _("No encontrado"))
+			"pulsa F5 en el gestor de skills para revisar el catálogo.").format(nombre=nombre), _("No encontrado"))
 		return False
 	try:
 		if archivo.stat().st_size > servicio.MAX_TAMANO_SKILL:
@@ -91,7 +91,7 @@ def mostrar_skill(padre: wx.Window | None, nombre: str, archivo: Path | None) ->
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Editar, añadir o crear un agente
+# Editar, añadir o crear una skill
 # ════════════════════════════════════════════════════════════════════════════
 
 MODO_EDITAR = "editar"
@@ -99,18 +99,18 @@ MODO_ANADIR = "anadir"
 MODO_CREAR = "crear"
 
 
-class DialogoEditarAgente(wx.Dialog):
-	"""Nombre, descripción, categoría y notas de un agente. Tras ``wx.ID_OK``, ``valores`` tiene lo escrito.
+class DialogoEditarSkill(wx.Dialog):
+	"""Nombre, descripción, categoría y notas de una skill. Tras ``wx.ID_OK``, ``valores`` tiene lo escrito.
 
-	:param modo: ``MODO_EDITAR`` (uno del catálogo), ``MODO_ANADIR`` (uno leído de
-		su SKILL.md, antes de añadirlo) o ``MODO_CREAR`` (uno nuevo: pide además
+	:param modo: ``MODO_EDITAR`` (una del catálogo), ``MODO_ANADIR`` (una leída de
+		su SKILL.md, antes de añadirla) o ``MODO_CREAR`` (una nueva: pide además
 		la carpeta donde se crea).
 	"""
 
 	def __init__(self, padre: wx.Window | None, categorias: list[str], *, modo: str = MODO_EDITAR,
 			nombre: str = "", descripcion: str = "", categoria: str = "", notas: str = "", carpeta: str = "") -> None:
-		titulos = {MODO_EDITAR: _("Editar el agente «{n}»").format(n=nombre), MODO_ANADIR: _("Añadir el agente «{n}»").format(n=nombre),
-			MODO_CREAR: _("Crear un agente nuevo")}
+		titulos = {MODO_EDITAR: _("Editar la skill «{n}»").format(n=nombre), MODO_ANADIR: _("Añadir la skill «{n}»").format(n=nombre),
+			MODO_CREAR: _("Crear una skill nueva")}
 		titulo = titulos.get(modo, titulos[MODO_EDITAR])
 		super().__init__(padre, title=titulo, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER, name=titulo)
 		self.modo = modo
@@ -119,26 +119,26 @@ class DialogoEditarAgente(wx.Dialog):
 		panel = wx.Panel(self)
 		raiz = wx.BoxSizer(wx.VERTICAL)
 		_e, self.campo_nombre = crear_campo(panel, _("&Nombre:"), wx.TextCtrl, sizer=raiz, value=nombre,
-			ayuda=_("Nombre con el que ves el agente en Ctrl+IA. Cambiarlo no cambia su SKILL.md."))
+			ayuda=_("Nombre con el que ves la skill en Ctrl+IA. Cambiarlo no cambia su SKILL.md."))
 		self.campo_nombre.SetMaxLength(MAX_NOMBRE)
 		_e, self.campo_descripcion = crear_campo(panel, _("&Descripción:"), wx.TextCtrl, sizer=raiz, value=descripcion,
 			style=wx.TE_MULTILINE,
-			ayuda=_("Qué hace el agente y cuándo usarlo. Se guarda en una sola línea. En un agente nuevo, va también a su SKILL.md."))
+			ayuda=_("Qué hace la skill y cuándo usarla. Se guarda en una sola línea. En una skill nueva, va también a su SKILL.md."))
 		self.campo_descripcion.SetMaxLength(MAX_DESCRIPCION)
 		self.campo_descripcion.SetMinSize(self.FromDIP(wx.Size(520, 110)))
 		_e, self.campo_categoria = crear_campo(panel, _("Ca&tegoría:"), wx.ComboBox, sizer=raiz, value=categoria,
 			choices=list(categorias), style=wx.CB_DROPDOWN,
-			ayuda=_("Para clasificar los agentes. Elige una de las que ya usas con las flechas o escribe una nueva. Vacía: sin categoría."))
+			ayuda=_("Para clasificar las skills. Elige una de las que ya usas con las flechas o escribe una nueva. Vacía: sin categoría."))
 		_e, self.campo_notas = crear_campo(panel, _("N&otas:"), wx.TextCtrl, sizer=raiz, value=notas, style=wx.TE_MULTILINE,
-			ayuda=_("Lo que quieras apuntar del agente. Solo se guarda en Ctrl+IA."))
+			ayuda=_("Lo que quieras apuntar de la skill. Solo se guarda en Ctrl+IA."))
 		self.campo_notas.SetMaxLength(MAX_NOTAS)
 		self.campo_notas.SetMinSize(self.FromDIP(wx.Size(520, 80)))
 		self.boton_examinar: wx.Button | None = None
 		if modo == MODO_CREAR:
 			fila = wx.BoxSizer(wx.HORIZONTAL)
 			_e, self.campo_carpeta = crear_campo(panel, _("Ca&rpeta donde se crea:"), wx.TextCtrl, sizer=fila, horizontal=True,
-				value=carpeta, ayuda=_("Dentro de esta carpeta se crea otra con el nombre del agente y su SKILL.md. "
-					"Por defecto, la carpeta agentes de los datos de Ctrl+IA."))
+				value=carpeta, ayuda=_("Dentro de esta carpeta se crea otra con el nombre de la skill y su SKILL.md. "
+					"Por defecto, la carpeta skills de los datos de Ctrl+IA."))
 			self.boton_examinar = wx.Button(panel, label=_("E&xaminar..."))
 			self.boton_examinar.SetHelpText(_("Elige la carpeta en una ventana de selección."))
 			self.boton_examinar.Bind(wx.EVT_BUTTON, lambda _evento: self._examinar())
@@ -146,12 +146,12 @@ class DialogoEditarAgente(wx.Dialog):
 			raiz.Add(fila, 0, wx.EXPAND)
 		else:
 			_e, self.campo_carpeta = crear_campo(panel, _("Ca&rpeta:"), wx.TextCtrl, sizer=raiz, value=carpeta,
-				style=wx.TE_READONLY, ayuda=_("Carpeta del agente, donde está su SKILL.md. Solo lectura."))
+				style=wx.TE_READONLY, ayuda=_("Carpeta de la skill, donde está su SKILL.md. Solo lectura."))
 		raiz.Add(crear_botonera(panel, wx.OK | wx.CANCEL), 0, wx.ALIGN_RIGHT | wx.ALL, 8)
 		ayudas_botones = {
 			MODO_EDITAR: _("Guarda los cambios en el catálogo y cierra."),
-			MODO_ANADIR: _("Añade el agente al catálogo con estos datos."),
-			MODO_CREAR: _("Crea la carpeta del agente con su SKILL.md y lo añade al catálogo."),
+			MODO_ANADIR: _("Añade la skill al catálogo con estos datos."),
+			MODO_CREAR: _("Crea la carpeta de la skill con su SKILL.md y la añade al catálogo."),
 		}
 		for identificador, ayuda in ((wx.ID_OK, ayudas_botones.get(modo, "")), (wx.ID_CANCEL, _("Cierra sin cambiar nada."))):
 			boton = panel.FindWindowById(identificador, panel)
@@ -166,7 +166,7 @@ class DialogoEditarAgente(wx.Dialog):
 		self.CentreOnParent()
 
 	def _examinar(self) -> None:
-		with wx.DirDialog(self, _("Carpeta donde se crea el agente"), defaultPath=self.campo_carpeta.GetValue()) as dialogo:
+		with wx.DirDialog(self, _("Carpeta donde se crea la skill"), defaultPath=self.campo_carpeta.GetValue()) as dialogo:
 			if dialogo.ShowModal() == wx.ID_OK:
 				self.campo_carpeta.SetValue(dialogo.GetPath())
 		enfocar(self.campo_carpeta)
@@ -174,18 +174,18 @@ class DialogoEditarAgente(wx.Dialog):
 	def validar(self) -> str | None:
 		"""Mensaje de error o ``None`` si todo vale."""
 		if not servicio.una_linea(self.campo_nombre.GetValue()):
-			return _("Escribe un nombre para el agente.")
+			return _("Escribe un nombre para la skill.")
 		if self.modo == MODO_CREAR:
 			if not servicio.una_linea(self.campo_descripcion.GetValue()):
-				return _("Escribe una descripción: es lo que lee el agente de IA para saber cuándo usarlo.")
+				return _("Escribe una descripción: es lo que lee el agente de IA para saber cuándo usarla.")
 			if not self.campo_carpeta.GetValue().strip().strip('"'):
-				return _("Escribe la carpeta donde se crea el agente o pulsa Examinar.")
+				return _("Escribe la carpeta donde se crea la skill o pulsa Examinar.")
 		return None
 
 	def aceptar(self) -> bool:
 		error = self.validar()
 		if error is not None:
-			mostrar_error(self, error, _("Datos del agente"))
+			mostrar_error(self, error, _("Datos de la skill"))
 			return False
 		self.valores = {
 			"nombre": servicio.una_linea(self.campo_nombre.GetValue()),
@@ -202,9 +202,9 @@ class DialogoEditarAgente(wx.Dialog):
 		return True
 
 
-def pedir_datos_agente(padre: wx.Window | None, categorias: list[str], **datos: str) -> dict[str, str] | None:
-	"""Abre ``DialogoEditarAgente`` y devuelve ``valores`` o ``None`` si se cancela."""
-	dialogo = DialogoEditarAgente(padre, categorias, **datos)
+def pedir_datos_skill(padre: wx.Window | None, categorias: list[str], **datos: str) -> dict[str, str] | None:
+	"""Abre ``DialogoEditarSkill`` y devuelve ``valores`` o ``None`` si se cancela."""
+	dialogo = DialogoEditarSkill(padre, categorias, **datos)
 	try:
 		if dialogo.ShowModal() != wx.ID_OK or not dialogo.valores:
 			return None
@@ -214,75 +214,77 @@ def pedir_datos_agente(padre: wx.Window | None, categorias: list[str], **datos: 
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Elegir qué agentes encontrados se añaden
+# Elegir qué skills encontradas se añaden
 # ════════════════════════════════════════════════════════════════════════════
 
-class DialogoAgentesEncontrados(wx.Dialog):
-	"""Lista de casillas con los agentes encontrados en una carpeta y la categoría de cada uno.
+class DialogoSkillsEncontradas(wx.Dialog):
+	"""Lista de casillas con las skills encontradas en una carpeta y la categoría de cada una.
 
 	Tras ``wx.ID_OK``: ``elegidos`` (``[(ficha, categoría), ...]``) y ``actualizar``.
 	"""
 
-	def __init__(self, padre: wx.Window | None, catalogo: CatalogoAgentes, resultado: ResultadoBusqueda,
+	def __init__(self, padre: wx.Window | None, catalogo: CatalogoSkills, resultado: ResultadoBusqueda,
 			raiz: str | Path) -> None:
-		titulo = _("Agentes encontrados")
+		titulo = _("Skills encontradas")
 		super().__init__(padre, title=titulo, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER, name=titulo)
 		self.catalogo = catalogo
-		self.fichas: list[FichaAgente] = list(resultado.encontrados)
+		self.fichas: list[FichaSkill] = list(resultado.encontrados)
 		self.categorias = [servicio.categoria_propuesta(f, raiz) for f in self.fichas]
 		self.ya_estan = [catalogo.en_catalogo(f.carpeta) is not None for f in self.fichas]
-		self.elegidos: list[tuple[FichaAgente, str]] = []
+		self.elegidos: list[tuple[FichaSkill, str]] = []
 		self.actualizar = False
 
 		panel = wx.Panel(self)
 		raiz_sizer = wx.BoxSizer(wx.VERTICAL)
-		nuevos = self.ya_estan.count(False)
-		partes = [_("En «{carpeta}» hay {n} agentes; {nuevos} todavía no están en el catálogo.").format(
-			carpeta=raiz, n=len(self.fichas), nuevos=nuevos)]
+		nuevas = self.ya_estan.count(False)
+		partes = [_("En «{carpeta}» hay {n} skills; {nuevas} todavía no están en el catálogo.").format(
+			carpeta=raiz, n=len(self.fichas), nuevas=nuevas)]
 		if resultado.truncado:
-			partes.append(_("La búsqueda se paró antes de terminar porque la carpeta es muy grande: elige una más concreta si falta alguno."))
+			partes.append(_("La búsqueda se paró antes de terminar porque la carpeta es muy grande: elige una más concreta si falta alguna."))
 		if resultado.errores:
 			partes.append(_("Hubo {n} carpetas o archivos que no se pudieron leer.").format(n=len(resultado.errores)))
-		partes.append(_("Marca con la barra espaciadora los que quieres añadir y revisa su categoría."))
+		partes.append(_("Marca con la barra espaciadora las que quieres añadir y revisa su categoría."))
 		explicacion = wx.StaticText(panel, label=" ".join(partes))
 		explicacion.Wrap(self.FromDIP(620))
 		raiz_sizer.Add(explicacion, 0, wx.ALL, 8)
 
-		raiz_sizer.Add(wx.StaticText(panel, label=_("Agentes &encontrados:")), 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
-		self.lista = CheckListBoxAccesible(panel, _("Agentes encontrados"), [self._texto(i) for i in range(len(self.fichas))],
+		raiz_sizer.Add(wx.StaticText(panel, label=_("Skills &encontradas:")), 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+		self.lista = CheckListBoxAccesible(panel, _("Skills encontradas"), [self._texto(i) for i in range(len(self.fichas))],
 			recordar_posicion=False)
 		self.lista.SetHelpText(_(
-			"Agentes encontrados en la carpeta. La barra espaciadora marca o desmarca; Control+A los marca todos y "
-			"Control+Mayúsculas+A los desmarca. Los que ya están en el catálogo salen sin marcar. Debajo puedes cambiar "
-			"la categoría del elegido y leer su descripción completa. Tecla Aplicaciones: más acciones."
+			"Skills encontradas en la carpeta. La barra espaciadora marca o desmarca; Control+A las marca todas y "
+			"Control+Mayúsculas+A las desmarca. Las que ya están en el catálogo salen sin marcar. Debajo puedes cambiar "
+			"la categoría de la elegida y leer su descripción completa. Tecla Aplicaciones: más acciones."
 		))
 		self.lista.SetMinSize(self.FromDIP(wx.Size(620, 220)))
 		for indice, ya in enumerate(self.ya_estan):
+			if indice >= self.lista.GetCount():
+				break
 			if not ya:
 				self.lista.Check(indice, True)
 		raiz_sizer.Add(self.lista, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 		vincular_menu_contextual(self.lista, self._crear_menu)
 
 		opciones = sorted({*catalogo.categorias(), *(c for c in self.categorias if c)}, key=str.casefold)
-		_e, self.campo_categoria = crear_campo(panel, _("Ca&tegoría del agente elegido:"), wx.ComboBox, sizer=raiz_sizer,
+		_e, self.campo_categoria = crear_campo(panel, _("Ca&tegoría de la skill elegida:"), wx.ComboBox, sizer=raiz_sizer,
 			choices=opciones, style=wx.CB_DROPDOWN,
-			ayuda=_("Categoría con la que se añade el agente elegido en la lista. Se propone la de su SKILL.md o la de su "
+			ayuda=_("Categoría con la que se añade la skill elegida en la lista. Se propone la de su SKILL.md o la de su "
 				"carpeta; puedes elegir otra con las flechas o escribirla. Vacía: sin categoría."))
-		self.casilla_actualizar = wx.CheckBox(panel, label=_("Act&ualizar la descripción de los que ya están en el catálogo"))
+		self.casilla_actualizar = wx.CheckBox(panel, label=_("Act&ualizar la descripción de las que ya están en el catálogo"))
 		self.casilla_actualizar.SetHelpText(_(
-			"Si marcas un agente que ya está en el catálogo, se pone la descripción de su SKILL.md en lugar de la que tiene."
+			"Si marcas una skill que ya está en el catálogo, se pone la descripción de su SKILL.md en lugar de la que tiene."
 		))
 		raiz_sizer.Add(self.casilla_actualizar, 0, wx.ALL, 8)
 		_e, self.detalles = crear_campo(panel, _("Deta&lles:"), wx.TextCtrl, sizer=raiz_sizer,
 			style=wx.TE_MULTILINE | wx.TE_READONLY,
-			ayuda=_("Descripción completa, carpeta y versión del agente elegido. Solo lectura."))
+			ayuda=_("Descripción completa, carpeta y versión de la skill elegida. Solo lectura."))
 		self.detalles.SetMinSize(self.FromDIP(wx.Size(620, 100)))
 		botonera = crear_botonera(panel, wx.OK | wx.CANCEL)
 		raiz_sizer.Add(botonera, 0, wx.ALIGN_RIGHT | wx.ALL, 8)
 		boton_ok = panel.FindWindowById(wx.ID_OK, panel)
 		if boton_ok is not None:
-			boton_ok.SetLabel(_("&Añadir los marcados"))
-			boton_ok.SetHelpText(_("Añade al catálogo los agentes marcados, con su categoría."))
+			boton_ok.SetLabel(_("&Añadir las marcadas"))
+			boton_ok.SetHelpText(_("Añade al catálogo las skills marcadas, con su categoría."))
 		boton_cancelar = panel.FindWindowById(wx.ID_CANCEL, panel)
 		if boton_cancelar is not None:
 			boton_cancelar.SetHelpText(_("Cierra sin añadir nada."))
@@ -315,7 +317,7 @@ class DialogoAgentesEncontrados(wx.Dialog):
 		return self.lista.GetSelection()
 
 	def mostrar_elegido(self) -> None:
-		"""Pone en «Categoría» y «Detalles» los datos del agente elegido."""
+		"""Pone en «Categoría» y «Detalles» los datos de la skill elegida."""
 		indice = self.elegido()
 		if not 0 <= indice < len(self.fichas):
 			self.detalles.SetValue("")
@@ -341,9 +343,9 @@ class DialogoAgentesEncontrados(wx.Dialog):
 		evento.Skip()
 
 	def poner_categoria(self, categoria: str, indice: int | None = None) -> None:
-		"""Cambia la categoría con que se añadirá un agente (por defecto, el elegido)."""
+		"""Cambia la categoría con que se añadirá una skill (por defecto, la elegida)."""
 		indice = self.elegido() if indice is None else indice
-		if not 0 <= indice < len(self.fichas):
+		if not 0 <= indice < min(len(self.fichas), self.lista.GetCount()):
 			return
 		self.categorias[indice] = servicio.una_linea(categoria)[:MAX_CATEGORIA]
 		texto = self._texto(indice)
@@ -352,14 +354,14 @@ class DialogoAgentesEncontrados(wx.Dialog):
 			self.lista.SetString(indice, texto)
 			self.lista.Check(indice, marcado)
 
-	def categoria_a_marcados(self) -> int:
-		"""Pone la categoría del elegido a todos los marcados. Devuelve a cuántos."""
+	def categoria_a_marcadas(self) -> int:
+		"""Pone la categoría de la elegida a todas las marcadas. Devuelve a cuántas."""
 		categoria = servicio.una_linea(self.campo_categoria.GetValue())
-		marcados = self.lista.indices_marcados()
-		for indice in marcados:
+		marcadas = self.lista.indices_marcados()
+		for indice in marcadas:
 			self.poner_categoria(categoria, indice)
-		voz.hablar(_("Categoría puesta a {n} agentes").format(n=len(marcados)))
-		return len(marcados)
+		voz.hablar(_("Categoría puesta a {n} skills").format(n=len(marcadas)))
+		return len(marcadas)
 
 	def ver_skill(self) -> None:
 		indice = self.elegido()
@@ -371,9 +373,9 @@ class DialogoAgentesEncontrados(wx.Dialog):
 		hay = 0 <= self.elegido() < len(self.fichas)
 		for etiqueta, accion, activa in (
 			(_("&Marcar o desmarcar\tEspacio"), lambda: self.lista.alternar(), hay),
-			(_("Marcar &todos\tCtrl+A"), lambda: self.lista.marcar_todas(True), bool(self.fichas)),
-			(_("&Desmarcar todos\tCtrl+Shift+A"), lambda: self.lista.marcar_todas(False), bool(self.fichas)),
-			(_("&Poner su categoría a todos los marcados"), self.categoria_a_marcados, hay),
+			(_("Marcar &todas\tCtrl+A"), lambda: self.lista.marcar_todas(True), bool(self.fichas)),
+			(_("&Desmarcar todas\tCtrl+Shift+A"), lambda: self.lista.marcar_todas(False), bool(self.fichas)),
+			(_("&Poner su categoría a todas las marcadas"), self.categoria_a_marcadas, hay),
 			(_("&Ver el SKILL.md"), self.ver_skill, hay),
 		):
 			elemento = menu.Append(wx.ID_ANY, etiqueta)
@@ -382,10 +384,10 @@ class DialogoAgentesEncontrados(wx.Dialog):
 		return menu
 
 	def aceptar(self) -> bool:
-		marcados = self.lista.indices_marcados()
+		marcados = [i for i in self.lista.indices_marcados() if 0 <= i < len(self.fichas)]
 		if not marcados:
-			mostrar_mensaje(self, _("No has marcado ningún agente. Márcalos con la barra espaciadora o pulsa Cancelar."),
-				_("Ningún agente marcado"))
+			mostrar_mensaje(self, _("No has marcado ninguna skill. Márcalas con la barra espaciadora o pulsa Cancelar."),
+				_("Ninguna skill marcada"))
 			return False
 		self.elegidos = [(self.fichas[i], self.categorias[i]) for i in marcados]
 		self.actualizar = self.casilla_actualizar.GetValue()
@@ -401,27 +403,27 @@ class DialogoAgentesEncontrados(wx.Dialog):
 # Gestor
 # ════════════════════════════════════════════════════════════════════════════
 
-class DialogoGestorAgentes(wx.Dialog):
-	"""El catálogo de agentes: añadir, crear, editar, ver, refrescar y quitar.
+class DialogoGestorSkills(wx.Dialog):
+	"""El catálogo de skills: añadir, crear, editar, ver, refrescar y quitar.
 
 	:param editor: programa para editar el SKILL.md (vacío: el de Windows).
-	:param carpeta_creados: dónde se crean los agentes nuevos (por defecto ``data/agentes``).
+	:param carpeta_creados: dónde se crean las skills nuevas (por defecto ``data/skills``).
 	"""
 
 	def __init__(self, padre: wx.Window | None, almacen: Almacen, editor: str = "",
 			carpeta_creados: str | Path | None = None) -> None:
-		titulo = _("Gestor de agentes")
+		titulo = _("Gestor de skills")
 		super().__init__(padre, title=titulo, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER, name=titulo)
-		self.catalogo = CatalogoAgentes(almacen, carpeta_creados)
+		self.catalogo = CatalogoSkills(almacen, carpeta_creados)
 		self.editor = editor or ""
-		self.agentes: list[AgenteCatalogo] = []
+		self.skills: list[SkillCatalogo] = []
 		self.cambiado = False
 
 		panel = wx.Panel(self)
 		raiz = wx.BoxSizer(wx.VERTICAL)
 		explicacion = wx.StaticText(panel, label=_(
-			"Tus agentes: cada uno es una carpeta con su archivo SKILL.md. Añádelos desde sus carpetas o crea uno nuevo, "
-			"clasifícalos por categorías y elige después cuáles usa cada sesión. La tecla Aplicaciones abre todas las acciones."
+			"Tus skills: cada una es una carpeta con su archivo SKILL.md. Añádelas desde sus carpetas o crea una nueva, "
+			"clasifícalas por categorías y elige después cuáles usa cada sesión. La tecla Aplicaciones abre todas las acciones."
 		))
 		explicacion.Wrap(self.FromDIP(720))
 		raiz.Add(explicacion, 0, wx.ALL, 8)
@@ -429,20 +431,20 @@ class DialogoGestorAgentes(wx.Dialog):
 		filtros = wx.BoxSizer(wx.HORIZONTAL)
 		_e, self.campo_categoria = crear_campo(panel, _("Ca&tegoría:"), wx.Choice, sizer=filtros, horizontal=True,
 			expandir=False, choices=[_("Todas")],
-			ayuda=_("Muestra solo los agentes de una categoría. «Todas» los muestra todos."))
+			ayuda=_("Muestra solo las skills de una categoría. «Todas» las muestra todas."))
 		_e, self.campo_buscar = crear_campo(panel, _("&Buscar:"), wx.TextCtrl, sizer=filtros, horizontal=True,
-			ayuda=_("Escribe para ver solo los agentes que contienen ese texto en el nombre, la descripción, la categoría, "
+			ayuda=_("Escribe para ver solo las skills que contienen ese texto en el nombre, la descripción, la categoría, "
 				"las notas o la carpeta. No distingue mayúsculas ni acentos. Control+F trae aquí el foco."))
 		raiz.Add(filtros, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 4)
 
-		self.etiqueta = wx.StaticText(panel, label=_("&Agentes:"))
-		self.lista = ListaAccesible(panel, _("Agentes"), [
+		self.etiqueta = wx.StaticText(panel, label=_("&Skills:"))
+		self.lista = ListaAccesible(panel, _("Skills"), [
 			(_("Nombre"), 200), (_("Categoría"), 130), (_("Descripción"), 380), (_("Carpeta"), 300), (_("Estado"), 110),
 		])
 		self.lista.SetHelpText(_(
-			"Agentes del catálogo. Arriba y abajo cambian de agente; izquierda y derecha leen sus columnas. Intro muestra "
+			"Skills del catálogo. Arriba y abajo cambian de skill; izquierda y derecha leen sus columnas. Intro muestra "
 			"su SKILL.md; F2 edita sus datos; Control+E abre el SKILL.md en el editor; Control+Mayúsculas+E abre su carpeta; "
-			"Supr lo quita del catálogo; Control+O añade los de una carpeta; Control+I añade uno; Control+N crea uno nuevo; "
+			"Supr la quita del catálogo; Control+O añade las de una carpeta; Control+I añade una; Control+N crea una nueva; "
 			"F5 revisa si han cambiado o desaparecido. Tecla Aplicaciones: todas las acciones."
 		))
 		self.lista.SetMinSize(self.FromDIP(wx.Size(760, 300)))
@@ -456,7 +458,7 @@ class DialogoGestorAgentes(wx.Dialog):
 		fila.Add(self.boton_acciones, 0)
 		fila.AddStretchSpacer()
 		self.boton_cerrar = wx.Button(panel, wx.ID_CANCEL, _("&Cerrar"))
-		self.boton_cerrar.SetHelpText(_("Cierra el gestor de agentes. También con Escape."))
+		self.boton_cerrar.SetHelpText(_("Cierra el gestor de skills. También con Escape."))
 		fila.Add(self.boton_cerrar, 0)
 		raiz.Add(fila, 0, wx.EXPAND | wx.ALL, 8)
 		panel.SetSizer(raiz)
@@ -476,8 +478,8 @@ class DialogoGestorAgentes(wx.Dialog):
 		self.Layout()
 		self.Fit()
 		self.CentreOnParent()
-		if not self.agentes:
-			wx.CallAfter(voz.hablar, _("El catálogo está vacío. Pulsa Control+O para añadir los agentes de una carpeta o Control+N para crear uno."))
+		if not self.skills:
+			wx.CallAfter(voz.hablar, _("El catálogo está vacío. Pulsa Control+O para añadir las skills de una carpeta o Control+N para crear una."))
 
 	# ── Datos ─────────────────────────────────────────────────────────────────
 
@@ -508,30 +510,30 @@ class DialogoGestorAgentes(wx.Dialog):
 		previo = self.actual()
 		fila_previa = self.lista.fila_actual()
 		self._rellenar_categorias()
-		self.agentes = self.catalogo.listar(self.categoria_filtro(), self.campo_buscar.GetValue())
+		self.skills = self.catalogo.listar(self.categoria_filtro(), self.campo_buscar.GetValue())
 		filas = [
-			[a.nombre, a.categoria, a.descripcion, a.carpeta, texto_estado(a)]
-			for a in self.agentes
+			[s.nombre, s.categoria, s.descripcion, s.carpeta, texto_estado(s)]
+			for s in self.skills
 		]
 		self.lista.reemplazar_filas(filas, conservar_foco=False)
-		total = len(self.agentes)
-		self.etiqueta.SetLabel(_("&Agentes ({n}):").format(n=total))
-		self.lista.SetName(_("Agentes ({n})").format(n=total))
+		total = len(self.skills)
+		self.etiqueta.SetLabel(_("&Skills ({n}):").format(n=total))
+		self.lista.SetName(_("Skills ({n})").format(n=total))
 		buscado = seleccionar_id if seleccionar_id is not None else (previo.id if previo is not None else None)
-		destino = next((i for i, a in enumerate(self.agentes) if a.id == buscado), None) if buscado is not None else None
-		if destino is None and fila_previa != wx.NOT_FOUND and self.agentes:
+		destino = next((i for i, s in enumerate(self.skills) if s.id == buscado), None) if buscado is not None else None
+		if destino is None and fila_previa != wx.NOT_FOUND and self.skills:
 			destino = min(fila_previa, total - 1)
-		if destino is None and self.agentes:
+		if destino is None and self.skills:
 			destino = 0
 		if destino is not None:
 			self.lista.enfocar_fila(destino, anunciar=False)
 
-	def actual(self) -> AgenteCatalogo | None:
+	def actual(self) -> SkillCatalogo | None:
 		fila = self.lista.fila_actual()
-		return self.agentes[fila] if 0 <= fila < len(self.agentes) else None
+		return self.skills[fila] if 0 <= fila < len(self.skills) else None
 
 	def _sin_seleccion(self) -> None:
-		voz.hablar(_("No hay ningún agente elegido") if self.agentes else _("No hay agentes en la lista"))
+		voz.hablar(_("No hay ninguna skill elegida") if self.skills else _("No hay skills en la lista"))
 
 	def _enfocar_lista(self) -> None:
 		if self.lista.IsShownOnScreen():
@@ -543,49 +545,49 @@ class DialogoGestorAgentes(wx.Dialog):
 				return None
 			return dialogo.GetPath()
 
-	# ── Acciones sobre el agente elegido ─────────────────────────────────────────
+	# ── Acciones sobre la skill elegida ──────────────────────────────────────────
 
 	def ver_skill(self) -> bool:
-		"""Muestra el SKILL.md del agente elegido en el visor de texto (Intro)."""
-		agente = self.actual()
-		if agente is None:
+		"""Muestra el SKILL.md de la skill elegida en el visor de texto (Intro)."""
+		skill = self.actual()
+		if skill is None:
 			self._sin_seleccion()
 			return False
-		return mostrar_skill(self, agente.nombre, servicio.ruta_skill(agente.carpeta))
+		return mostrar_skill(self, skill.nombre, servicio.ruta_skill(skill.carpeta))
 
 	def editar(self) -> bool:
-		"""Edita nombre, descripción, categoría y notas del agente elegido (F2)."""
-		agente = self.actual()
-		if agente is None:
+		"""Edita nombre, descripción, categoría y notas de la skill elegida (F2)."""
+		skill = self.actual()
+		if skill is None:
 			self._sin_seleccion()
 			return False
-		valores = pedir_datos_agente(self, self.catalogo.categorias(), modo=MODO_EDITAR, nombre=agente.nombre,
-			descripcion=agente.descripcion, categoria=agente.categoria, notas=agente.notas, carpeta=agente.carpeta)
+		valores = pedir_datos_skill(self, self.catalogo.categorias(), modo=MODO_EDITAR, nombre=skill.nombre,
+			descripcion=skill.descripcion, categoria=skill.categoria, notas=skill.notas, carpeta=skill.carpeta)
 		if valores is None:
 			return False
 		try:
-			self.catalogo.editar(agente.id, nombre=valores["nombre"], descripcion=valores["descripcion"],
+			self.catalogo.editar(skill.id, nombre=valores["nombre"], descripcion=valores["descripcion"],
 				categoria=valores["categoria"], notas=valores["notas"])
 		except ErrorCatalogo as error:
 			mostrar_error(self, str(error))
 			return False
 		self.cambiado = True
-		self.recargar(agente.id)
+		self.recargar(skill.id)
 		self._enfocar_lista()
-		avisos.anunciar(_("Agente guardado"), interrumpir=True)
+		avisos.anunciar(_("Skill guardada"), interrumpir=True)
 		return True
 
 	def editar_skill(self) -> bool:
-		"""Abre el SKILL.md del agente elegido en el editor externo (Ctrl+E)."""
+		"""Abre el SKILL.md de la skill elegida en el editor externo (Ctrl+E)."""
 		from app.ui.dialogos.memoria import abrir_en_editor
 
-		agente = self.actual()
-		if agente is None:
+		skill = self.actual()
+		if skill is None:
 			self._sin_seleccion()
 			return False
-		archivo = servicio.ruta_skill(agente.carpeta)
+		archivo = servicio.ruta_skill(skill.carpeta)
 		if archivo is None:
-			return mostrar_skill(self, agente.nombre, None)
+			return mostrar_skill(self, skill.nombre, None)
 		if abrir_en_editor(archivo, self.editor):
 			voz.hablar(_("Abriendo el editor"))
 			return True
@@ -593,85 +595,85 @@ class DialogoGestorAgentes(wx.Dialog):
 		return False
 
 	def abrir_carpeta(self) -> bool:
-		"""Abre la carpeta del agente en el Explorador (Ctrl+Mayús+E)."""
+		"""Abre la carpeta de la skill en el Explorador (Ctrl+Mayús+E)."""
 		from app.ui.dialogos.memoria import abrir_carpeta_de
 
-		agente = self.actual()
-		if agente is None:
+		skill = self.actual()
+		if skill is None:
 			self._sin_seleccion()
 			return False
-		archivo = servicio.ruta_skill(agente.carpeta)
-		if abrir_carpeta_de(archivo or Path(agente.carpeta)):
+		archivo = servicio.ruta_skill(skill.carpeta)
+		if abrir_carpeta_de(archivo or Path(skill.carpeta)):
 			return True
-		mostrar_error(self, _("No se pudo abrir la carpeta «{ruta}».").format(ruta=agente.carpeta))
+		mostrar_error(self, _("No se pudo abrir la carpeta «{ruta}».").format(ruta=skill.carpeta))
 		return False
 
 	def copiar_ruta(self) -> bool:
 		"""Copia la ruta del SKILL.md (o de la carpeta, si no está) al portapapeles (Ctrl+C)."""
-		agente = self.actual()
-		if agente is None:
+		skill = self.actual()
+		if skill is None:
 			self._sin_seleccion()
 			return False
-		archivo = servicio.ruta_skill(agente.carpeta)
-		if copiar_texto(str(archivo or agente.carpeta)):
+		archivo = servicio.ruta_skill(skill.carpeta)
+		if copiar_texto(str(archivo or skill.carpeta)):
 			voz.hablar(_("Ruta copiada"))
 			return True
 		voz.hablar(_("No se pudo usar el portapapeles."))
 		return False
 
 	def eliminar(self) -> bool:
-		"""Quita el agente del catálogo tras confirmarlo (Supr); si se creó aquí, ofrece borrar su carpeta."""
-		agente = self.actual()
-		if agente is None:
+		"""Quita la skill del catálogo tras confirmarlo (Supr); si se creó aquí, ofrece borrar su carpeta."""
+		skill = self.actual()
+		if skill is None:
 			self._sin_seleccion()
 			return False
-		pregunta = _("¿Quitar «{nombre}» del catálogo? Su carpeta y su SKILL.md no se borran.").format(nombre=agente.nombre)
-		if agente.origen == servicio.ORIGEN_CREADO:
+		pregunta = _("¿Quitar «{nombre}» del catálogo? Su carpeta y su SKILL.md no se borran.").format(nombre=skill.nombre)
+		if skill.origen == servicio.ORIGEN_CREADO:
 			pregunta = _("¿Quitar «{nombre}» del catálogo? Después se te preguntará si quieres borrar también su carpeta.").format(
-				nombre=agente.nombre)
-		if confirmar(self, pregunta, _("Quitar agente"), peligroso=True) != wx.ID_YES:
+				nombre=skill.nombre)
+		if confirmar(self, pregunta, _("Quitar skill"), peligroso=True) != wx.ID_YES:
 			return False
 		borrar_carpeta = False
-		if agente.origen == servicio.ORIGEN_CREADO and not self.catalogo.se_puede_borrar_carpeta(agente):
+		if skill.origen == servicio.ORIGEN_CREADO and not self.catalogo.se_puede_borrar_carpeta(skill):
 			borrar_carpeta = confirmar(
 				self,
 				_("«{nombre}» se creó desde Ctrl+IA. ¿Borrar también su carpeta «{carpeta}» con su SKILL.md y todo lo que "
-					"contenga? No se puede deshacer.").format(nombre=agente.nombre, carpeta=agente.carpeta),
-				_("Borrar la carpeta del agente"), peligroso=True,
+					"contenga? No se puede deshacer.").format(nombre=skill.nombre, carpeta=skill.carpeta),
+				_("Borrar la carpeta de la skill"), peligroso=True,
 			) == wx.ID_YES
 		try:
-			borrada = self.catalogo.eliminar(agente.id, borrar_carpeta=borrar_carpeta)
+			borrada = self.catalogo.eliminar(skill.id, borrar_carpeta=borrar_carpeta)
 		except ErrorCatalogo as error:
-			mostrar_error(self, _("No se pudo borrar la carpeta: {error} El agente sigue en el catálogo.").format(error=error))
+			mostrar_error(self, _("No se pudo borrar la carpeta: {error} La skill sigue en el catálogo.").format(error=error))
 			return False
 		self.cambiado = True
 		self.recargar()
 		self._enfocar_lista()
-		avisos.anunciar(_("Agente quitado y carpeta borrada") if borrada else _("Agente quitado del catálogo"), interrumpir=True)
+		avisos.anunciar(_("Skill quitada y carpeta borrada") if borrada else _("Skill quitada del catálogo"), interrumpir=True)
 		return True
 
 	# ── Añadir y crear ───────────────────────────────────────────────────────────
 
 	def buscar(self, carpeta: str | Path) -> ResultadoBusqueda:
-		"""Busca agentes en ``carpeta`` (con límites, así que tarda poco) mostrando el cursor de espera."""
+		"""Busca skills en ``carpeta`` (con límites, así que tarda poco) mostrando el cursor de espera."""
 		with wx.BusyCursor():
-			return servicio.buscar_agentes(carpeta)
+			return servicio.buscar_skills(carpeta)
 
 	def anadir_desde_carpeta(self, carpeta: str | Path | None = None) -> int:
-		"""Busca agentes dentro de una carpeta y deja elegir cuáles añadir (Ctrl+O). Devuelve cuántos se añadieron."""
+		"""Busca skills dentro de una carpeta y deja elegir cuáles añadir (Ctrl+O). Devuelve cuántas se añadieron."""
 		if carpeta is None:
-			carpeta = self._elegir_carpeta(_("Carpeta donde buscar agentes"))
+			carpeta = self._elegir_carpeta(_("Carpeta donde buscar skills"))
 			if carpeta is None:
 				return 0
-		voz.hablar(_("Buscando agentes..."))
+		voz.hablar(_("Buscando skills..."))
 		resultado = self.buscar(carpeta)
 		if not resultado.encontrados:
 			mensaje = _("No se ha encontrado ninguna carpeta con un archivo SKILL.md dentro de «{carpeta}».").format(carpeta=carpeta)
 			if resultado.errores:
 				mensaje += "\n\n" + _("Problemas al buscar:") + "\n" + "\n".join(resultado.errores[:10])
-			mostrar_mensaje(self, mensaje, _("Sin agentes"))
+			mostrar_mensaje(self, mensaje, _("Sin skills"))
 			return 0
-		dialogo = DialogoAgentesEncontrados(self, self.catalogo, resultado, carpeta)
+		dialogo = DialogoSkillsEncontradas(self, self.catalogo, resultado, carpeta)
 		try:
 			if dialogo.ShowModal() != wx.ID_OK or not dialogo.elegidos:
 				return 0
@@ -679,27 +681,27 @@ class DialogoGestorAgentes(wx.Dialog):
 		finally:
 			dialogo.Destroy()
 		resultados = self.catalogo.importar_varios(elegidos, actualizar_descripcion=actualizar)
-		nuevos = sum(1 for r in resultados if r.nuevo)
-		actualizados = sum(1 for r in resultados if r.actualizado)
-		self.cambiado = self.cambiado or bool(nuevos or actualizados)
+		nuevas = sum(1 for r in resultados if r.nuevo)
+		actualizadas = sum(1 for r in resultados if r.actualizado)
+		self.cambiado = self.cambiado or bool(nuevas or actualizadas)
 		self.recargar(next((r.id for r in resultados if r.nuevo), None))
 		self._enfocar_lista()
-		texto = _("{n} agentes añadidos").format(n=nuevos)
-		if actualizados:
-			texto += ", " + _("{n} actualizados").format(n=actualizados)
+		texto = _("{n} skills añadidas").format(n=nuevas)
+		if actualizadas:
+			texto += ", " + _("{n} actualizadas").format(n=actualizadas)
 		avisos.anunciar(texto, interrumpir=True)
-		return nuevos
+		return nuevas
 
-	def anadir_uno(self, carpeta: str | Path | None = None) -> int | None:
-		"""Añade el agente de una carpeta con SKILL.md (Ctrl+I). Devuelve su id o ``None``."""
+	def anadir_una(self, carpeta: str | Path | None = None) -> int | None:
+		"""Añade la skill de una carpeta con SKILL.md (Ctrl+I). Devuelve su id o ``None``."""
 		if carpeta is None:
-			carpeta = self._elegir_carpeta(_("Carpeta del agente (la que tiene su SKILL.md)"))
+			carpeta = self._elegir_carpeta(_("Carpeta de la skill (la que tiene su SKILL.md)"))
 			if carpeta is None:
 				return None
 		try:
 			ficha = servicio.leer_skill(carpeta)
 		except ErrorCatalogo as error:
-			mostrar_error(self, str(error), _("Añadir agente"))
+			mostrar_error(self, str(error), _("Añadir skill"))
 			return None
 		existente = self.catalogo.en_catalogo(ficha.carpeta)
 		if existente is not None:
@@ -707,18 +709,18 @@ class DialogoGestorAgentes(wx.Dialog):
 				self,
 				_("«{nombre}» ya está en el catálogo. Su SKILL.md tiene otra descripción. ¿Poner la del SKILL.md?").format(
 					nombre=existente.nombre),
-				_("Agente repetido"),
+				_("Skill repetida"),
 			) == wx.ID_YES:
 				self.catalogo.importar(ficha, actualizar_descripcion=True)
 				self.cambiado = True
 				avisos.anunciar(_("Descripción actualizada"), interrumpir=True)
 			else:
-				voz.hablar(_("Ese agente ya está en el catálogo"))
+				voz.hablar(_("Esa skill ya está en el catálogo"))
 			self._quitar_filtros()
 			self.recargar(existente.id)
 			self._enfocar_lista()
 			return existente.id
-		valores = pedir_datos_agente(self, self.catalogo.categorias(), modo=MODO_ANADIR, nombre=ficha.nombre,
+		valores = pedir_datos_skill(self, self.catalogo.categorias(), modo=MODO_ANADIR, nombre=ficha.nombre,
 			descripcion=ficha.descripcion, categoria=servicio.categoria_propuesta(ficha), carpeta=str(ficha.carpeta))
 		if valores is None:
 			return None
@@ -728,12 +730,12 @@ class DialogoGestorAgentes(wx.Dialog):
 		self._quitar_filtros()
 		self.recargar(resultado.id)
 		self._enfocar_lista()
-		avisos.anunciar(_("Agente «{nombre}» añadido").format(nombre=valores["nombre"]), interrumpir=True)
+		avisos.anunciar(_("Skill «{nombre}» añadida").format(nombre=valores["nombre"]), interrumpir=True)
 		return resultado.id
 
-	def crear_nuevo(self) -> int | None:
-		"""Crea un agente nuevo con su carpeta y un SKILL.md de plantilla (Ctrl+N). Devuelve su id o ``None``."""
-		valores = pedir_datos_agente(self, self.catalogo.categorias(), modo=MODO_CREAR,
+	def crear_nueva(self) -> int | None:
+		"""Crea una skill nueva con su carpeta y un SKILL.md de plantilla (Ctrl+N). Devuelve su id o ``None``."""
+		valores = pedir_datos_skill(self, self.catalogo.categorias(), modo=MODO_CREAR,
 			categoria=self.categoria_filtro() or "", carpeta=str(self.catalogo.carpeta_creados))
 		if valores is None:
 			return None
@@ -741,25 +743,25 @@ class DialogoGestorAgentes(wx.Dialog):
 			identificador = self.catalogo.crear(valores["nombre"], valores["descripcion"], valores["categoria"],
 				valores["notas"], valores["carpeta"])
 		except ErrorCatalogo as error:
-			mostrar_error(self, str(error), _("Crear agente"))
+			mostrar_error(self, str(error), _("Crear skill"))
 			return None
 		self.cambiado = True
 		self._quitar_filtros()
 		self.recargar(identificador)
 		self._enfocar_lista()
-		agente = self.catalogo.obtener(identificador)
-		avisos.anunciar(_("Agente «{nombre}» creado").format(nombre=valores["nombre"]), interrumpir=True)
-		if agente is not None and confirmar(
+		skill = self.catalogo.obtener(identificador)
+		avisos.anunciar(_("Skill «{nombre}» creada").format(nombre=valores["nombre"]), interrumpir=True)
+		if skill is not None and confirmar(
 			self,
 			_("Se ha creado «{carpeta}» con un SKILL.md de plantilla. ¿Abrirlo ahora en el editor para escribir sus instrucciones?").format(
-				carpeta=agente.carpeta),
-			_("Agente creado"),
+				carpeta=skill.carpeta),
+			_("Skill creada"),
 		) == wx.ID_YES:
 			self.editar_skill()
 		return identificador
 
 	def _quitar_filtros(self) -> None:
-		"""Quita el filtro y la búsqueda para que se vea el agente recién añadido."""
+		"""Quita el filtro y la búsqueda para que se vea la skill recién añadida."""
 		if self.campo_buscar.GetValue():
 			self.campo_buscar.ChangeValue("")
 		self.campo_categoria.SetSelection(0)
@@ -767,7 +769,7 @@ class DialogoGestorAgentes(wx.Dialog):
 	# ── Refrescar, exportar, importar ───────────────────────────────────────────
 
 	def refrescar(self) -> servicio.ResultadoRefresco:
-		"""Vuelve a leer los SKILL.md (F5): marca los no encontrados y ofrece las descripciones nuevas."""
+		"""Vuelve a leer los SKILL.md (F5): marca las no encontradas y ofrece las descripciones nuevas."""
 		with wx.BusyCursor():
 			resultado = self.catalogo.refrescar()
 		if resultado.cambiados:
@@ -776,7 +778,7 @@ class DialogoGestorAgentes(wx.Dialog):
 				nombres += "\n" + _("y {n} más").format(n=len(resultado.cambiados) - 20)
 			respuesta = confirmar(
 				self,
-				_("Estos agentes tienen en su SKILL.md una descripción distinta de la del catálogo:\n{nombres}\n\n"
+				_("Estas skills tienen en su SKILL.md una descripción distinta de la del catálogo:\n{nombres}\n\n"
 					"¿Poner en el catálogo la descripción de su SKILL.md? Si dices que no, se queda la que tienen y "
 					"no se vuelve a preguntar hasta que el SKILL.md cambie otra vez.").format(nombres=nombres),
 				_("Descripciones cambiadas"),
@@ -789,19 +791,19 @@ class DialogoGestorAgentes(wx.Dialog):
 		if resultado.versiones:
 			self.cambiado = True
 		self.recargar()
-		texto = _("Catálogo revisado: {n} agentes").format(n=resultado.revisados)
+		texto = _("Catálogo revisado: {n} skills").format(n=resultado.revisados)
 		if resultado.no_encontrados:
-			texto += ", " + _("{n} no encontrados").format(n=len(resultado.no_encontrados))
+			texto += ", " + _("{n} no encontradas").format(n=len(resultado.no_encontrados))
 		if resultado.cambiados:
 			texto += ", " + _("{n} con descripción nueva").format(n=len(resultado.cambiados))
 		avisos.anunciar(texto, interrumpir=True)
 		return resultado
 
 	def exportar(self, ruta: str | Path | None = None) -> int | None:
-		"""Guarda el catálogo en un archivo JSON (sin los SKILL.md). Devuelve cuántos agentes."""
+		"""Guarda el catálogo en un archivo JSON (sin los SKILL.md). Devuelve cuántas skills."""
 		if ruta is None:
-			with wx.FileDialog(self, _("Exportar el catálogo de agentes"), defaultFile="agentes-ctrlia.json",
-					wildcard=_("Catálogo de agentes (*.json)|*.json"), style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as dialogo:
+			with wx.FileDialog(self, _("Exportar el catálogo de skills"), defaultFile="skills-ctrlia.json",
+					wildcard=_("Catálogo de skills (*.json)|*.json"), style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as dialogo:
 				if dialogo.ShowModal() != wx.ID_OK:
 					return None
 				ruta = dialogo.GetPath()
@@ -810,20 +812,20 @@ class DialogoGestorAgentes(wx.Dialog):
 		except ErrorCatalogo as error:
 			mostrar_error(self, str(error), _("Exportar el catálogo"))
 			return None
-		avisos.anunciar(_("{n} agentes exportados").format(n=total), interrumpir=True)
+		avisos.anunciar(_("{n} skills exportadas").format(n=total), interrumpir=True)
 		return total
 
 	def importar_catalogo(self, ruta: str | Path | None = None, actualizar: bool | None = None) -> servicio.ResultadoJson | None:
-		"""Añade los agentes de un catálogo exportado (JSON)."""
+		"""Añade las skills de un catálogo exportado (JSON)."""
 		if ruta is None:
-			with wx.FileDialog(self, _("Importar un catálogo de agentes"), wildcard=_("Catálogo de agentes (*.json)|*.json"),
+			with wx.FileDialog(self, _("Importar un catálogo de skills"), wildcard=_("Catálogo de skills (*.json)|*.json"),
 					style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as dialogo:
 				if dialogo.ShowModal() != wx.ID_OK:
 					return None
 				ruta = dialogo.GetPath()
 		if actualizar is None:
 			respuesta = confirmar(
-				self, _("Si un agente del archivo ya está en el catálogo (misma carpeta), ¿se cambian sus datos por los del archivo?"),
+				self, _("Si una skill del archivo ya está en el catálogo (misma carpeta), ¿se cambian sus datos por los del archivo?"),
 				_("Importar un catálogo"), con_cancelar=True, peligroso=True,
 			)
 			if respuesta == wx.ID_CANCEL:
@@ -837,9 +839,9 @@ class DialogoGestorAgentes(wx.Dialog):
 		self.cambiado = True
 		self._quitar_filtros()
 		self.recargar()
-		texto = _("{n} agentes añadidos").format(n=resultado.nuevos)
+		texto = _("{n} skills añadidas").format(n=resultado.nuevos)
 		if resultado.actualizados:
-			texto += ", " + _("{n} actualizados").format(n=resultado.actualizados)
+			texto += ", " + _("{n} actualizadas").format(n=resultado.actualizados)
 		if resultado.omitidos:
 			texto += ", " + _("{n} ya estaban").format(n=resultado.omitidos)
 		avisos.anunciar(texto, interrumpir=True)
@@ -864,25 +866,25 @@ class DialogoGestorAgentes(wx.Dialog):
 		anadir(_("Qu&itar del catálogo...\tSupr"), self.eliminar, hay)
 		menu.AppendSeparator()
 		anadir(_("Añadir &desde una carpeta...\tCtrl+O"), self.anadir_desde_carpeta)
-		anadir(_("&Añadir uno (elegir su carpeta)...\tCtrl+I"), self.anadir_uno)
-		anadir(_("C&rear uno nuevo...\tCtrl+N"), self.crear_nuevo)
-		anadir(_("Restaurar los agentes de e&jemplo"), self.restaurar_ejemplos)
+		anadir(_("&Añadir una (elegir su carpeta)...\tCtrl+I"), self.anadir_una)
+		anadir(_("C&rear una nueva...\tCtrl+N"), self.crear_nueva)
+		anadir(_("Restaurar las skills de e&jemplo"), self.restaurar_ejemplos)
 		menu.AppendSeparator()
 		anadir(_("Re&frescar\tF5"), self.refrescar)
-		anadir(_("E&xportar el catálogo..."), self.exportar, bool(self.catalogo.almacen.agentes_catalogo()))
+		anadir(_("E&xportar el catálogo..."), self.exportar, bool(self.catalogo.almacen.skills_catalogo()))
 		anadir(_("I&mportar un catálogo..."), self.importar_catalogo)
 		return menu
 
 	def restaurar_ejemplos(self) -> int:
-		"""Vuelve a añadir los agentes de ejemplo de Ctrl+IA que se hayan quitado del catálogo."""
-		anadidos = self.catalogo.cargar_ejemplos()
+		"""Vuelve a añadir las skills de ejemplo de Ctrl+IA que se hayan quitado del catálogo."""
+		anadidas = self.catalogo.cargar_ejemplos()
 		self.recargar()
-		if anadidos:
-			avisos.anunciar(_("Se han vuelto a añadir {n} agentes de ejemplo, en la categoría «{c}».").format(
-				n=anadidos, c=CATEGORIA_EJEMPLOS), interrumpir=True)
+		if anadidas:
+			avisos.anunciar(_("Se han vuelto a añadir {n} skills de ejemplo, en la categoría «{c}».").format(
+				n=anadidas, c=CATEGORIA_EJEMPLOS), interrumpir=True)
 		else:
-			avisos.anunciar(_("Ya tienes todos los agentes de ejemplo en el catálogo."), interrumpir=True)
-		return anadidos
+			avisos.anunciar(_("Ya tienes todas las skills de ejemplo en el catálogo."), interrumpir=True)
+		return anadidas
 
 	def _menu_desde_boton(self) -> None:
 		menu = self._crear_menu()
@@ -897,9 +899,9 @@ class DialogoGestorAgentes(wx.Dialog):
 		acciones: dict[tuple[int, int], Callable[[], object]] = {
 			(wx.MOD_NONE, wx.WXK_F2): self.editar,
 			(wx.MOD_NONE, wx.WXK_F5): self.refrescar,
-			(wx.MOD_CONTROL, ord("N")): self.crear_nuevo,
+			(wx.MOD_CONTROL, ord("N")): self.crear_nueva,
 			(wx.MOD_CONTROL, ord("O")): self.anadir_desde_carpeta,
-			(wx.MOD_CONTROL, ord("I")): self.anadir_uno,
+			(wx.MOD_CONTROL, ord("I")): self.anadir_una,
 			(wx.MOD_CONTROL, ord("E")): self.editar_skill,
 			(wx.MOD_CONTROL | wx.MOD_SHIFT, ord("E")): self.abrir_carpeta,
 			(wx.MOD_CONTROL, ord("F")): lambda: enfocar(self.campo_buscar),
@@ -916,8 +918,8 @@ class DialogoGestorAgentes(wx.Dialog):
 
 
 def abrir_gestor(padre: wx.Window | None, almacen: Almacen, editor: str = "") -> bool:
-	"""Abre el gestor de agentes (modal). Devuelve ``True`` si cambió algo del catálogo."""
-	dialogo = DialogoGestorAgentes(padre, almacen, editor)
+	"""Abre el gestor de skills (modal). Devuelve ``True`` si cambió algo del catálogo."""
+	dialogo = DialogoGestorSkills(padre, almacen, editor)
 	try:
 		dialogo.ShowModal()
 		return dialogo.cambiado
