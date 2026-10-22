@@ -1,0 +1,5 @@
+# Copias de las plantillas de los agentes instalados: no son código de Ctrl+IA.
+.agents/*
+.claude/*
+adjuntos/*
+build/*

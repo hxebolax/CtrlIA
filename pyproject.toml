@@ -1,0 +1,65 @@
+# Metadatos, ruff y pytest. La compilación NO usa este archivo: la hace setup_cx.py.
+
+[project]
+name = "ctrl-ia"
+# Debe coincidir con APP_VERSION de app/core/version.py (lo comprueba una prueba).
+version = "1.5.0"
+description = "Ctrl+IA: interfaz accesible para conversar con agentes de IA de programación (Claude Code, Codex, Antigravity, Gemini y agentes ACP)."
+requires-python = ">=3.15"
+
+[tool.ruff]
+# Funciones de traducción que gettext instala como builtins.
+builtins = ["_", "ngettext", "n_", "pgettext", "npgettext", "N_"]
+line-length = 140
+target-version = "py315"
+extend-exclude = ["build", "data", "adjuntos"]
+
+[tool.ruff.format]
+indent-style = "tab"
+
+[tool.ruff.lint]
+# Errores reales, excepciones silenciadas y llamadas de registro mal formadas.
+select = ["E9", "F", "B", "BLE", "S110", "LOG", "G"]
+# G201: error(..., exc_info=True) es intencionado donde el fallo se registra como error sin ser excepción del programa.
+# B008: los valores por defecto de esas llamadas son dataclasses inmutables.
+ignore = ["G201", "B008"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+norecursedirs = [".*", "venv", "build", "dist", "data", "adjuntos", "__pycache__", "htmlcov"]
+pythonpath = ["."]
+# Por defecto no se ejecutan las pruebas que salen a Internet ni las que
+# muestran ventanas o envían teclas reales (pytest -m red / -m interfaz).
+addopts = ["-ra", "--strict-markers", "-m", "not red and not interfaz", "-p", "no:cacheprovider"]
+markers = [
+	"lento: prueba lenta (más de un segundo); se excluye con -m 'not lento'",
+	"red: necesita Internet; no se ejecuta por defecto (usa -m red)",
+	"interfaz: muestra ventanas o envía teclas reales; no se ejecuta por defecto (usa -m interfaz)",
+]
+xfail_strict = true
+filterwarnings = [
+	"error::pytest.PytestUnhandledThreadExceptionWarning",
+	"error::pytest.PytestUnraisableExceptionWarning",
+	"default::DeprecationWarning",
+]
+log_level = "DEBUG"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 50
+exclude_also = [
+	"if __name__ == .__main__.:",
+	"if TYPE_CHECKING:",
+	"raise NotImplementedError",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Las pruebas importan fixtures de pytest por su nombre.
+"tests/*" = ["F811", "F401"]

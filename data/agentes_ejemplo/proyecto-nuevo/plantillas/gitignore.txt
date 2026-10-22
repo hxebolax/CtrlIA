@@ -1,0 +1,25 @@
+# Se copia como .gitignore en la raíz del proyecto (lo hace tools/crear_proyecto.py).
+
+# Entorno virtual y artefactos de Python.
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Compilación y empaquetado.
+build/
+dist/
+
+# Datos generados en data/ al usar la aplicación: personales, nunca se versionan.
+# Lo que SÍ se versiona de data/: bin/, sounds/, locales/, docs/, icons/, plugins/.
+data/config/
+data/logs/
+data/db/
+data/cache/
+data/temp/
+data/sessions/
+data/backups/
+data/downloads/

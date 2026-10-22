@@ -1,0 +1,39 @@
+# Traducción al español del complemento de NVDA de MiAplicacion.
+# PLANTILLA del agente «complemento-nvda».
+#
+# Los msgid están en inglés, como en NVDA: es el texto que se oye si NVDA está
+# en un idioma sin traducción. tools/construir_complemento.py compila este
+# archivo a nvda.mo; las pruebas comprueban que cada _("...") del código tiene
+# aquí su traducción.
+msgid ""
+msgstr ""
+"Project-Id-Version: MiAplicacion NVDA add-on\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: addon/appModules/miaplicacion.py
+msgid "blank"
+msgstr "vacío"
+
+#. Translators: description of a command in the Input gestures dialog.
+#: addon/appModules/miaplicacion.py
+msgid "Reads the whole focused row of the list; pressed twice, shows it in a window"
+msgstr "Lee la fila enfocada de la lista completa; pulsado dos veces, la muestra en una ventana"
+
+#. Translators: reported when the command is used outside a list.
+#: addon/appModules/miaplicacion.py
+msgid "Not in a list"
+msgstr "No estás en una lista"
+
+#. Translators: reported when the focused row has no text.
+#: addon/appModules/miaplicacion.py
+msgid "Empty row"
+msgstr "Fila vacía"
+
+#. Translators: title of the window that shows the full row.
+#: addon/appModules/miaplicacion.py
+msgid "Full row"
+msgstr "Fila completa"

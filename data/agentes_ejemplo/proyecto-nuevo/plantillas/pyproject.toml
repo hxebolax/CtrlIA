@@ -1,0 +1,30 @@
+# Metadatos, ruff y pytest. La compilación NO usa este archivo: la hace setup_cx.py.
+
+[project]
+name = "miaplicacion"
+# Debe coincidir con APP_VERSION de app/core/version.py (lo comprueba una prueba).
+version = "1.0.0"
+description = "Aplicación de escritorio accesible para Windows hecha con wxPython."
+# Versión mínima de Python del proyecto: ajústela a la elegida al crearlo.
+requires-python = ">=3.10"
+
+[tool.ruff]
+# La función de traducción _ puede instalarla gettext como builtin global.
+builtins = ["_"]
+line-length = 140
+# Debe coincidir con la versión mínima de requires-python.
+target-version = "py310"
+extend-exclude = ["build", "data"]
+
+[tool.ruff.format]
+indent-style = "tab"
+
+[tool.ruff.lint]
+# Errores reales, excepciones silenciadas y llamadas de registro mal formadas.
+select = ["E9", "F", "B", "BLE", "S110", "LOG", "G"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+norecursedirs = [".venv", "venv", "build", "data", "__pycache__"]
+addopts = "-q"

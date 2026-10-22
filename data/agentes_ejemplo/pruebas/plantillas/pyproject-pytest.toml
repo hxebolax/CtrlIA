@@ -1,0 +1,58 @@
+# Configuración de pytest y de la cobertura (PLANTILLA del agente «pruebas»).
+# Copia estas secciones en el pyproject.toml del proyecto (no sustituyas el
+# archivo entero). Si el proyecto usa pytest.ini o setup.cfg, traslada allí lo
+# mismo: pytest solo lee UNA de esas configuraciones.
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+# Solo las pruebas propias: sin esto, pytest recorre venv, build o material de
+# consulta y recoge pruebas ajenas que fallan.
+testpaths = ["tests"]
+norecursedirs = [".*", "venv", "build", "dist", "data", "__pycache__", "htmlcov"]
+# La raíz del proyecto en el path: «import app» funciona desde las pruebas.
+pythonpath = ["."]
+# -ra: resumen de lo saltado y lo fallido al final (se oye todo junto).
+# --strict-markers: un marcador mal escrito es un error, no una prueba que se
+#   ejecuta cuando no debía.
+# -m: por defecto no se ejecutan las pruebas que salen a Internet ni las que
+#   muestran ventanas o envían teclas reales. Otro -m en la línea de órdenes
+#   sustituye a este (pytest -m red, pytest -m interfaz, pytest -m "").
+addopts = ["-ra", "--strict-markers", "-m", "not red and not interfaz"]
+markers = [
+	"lento: prueba lenta (más de un segundo); se excluye con -m 'not lento'",
+	"red: necesita Internet; no se ejecuta por defecto (usa -m red)",
+	"interfaz: muestra ventanas o envía teclas reales; no se ejecuta por defecto (usa -m interfaz)",
+]
+# Una prueba marcada xfail que empieza a pasar es una alarma: el fallo se
+# corrigió y hay que quitar la marca (ver referencias/fallos-y-regresiones.md).
+xfail_strict = true
+filterwarnings = [
+	# Una excepción en un hilo o en un destructor hace fallar la prueba en
+	# lugar de quedar como un aviso que nadie lee.
+	"error::pytest.PytestUnhandledThreadExceptionWarning",
+	"error::pytest.PytestUnraisableExceptionWarning",
+	# Avisos de obsolescencia de nuestro propio código: se ven siempre.
+	"default::DeprecationWarning",
+]
+# Registro capturado por caplog y mostrado cuando una prueba falla.
+log_level = "DEBUG"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# Umbral: empieza por la cobertura actual redondeada hacia abajo y súbelo poco
+# a poco. Un umbral inalcanzable solo consigue que se desactive.
+fail_under = 50
+exclude_also = [
+	"if __name__ == .__main__.:",
+	"if TYPE_CHECKING:",
+	"raise NotImplementedError",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"

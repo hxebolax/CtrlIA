@@ -1,0 +1,8 @@
+# Herramientas de desarrollo y compilación: no viajan en el ejecutable.
+-r requirements.txt
+cx_Freeze>=8.7
+pytest>=9.0
+pytest-cov>=7.0
+ruff>=0.17
+# Pruebas de accesibilidad MSAA (propiedades que lee el lector de pantalla).
+comtypes>=1.4

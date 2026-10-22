@@ -1,0 +1,6 @@
+# Herramientas de desarrollo y compilación (PLANTILLA del agente «entorno-virtual»).
+# No viajan en el ejecutable: setup_cx.py las excluye.
+cx_Freeze>=8.0
+pytest>=8.0
+pytest-cov>=5.0
+ruff>=0.8

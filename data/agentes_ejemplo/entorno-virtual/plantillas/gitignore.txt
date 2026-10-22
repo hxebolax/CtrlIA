@@ -1,0 +1,34 @@
+# PLANTILLA del agente «entorno-virtual». Copiar como .gitignore en la raíz.
+
+# Entorno virtual y artefactos de Python.
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Compilación y empaquetado.
+build/
+dist/
+
+# Claves privadas de firma: NUNCA se versionan ni se distribuyen.
+tools/claves/
+*.key
+
+# Datos generados por la aplicación en tiempo de ejecución (portables, en data/).
+# Lo que SÍ se versiona de data/: bin/, sounds/, locales/, docs/, icons/, plugins/.
+data/config/
+data/logs/
+data/db/
+data/database/
+data/cache/
+data/temp/
+data/sessions/
+data/backups/
+data/downloads/
+data/crash/
+data/diagnostico/

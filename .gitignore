@@ -1,0 +1,86 @@
+# .gitignore de Ctrl+IA
+#
+# En el repositorio solo va lo imprescindible para que cualquier persona pueda,
+# desde cero, preparar el entorno, pasar las pruebas y compilar el ejecutable:
+# el código (app/, main.py), la compilación (setup_cx.py, entorno.bat, tools/),
+# las pruebas (tests/), la documentación (docs/) y los recursos del programa
+# que viajan en data/. Nada de datos personales, claves ni material de consulta.
+
+# ── Claves de firma: JAMÁS se suben ──────────────────────────────────────────
+# La clave PRIVADA que firma version.json vive en tools/claves/ y solo existe en
+# el equipo que publica. La clave PÚBLICA va incrustada en el código y sí se sube.
+/tools/claves/
+# Configuración local de publicar.py (la carpeta del servidor del autor).
+/tools/publicar.local.json
+*.key
+*.pem
+*.pfx
+*.p12
+.env
+.env.*
+
+# ── Entorno virtual, cachés y artefactos de Python ───────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+# Versiones exactas instaladas en un equipo («entorno.bat congelar»): son locales.
+/requirements-lock.txt
+
+# ── Compilación y empaquetado ────────────────────────────────────────────────
+# build/ contiene la compilación de cx_Freeze, el ZIP y version.json: se
+# publican como archivos de cada release, no en el código.
+/build/
+/dist/
+
+# ── Carpeta data: solo lo que es del programa ────────────────────────────────
+# Todo lo que la aplicación genera al usarse (configuración, base de datos,
+# registros, caché, temporales, copias, diagnóstico, agentes creados, modelos
+# de Ollama...) es de la persona usuaria y nunca se versiona. Se ignora todo
+# data/ y se readmiten, una a una, las carpetas que setup_cx.py distribuye
+# (DATA_DISTRIBUIBLE).
+/data/*
+!/data/agentes_ejemplo/
+!/data/bin/
+!/data/docs/
+!/data/icons/
+!/data/locales/
+!/data/plugins/
+!/data/sounds/
+# data/docs es una copia de docs/ que hace setup_cx.py al compilar: solo se
+# versiona el marcador que mantiene la carpeta.
+/data/docs/*
+!/data/docs/.gitkeep
+# Sonidos propios de la persona (esquema «Propio» de Preferencias).
+/data/sounds/propios/
+
+# ── Material del autor que no forma parte del proyecto ──────────────────────
+# Material de consulta e investigaciones.
+/adjuntos/
+# Auditorías y plantillas de trabajo del autor.
+/docs/auditorias/
+# Agentes (habilidades) e instrucciones de las herramientas de IA del autor.
+/.agents/
+/.claude/
+/.agentes-instalados.json
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/.codex/
+/.gemini/
+
+# ── Sistema y editores ───────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak
+*.log
+.vscode/
+.idea/
+*.swp

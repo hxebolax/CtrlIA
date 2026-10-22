@@ -1,0 +1,32 @@
+# PLANTILLA del agente «entorno-virtual».
+# La compilación NO usa este archivo (se hace con setup_cx.py); aquí viven los
+# metadatos, la configuración de ruff y la de pytest.
+
+[project]
+name = "miaplicacion"
+# Debe coincidir con app/core/version.py (APP_VERSION). Lo comprueba una prueba.
+version = "1.0.0"
+description = "Aplicación accesible para Windows hecha con wxPython."
+readme = "README.md"
+# Versión mínima de Python que admite el proyecto (el agente la ajusta).
+requires-python = ">=3.10"
+
+[tool.ruff]
+# La función de traducción _ la instala gettext como builtin global.
+builtins = ["_"]
+line-length = 120
+# Debe coincidir con la versión mínima de requires-python.
+target-version = "py310"
+extend-exclude = ["build", "data"]
+
+[tool.ruff.format]
+indent-style = "tab"
+
+[tool.ruff.lint]
+# Errores que delatan bugs reales, más los de excepciones silenciadas.
+select = ["E9", "F", "B", "BLE", "S110", "LOG", "G"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".venv", "venv", "build", "data", "__pycache__"]
+addopts = "-q"

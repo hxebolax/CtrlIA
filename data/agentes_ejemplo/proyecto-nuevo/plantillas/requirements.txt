@@ -1,0 +1,5 @@
+# Dependencias de la aplicación. Versión mínima con ">=" para recibir
+# correcciones; las exactas probadas se guardan con "entorno.bat congelar".
+wxPython>=4.2.2
+# Opcional: voz directa (NVDA, JAWS o SAPI). Sin él, la aplicación funciona igual.
+accessible_output2>=0.17

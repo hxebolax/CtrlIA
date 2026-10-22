@@ -1,0 +1,4 @@
+# Herramientas de desarrollo y compilación: no viajan en el ejecutable.
+cx_Freeze>=8.0
+pytest>=8.0
+ruff>=0.8

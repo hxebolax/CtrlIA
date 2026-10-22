@@ -1,0 +1,9 @@
+# Finales de línea: LF en todo el código (como está en disco) y CRLF solo en los .bat,
+# que los necesitan (las pruebas lo comprueban).
+* text=auto eol=lf
+*.bat text eol=crlf
+# Binarios: git no los toca.
+*.wav binary
+*.ico binary
+*.png binary
+*.zip binary

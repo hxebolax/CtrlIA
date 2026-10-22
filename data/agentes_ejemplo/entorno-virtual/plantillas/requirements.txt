@@ -1,0 +1,5 @@
+# Dependencias de la aplicación (PLANTILLA del agente «entorno-virtual»).
+# Versión mínima con ">=" para recibir correcciones; las versiones exactas
+# probadas se guardan con "entorno.bat congelar" en requirements-lock.txt.
+wxPython>=4.2.5
+accessible_output2>=0.17

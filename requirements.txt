@@ -1,0 +1,12 @@
+# Dependencias de Ctrl+IA (Python 3.15). Versión mínima con ">=" para recibir
+# correcciones; las exactas probadas se guardan con "entorno.bat congelar".
+wxPython>=4.3.2
+# Voz directa por el lector de pantalla (NVDA, JAWS) o SAPI. Sin él, Ctrl+IA funciona en silencio.
+accessible_output2>=0.17
+# Vista con formato de mensajes y manual (Markdown a HTML).
+markdown>=3.11
+# Red (comprobaciones HTTP con reintentos) y firma Ed25519 de las actualizaciones.
+requests>=2.34
+cryptography>=50.0
+# Editar el config.toml de Codex sin perder sus comentarios ni su formato.
+tomlkit>=0.13
