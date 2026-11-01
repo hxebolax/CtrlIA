@@ -411,8 +411,11 @@ class ContextoImportada:
 
 
 def contexto_para_continuar(mensajes: Sequence[Any], titulo: str = "", equipo: str = "", agente: str = "",
-		maximo: int = MAX_CONTEXTO) -> ContextoImportada:
+		maximo: int = MAX_CONTEXTO, motivo: str = "") -> ContextoImportada:
 	"""Resumen de una conversación importada para que el agente de este equipo la siga.
+
+	``motivo`` sustituye a la explicación de por qué el agente no la recuerda cuando no
+	viene de otro equipo: una sesión cuya conversación ya borró Claude Code.
 
 	``mensajes`` son objetos con ``rol`` y ``texto`` (``MensajeGuardado`` o
 	``MensajeVista``). Solo entran los de la persona y los del agente. Si no cabe
@@ -461,14 +464,22 @@ def contexto_para_continuar(mensajes: Sequence[Any], titulo: str = "", equipo: s
 		estado = "RECORTADA (" + "; ".join(partes) + ")"
 	else:
 		estado = "ENTERA"
-	cabecera = (
-		f"[Ctrl+IA] Esta conversación empezó {de_donde} con {nombre_agente}"
-		+ (f", titulada «{titulo}»" if titulo else "")
-		+ ". La persona la exportó a un archivo y la ha traído a este equipo para seguirla contigo, así que tú no la "
-		"tienes en tu memoria. Abajo va la conversación anterior, solo lo que dijeron la persona y el agente (sin las "
-		f"acciones de las herramientas). Va {estado}. La carpeta de trabajo y los archivos de este equipo pueden no "
-		"ser los mismos que entonces: compruébalos antes de dar nada por hecho. Sigue desde donde se quedó."
-	)
+	if motivo:
+		cabecera = (
+			f"[Ctrl+IA] {motivo}" + (f" La sesión se titula «{titulo}»." if titulo else "")
+			+ " Abajo va la conversación anterior, solo lo que dijeron la persona y el agente (sin las acciones de las "
+			f"herramientas). Va {estado}. Los archivos pueden haber cambiado desde entonces: compruébalos antes de dar "
+			"nada por hecho. Sigue desde donde se quedó."
+		)
+	else:
+		cabecera = (
+			f"[Ctrl+IA] Esta conversación empezó {de_donde} con {nombre_agente}"
+			+ (f", titulada «{titulo}»" if titulo else "")
+			+ ". La persona la exportó a un archivo y la ha traído a este equipo para seguirla contigo, así que tú no la "
+			"tienes en tu memoria. Abajo va la conversación anterior, solo lo que dijeron la persona y el agente (sin las "
+			f"acciones de las herramientas). Va {estado}. La carpeta de trabajo y los archivos de este equipo pueden no "
+			"ser los mismos que entonces: compruébalos antes de dar nada por hecho. Sigue desde donde se quedó."
+		)
 	if not cuerpo:
 		cuerpo = ["(La conversación anterior no tiene mensajes de texto.)"]
 	texto = "\n\n".join([cabecera, "--- Conversación anterior ---", *cuerpo, "--- Fin de la conversación anterior ---",

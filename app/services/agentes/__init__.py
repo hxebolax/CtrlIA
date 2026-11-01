@@ -69,7 +69,7 @@ def crear_proveedores(opciones: dict[str, Any] | None = None) -> dict[str, Prove
 			proveedores[proveedor.id] = proveedor
 
 	def claude():
-		from app.services.agentes.claude import ProveedorClaude
+		from app.services.agentes.claude import SEGUNDOS_ESPERA_MCP, ProveedorClaude
 
 		lista_tareas = opciones.get("lista_tareas_claude")
 		if lista_tareas is None:
@@ -80,6 +80,10 @@ def crear_proveedores(opciones: dict[str, Any] | None = None) -> dict[str, Prove
 		if esperar_mcp is None:
 			def esperar_mcp() -> bool:
 				return bool(_opcion_configurada("agentes.esperar_mcp_claude", True))
+		segundos_mcp = opciones.get("segundos_mcp_claude")
+		if segundos_mcp is None:
+			def segundos_mcp() -> int:
+				return int(_opcion_configurada("agentes.segundos_mcp_claude", SEGUNDOS_ESPERA_MCP))
 		chrome = opciones.get("chrome_claude")
 		if chrome is None:
 			def chrome() -> bool:
@@ -89,7 +93,7 @@ def crear_proveedores(opciones: dict[str, Any] | None = None) -> dict[str, Prove
 			def minutos_abierto() -> int:
 				return int(_opcion_configurada("agentes.claude_minutos_abierto", 15))
 		return ProveedorClaude(permitir_clave_api=bool(opciones.get("permitir_clave_api")), lista_tareas=lista_tareas,
-			esperar_mcp=esperar_mcp, minutos_abierto=minutos_abierto, chrome=chrome)
+			esperar_mcp=esperar_mcp, minutos_abierto=minutos_abierto, chrome=chrome, segundos_mcp=segundos_mcp)
 
 	def codex():
 		from app.services.agentes.codex import ProveedorCodex

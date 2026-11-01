@@ -214,7 +214,7 @@ def test_migracion_5_renombra_tabla_rutas_y_claves_de_las_sesiones(data_temporal
 
 	almacen = Almacen(ruta)
 	try:
-		assert almacen.bd.version() == len(MIGRACIONES) == 5
+		assert almacen.bd.version() == len(MIGRACIONES) >= 5
 		tablas = {f["name"] for f in almacen.bd.consultar("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")}
 		assert "skills" in tablas and "idx_skills_categoria" in tablas
 		assert "agentes" not in tablas and "idx_agentes_categoria" not in tablas

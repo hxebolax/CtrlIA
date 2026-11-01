@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import wx
 
-from app.services.gestor import TEXTO_SIN_CONVERSACION, FilaSesion, coincide
+from app.services.gestor import TEXTO_CONSERVADA, TEXTO_SIN_CONVERSACION, FilaSesion, coincide
 from app.ui import avisos
 from app.ui.accesibilidad.dialogos import confirmar, elegir_opcion, mostrar_error, mostrar_mensaje, pedir_texto
 from app.ui.accesibilidad.lista import ListaAccesible
@@ -25,6 +25,7 @@ from app.ui.accesibilidad.teclado import vincular_menu_contextual
 from app.ui.comun import _, fecha_relativa, nombre_agente, nombre_estado
 
 if TYPE_CHECKING:
+	from app.services.agentes.base import Adjunto
 	from app.services.gestor import GestorSesiones
 
 log = logging.getLogger(__name__)
@@ -122,6 +123,8 @@ def valores_sesion(fila: FilaSesion, columnas: list[str], opcion) -> list[str]:
 			texto = _("Terminada") if fila.terminada else nombre_estado(fila.estado)
 			if fila.sin_conversacion:
 				texto += _(", conversación no disponible")
+			elif fila.conservada:
+				texto += _(", el original ya no está")
 			if fila.no_leidas and opcion("lectura.sin_leer_en_estado", True):
 				texto += _(", respuesta nueva")
 			valores.append(texto)
@@ -407,8 +410,11 @@ class MixinSesiones:
 			anadir(_("&Volver a mostrar"), self.accion_mostrar_oculta)
 		else:
 			anadir(_("&Ocultar\tSuprimir"), self.accion_ocultar)
-		if fila.propia or fila.importada:
-			borrar = _("&Borrar para siempre") if fila.propia else _("&Borrar la copia importada")
+		if fila.propia or fila.importada or fila.conservada:
+			if fila.conservada:
+				borrar = _("&Borrar la copia conservada")
+			else:
+				borrar = _("&Borrar para siempre") if fila.propia else _("&Borrar la copia importada")
 			anadir(borrar + "\tMayús+Suprimir", self.accion_borrar)
 		menu.AppendSeparator()
 		anadir(_("E&xportar\tCtrl+E"), self.accion_exportar)
@@ -548,7 +554,8 @@ class MixinSesiones:
 
 	def accion_nueva_sesion(self, carpeta: Path | None = None, mensaje: str = "", grupo: int | None = None,
 			agente: str = "", titulo: str = "", equipo: str = "", carpeta_remota: str = "",
-			preparar: Callable[[str], None] | None = None) -> bool:
+			preparar: Callable[[str], None] | None = None,
+			enviar_primero: Callable[[str, str, list[Adjunto]], None] | None = None) -> bool:
 		"""Abre «Nueva sesión»; devuelve ``True`` si se creó.
 
 		:param grupo: grupo en el que nace la sesión; propone su agente y su carpeta.
@@ -556,6 +563,9 @@ class MixinSesiones:
 		:param equipo: equipo por SSH propuesto (identificador o nombre), con ``carpeta_remota``.
 		:param preparar: se llama con la clave de la sesión recién creada, antes de abrirla y de enviar
 			nada (lo usa «Continuar aquí» en una importada para copiarle sus mensajes).
+		:param enviar_primero: si lo hay y hay primer mensaje, lo envía esta función en lugar de la
+			ventana, con la sesión ya abierta: ``enviar_primero(clave, mensaje, adjuntos)`` (lo usa
+			«Enviar la respuesta a otra sesión» para arrancar una conversación automática).
 		"""
 		from app.ui.dialogos.nueva_sesion import DialogoNuevaSesion
 
@@ -586,7 +596,9 @@ class MixinSesiones:
 		avisos.sonar("nueva")
 		self.refrescar_sesiones(True)
 		self.abrir_sesion(clave, mover_foco=False)
-		if resultado.mensaje.strip() or resultado.adjuntos:
+		if (resultado.mensaje.strip() or resultado.adjuntos) and enviar_primero is not None:
+			enviar_primero(clave, resultado.mensaje, list(resultado.adjuntos))
+		elif resultado.mensaje.strip() or resultado.adjuntos:
 			self.enviar_mensaje(clave, resultado.mensaje, resultado.adjuntos)
 			self.ir_a_mensajes()
 		else:
@@ -598,14 +610,37 @@ class MixinSesiones:
 		"""Si «Continuar aquí» seguirá la sesión original (Preferencias, Historial) en lugar de copiarla."""
 		return bool(self.opcion("historial.continuar_original", False)) and self.gestor.puede_seguir_original(fila.clave)
 
-	def continuar_importada(self, fila: FilaSesion, mensaje: str = "") -> bool:
-		"""«Continuar aquí» en una sesión importada (#228, fase 2): una sesión NUEVA de Ctrl+IA en este equipo.
+	def continuar_con_contexto(self, fila: FilaSesion, mensaje: str = "") -> None:
+		"""Sigue una importada o conservada en una sesión nueva; lo escrito sale del cuadro si se crea."""
+		def creada() -> None:
+			if mensaje and self.respuesta.GetValue() == mensaje:
+				self.respuesta.Clear()
+
+		if fila.importada:
+			if self.continuar_importada(fila, mensaje):
+				creada()
+			return
+		avisos.anunciar(_("Leyendo la conversación conservada..."), interrumpir=True)
+
+		def leidos(mensajes: list[Any]) -> None:
+			# Se lee en un hilo: una transcripción puede ser enorme y aquí la interfaz no debe esperar.
+			if self.continuar_importada(fila, mensaje, mensajes):
+				creada()
+
+		def fallo(error: BaseException) -> None:
+			mostrar_error(self, _("No se ha podido leer la conversación: {e}").format(e=error), _("Continuar aquí"))
+
+		self.en_segundo_plano(self.gestor.mensajes, fila.clave, al_terminar=leidos, al_fallar=fallo)
+
+	def continuar_importada(self, fila: FilaSesion, mensaje: str = "", conservados: list[Any] | None = None) -> bool:
+		"""«Continuar aquí» en una sesión importada (#228, fase 2) o conservada: una sesión NUEVA de Ctrl+IA en este equipo.
 
 		Abre «Nueva sesión» con el mismo agente (si está en este equipo; si no, el que
 		se elija), la carpeta original si existe aquí y el título; la nueva recibe los
 		mensajes de la importada para leerlos, y el primero que se envíe al agente lleva
-		delante la conversación anterior (``GestorSesiones.preparar_desde_importada``).
-		La importada no se toca. Devuelve si se creó.
+		delante la conversación anterior (``GestorSesiones.preparar_desde_importada`` o, con
+		``conservados``, sus mensajes ya leídos, ``preparar_desde_conservada``).
+		La de origen no se toca. Devuelve si se creó.
 		"""
 		agente = fila.proveedor if fila.proveedor in self.gestor.proveedores else ""
 		if not agente:
@@ -623,16 +658,19 @@ class MixinSesiones:
 		preparada: list[Any] = []
 
 		def preparar(clave: str) -> None:
-			preparada.append(self.gestor.preparar_desde_importada(clave, clave_importada))
+			if conservados is not None:
+				preparada.append(self.gestor.preparar_desde_conservada(clave, clave_importada, conservados))
+			else:
+				preparada.append(self.gestor.preparar_desde_importada(clave, clave_importada))
 
 		creada = self.accion_nueva_sesion(carpeta=carpeta, mensaje=mensaje, agente=agente,
 			titulo=_("{t} (continuación)").format(t=fila.titulo), preparar=preparar)
 		if creada and preparada and self.sesion_actual and self.gestor.contexto_pendiente(self.sesion_actual):
 			if preparada[0].recortada:
-				aviso = _("Sesión creada a partir de la importada «{t}», con sus mensajes para leerlos. Con tu primer "
+				aviso = _("Sesión creada a partir de «{t}», con sus mensajes para leerlos. Con tu primer "
 					"mensaje, el agente recibirá la conversación anterior recortada (es larga). Escribe tu mensaje.")
 			else:
-				aviso = _("Sesión creada a partir de la importada «{t}», con sus mensajes para leerlos. Con tu primer "
+				aviso = _("Sesión creada a partir de «{t}», con sus mensajes para leerlos. Con tu primer "
 					"mensaje, el agente recibirá la conversación anterior entera. Escribe tu mensaje.")
 			avisos.anunciar(aviso.format(t=fila.titulo), interrumpir=True)
 		return creada
@@ -641,8 +679,8 @@ class MixinSesiones:
 		fila = self.sesion_objetivo()
 		if fila is None:
 			return
-		if fila.importada:
-			self.continuar_importada(fila)
+		if fila.importada or fila.conservada:
+			self.continuar_con_contexto(fila)
 			return
 		original = self.seguira_la_original(fila)
 		propuesta = fila.titulo if original else _("{t} (continuación)").format(t=fila.titulo)
@@ -750,12 +788,15 @@ class MixinSesiones:
 		fila = self.sesion_objetivo()
 		if fila is None:
 			return
-		if not fila.propia and not fila.importada:
+		if not fila.propia and not fila.importada and not fila.conservada:
 			mostrar_mensaje(self, _(
 				"Esta sesión pertenece al agente, no a Ctrl+IA, así que no se borra desde aquí. Puedes ocultarla con Suprimir."
 			), _("Borrar sesión"))
 			return
-		if fila.importada:
+		if fila.conservada:
+			pregunta = _("¿Borrar la copia conservada de «{t}»? Claude Code ya borró el original, así que la conversación "
+				"se perderá para siempre, salvo que la tengas en una copia de seguridad.").format(t=fila.titulo)
+		elif fila.importada:
 			pregunta = _("¿Borrar la copia importada de «{t}»? Solo se borra la copia de Ctrl+IA; si la necesitas, "
 				"puedes volver a importarla desde el archivo.").format(t=fila.titulo)
 		else:
@@ -1058,6 +1099,10 @@ class MixinSesiones:
 
 				procesos.lanzar_independiente([str(app)])
 				return
+		if fila.conservada:
+			avisos.anunciar(_("Claude Code ya ha borrado esta conversación: no se puede abrir en su app. Aquí sigues pudiendo "
+				"leerla y continuarla en una sesión nueva."), interrumpir=True)
+			return
 		if fila.proveedor == "claude":
 			from app.services.historial import claude as historial_claude
 
@@ -1112,9 +1157,10 @@ class MixinSesiones:
 		fila = self.sesion_objetivo()
 		if fila is None:
 			return
+		from app.services.exportar import datos_de_fila, nombre_archivo
+
 		comodines = _("Markdown (*.md)|*.md|Página web (*.html)|*.html|Texto (*.txt)|*.txt")
-		nombre = "".join(c if c.isalnum() or c in " -_" else "_" for c in fila.titulo)[:80] or "sesion"
-		with wx.FileDialog(self, _("Exportar la sesión"), defaultFile=nombre + ".md", wildcard=comodines,
+		with wx.FileDialog(self, _("Exportar la sesión"), defaultFile=nombre_archivo(fila.titulo, "md"), wildcard=comodines,
 				style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as dialogo:
 			if dialogo.ShowModal() != wx.ID_OK:
 				return
@@ -1125,9 +1171,7 @@ class MixinSesiones:
 		def exportar() -> Path:
 			from app.services.exportar import exportar as exportar_mensajes
 
-			mensajes = self.gestor.mensajes(fila.clave)
-			datos = {_("Agente"): nombre_agente(fila.proveedor), _("Carpeta"): fila.carpeta, _("Origen"): fila.nombre_origen}
-			return exportar_mensajes(mensajes, ruta, fila.titulo, datos=datos)
+			return exportar_mensajes(self.gestor.mensajes(fila.clave), ruta, fila.titulo, datos=datos_de_fila(fila))
 
 		self.en_segundo_plano(exportar, al_terminar=lambda r: avisos.notificar(_("Sesión exportada en {r}.").format(r=r), padre=self))
 
@@ -1154,8 +1198,8 @@ class MixinSesiones:
 		return alcances, inicial
 
 	def accion_exportar_varias(self) -> None:
-		"""Archivo, «Exportar varias sesiones a un archivo...»: un ZIP para llevarlas a otro equipo."""
-		from app.ui.dialogos.intercambio import DialogoExportarSesiones
+		"""Archivo, «Exportar varias sesiones...»: un ZIP para llevarlas a otro equipo o un archivo suelto por sesión."""
+		from app.ui.dialogos.intercambio import FORMATO_ARCHIVO, DialogoExportarSesiones
 
 		if not self._todas:
 			mostrar_mensaje(self, _("No hay sesiones que exportar."), _("Exportar sesiones"))
@@ -1166,10 +1210,14 @@ class MixinSesiones:
 			if dialogo.ShowModal() != wx.ID_OK:
 				return
 			claves, herramientas = list(dialogo.claves), dialogo.incluir_herramientas
+			formato, carpeta = dialogo.formato, dialogo.carpeta
 		finally:
 			dialogo.Destroy()
 		por_clave = {f.clave: f for f in self._todas}
 		filas = [por_clave[c] for c in claves if c in por_clave]
+		if formato != FORMATO_ARCHIVO and carpeta is not None:
+			self.exportar_a_archivos(filas, carpeta, formato, herramientas)
+			return
 		nombre = _("Sesiones de {e} {f}").format(e=self._nombre_equipo(), f=time.strftime("%Y-%m-%d"))
 		with wx.FileDialog(self, _("Guardar las sesiones en un archivo"), defaultFile=nombre + ".zip",
 				wildcard=_("Archivo de sesiones de Ctrl+IA (*.zip)|*.zip"), style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as elegir:
@@ -1194,6 +1242,27 @@ class MixinSesiones:
 			avisos.notificar(texto, _("Exportar sesiones"), padre=self)
 
 		self.en_segundo_plano(exportar, al_terminar=hecho)
+
+	def exportar_a_archivos(self, filas: list[FilaSesion], carpeta: Path, formato: str, herramientas: bool) -> None:
+		"""Cada sesión en su propio archivo, en segundo plano: dice por dónde va y acaba con un resumen."""
+		avisos.anunciar(_("Exportando {n} sesiones...").format(n=len(filas)))
+		progreso = self._progreso_por_voz(_("Exportando {i} de {n}..."))
+
+		def exportar():
+			from app.services.exportar import exportar_muchas
+
+			return exportar_muchas(filas, self.gestor.mensajes, carpeta, formato, incluir_herramientas=herramientas,
+				cancelado=lambda: self._saliendo, progreso=progreso)
+
+		def hecho(resultado) -> None:
+			from app.services.exportar import resumen_muchas
+
+			avisos.notificar(resumen_muchas(resultado, carpeta), _("Exportar sesiones"), padre=self)
+
+		def fallo(error: BaseException) -> None:
+			mostrar_error(self, _("No se pudieron exportar las sesiones: {e}").format(e=error), _("Exportar sesiones"))
+
+		self.en_segundo_plano(exportar, al_terminar=hecho, al_fallar=fallo)
 
 	@staticmethod
 	def _nombre_equipo() -> str:
@@ -1361,6 +1430,8 @@ class MixinSesiones:
 			lineas.append(_("Lista de tareas del agente: {v}").format(v=progreso))
 		if fila.sin_conversacion:
 			lineas.append(_("Conversación: no disponible. {v}").format(v=TEXTO_SIN_CONVERSACION))
+		if fila.conservada:
+			lineas.append(_("Conversación: copia conservada por Ctrl+IA, solo para leer. {v}").format(v=TEXTO_CONSERVADA))
 		if hasattr(self, "lineas_pr"):
 			lineas.extend(self.lineas_pr(fila))
 		self._mostrar_propiedades(fila, lineas)

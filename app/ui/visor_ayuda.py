@@ -165,15 +165,34 @@ def guion_teclas(teclas: dict[str, str], por_mensaje: bool = True) -> str:
 	return _GUION_TECLAS % (json.dumps(teclas, ensure_ascii=False), "true" if por_mensaje else "false", ESQUEMA_ORDEN)
 
 
-def markdown_a_html(texto: str, titulo: str, teclas: dict[str, str] | None = None, por_mensaje: bool = True) -> str:
+_RE_ENCABEZADO_HTML = re.compile(r"<(/?)h([1-6])\b", re.IGNORECASE)
+
+
+def bajar_encabezados(cuerpo: str) -> str:
+	"""Baja un nivel los encabezados de ``cuerpo`` (HTML ya convertido), como mucho hasta el 6.
+
+	Es seguro con lo que sale de ``markdown_seguro``: el HTML del mensaje ya va escapado,
+	y un «<h1» en su texto o en su código es ``&lt;h1`` y no coincide.
+	"""
+	return _RE_ENCABEZADO_HTML.sub(lambda m: f"<{m.group(1)}h{min(int(m.group(2)) + 1, 6)}", cuerpo)
+
+
+def markdown_a_html(texto: str, titulo: str, teclas: dict[str, str] | None = None, por_mensaje: bool = True,
+		autor: str = "") -> str:
 	"""Página HTML completa y bien estructurada (idioma, título, encabezados, tablas).
 
 	:param teclas: si se da, la página recoge esas teclas y se las pasa al visor.
+	:param autor: quién escribió el mensaje. Va como encabezado 1 y los del mensaje bajan
+		un nivel (AIChat #346): la tecla H lleva al principio y el esquema dice quién habla
+		y luego las secciones del mensaje. Sin él, si la página no trae un encabezado 1, se
+		le pone el título.
 	"""
 	import markdown
 
 	cuerpo = markdown.markdown(texto, extensions=["extra", "sane_lists", "toc"], output_format="html")
-	if "<h1" not in cuerpo:
+	if autor:
+		cuerpo = f"<h1>{html.escape(autor)}</h1>\n{bajar_encabezados(cuerpo)}"
+	elif "<h1" not in cuerpo:
 		cuerpo = f"<h1>{html.escape(titulo)}</h1>\n{cuerpo}"
 	guion = f"<script>{guion_teclas(teclas, por_mensaje)}</script>\n" if teclas else ""
 	return (
@@ -308,17 +327,19 @@ class VisorAyuda(wx.Dialog):
 
 	def __init__(self, padre: wx.Window | None, titulo: str, markdown: str, forzar_texto: bool = False,
 			acciones: dict[str, Callable[[str], None]] | None = None, teclas: dict[str, str] | None = None,
-			ayuda: str = ""):
+			ayuda: str = "", autor: str = ""):
 		"""
 		:param acciones: órdenes propias → función que recibe el texto seleccionado (o ``""``).
 		:param teclas: combinación → orden de ``acciones`` (se suman a ``TECLAS_VISOR``).
 		:param ayuda: lo que dice Ctrl+H en el contenido.
+		:param autor: quién escribió el documento, si es un mensaje (encabezado 1 de la página).
 		"""
 		super().__init__(
 			padre, title=titulo, size=(820, 620), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MAXIMIZE_BOX
 		)
 		self.titulo = titulo
 		self.markdown = markdown
+		self.autor = autor
 		self.acciones = dict(acciones or {})
 		self.teclas = {**TECLAS_VISOR, **{k: v for k, v in (teclas or {}).items() if v in self.acciones}}
 		self.ayuda = ayuda or _(
@@ -365,7 +386,8 @@ class VisorAyuda(wx.Dialog):
 			log.debug("No se pudo crear el canal de mensajes del visor", exc_info=True)
 		if por_mensaje:
 			self.web.Bind(wx.html2.EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, lambda evento: self._orden_de_pagina(evento.GetString()))
-		self.web.SetPage(markdown_a_html(self.markdown, self.titulo, teclas=self.teclas, por_mensaje=por_mensaje), "")
+		self.web.SetPage(markdown_a_html(self.markdown, self.titulo, teclas=self.teclas, por_mensaje=por_mensaje,
+			autor=self.autor), "")
 		raiz.Add(self.web, 1, wx.EXPAND | wx.ALL, 6)
 
 	def _crear_texto(self, raiz: wx.BoxSizer) -> None:
@@ -604,6 +626,7 @@ def _combinacion(codigo: int, modificadores: int) -> str:
 def mostrar_documento(
 	padre: wx.Window | None, titulo: str, markdown: str, forzar_texto: bool = False, mostrar: bool = True,
 	acciones: dict[str, Callable[[str], None]] | None = None, teclas: dict[str, str] | None = None, ayuda: str = "",
+	autor: str = "",
 ) -> VisorAyuda:
 	"""Abre (o trae al frente) un visor con ese título."""
 	existente = _abiertos.get(titulo)
@@ -611,7 +634,8 @@ def mostrar_documento(
 		existente.Raise()
 		existente.enfocar_contenido()
 		return existente
-	visor = VisorAyuda(padre, titulo, markdown, forzar_texto=forzar_texto, acciones=acciones, teclas=teclas, ayuda=ayuda)
+	visor = VisorAyuda(padre, titulo, markdown, forzar_texto=forzar_texto, acciones=acciones, teclas=teclas, ayuda=ayuda,
+		autor=autor)
 	_abiertos[titulo] = visor
 	if mostrar:
 		visor.Show()

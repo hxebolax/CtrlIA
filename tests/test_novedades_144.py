@@ -159,12 +159,12 @@ def test_complemento_sin_skills_validas(skill_real, tmp_path):
 def test_claude_carga_las_skills_con_plugin_dir(skill_real, tmp_path):
 	ajustes = AjustesSesion(carpeta=tmp_path, id_externo=UUID)
 	conversacion = ProveedorClaude(orden_base=["claude"]).crear_conversacion(ajustes, lambda e: None)
-	sin_skills = conversacion._firma(True, True)
+	sin_skills = conversacion._firma(True, True, 30)
 	conversacion.skills = [skill_real]
 	orden = conversacion.construir_orden()
 	complemento = Path(orden[orden.index("--plugin-dir") + 1])
 	assert (complemento / "skills" / "pruebas" / "SKILL.md").is_file()
-	assert conversacion._firma(True, True) != sin_skills
+	assert conversacion._firma(True, True, 30) != sin_skills
 	skills_sesion.limpiar_complemento("claude:" + UUID)
 
 

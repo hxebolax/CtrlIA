@@ -137,8 +137,22 @@ def _turno(identificador, params: dict) -> None:
 				"options": [{"label": "Rojo", "description": "Cálido"}, {"label": "Azul", "description": "Frío"}]}]}, tras_pregunta)
 		return
 
-	if ESCENARIO == "interrupcion":
+	if ESCENARIO in ("interrupcion", "steer_muere", "steer_interno"):
 		return  # el turno sigue «trabajando» hasta turn/interrupt
+
+	if ESCENARIO == "revision":
+		# La revisión automática decide por sí misma: solo llegan notificaciones, ninguna petición.
+		orden = {"type": "command", "command": "dir", "cwd": "C:\\proyecto", "source": "shell"}
+		for numero, (accion, revision) in enumerate((
+			(orden, {"status": "approved", "riskLevel": "low", "rationale": "Parece inofensiva"}),
+			({"type": "networkAccess", "host": "ejemplo.com", "port": 443, "protocol": "https", "target": "x"},
+				{"status": "denied", "riskLevel": "high"}),
+			(orden, {"status": "timedOut"}),
+			(orden, {"status": "aborted"}),
+		)):
+			comunes = {"threadId": h, "turnId": turno, "reviewId": "rev-%d" % numero, "action": accion, "startedAtMs": 1}
+			notificar("item/autoApprovalReview/started", dict(comunes, review={"status": "inProgress"}))
+			notificar("item/autoApprovalReview/completed", dict(comunes, review=revision, completedAtMs=2, decisionSource="agent"))
 
 	if ESCENARIO == "fallo":
 		notificar("error", {"threadId": h, "turnId": turno, "willRetry": False,
@@ -197,11 +211,17 @@ def atender_peticion(metodo: str, identificador, params: dict) -> None:
 	elif metodo == "thread/start":
 		estado["hilo"] = "hilo-1"
 		estado["cwd"] = params.get("cwd")
+		# Como el real: devuelve el revisor con el que se queda el hilo.
+		revisor = "user" if ESCENARIO == "revisor_ignorado" else params.get("approvalsReviewer") or "user"
 		responder(identificador, {"thread": hilo("hilo-1"), "model": "gpt-falso", "modelProvider": "openai", "cwd": params.get("cwd"),
-			"approvalPolicy": params.get("approvalPolicy"), "approvalsReviewer": "user", "sandbox": {"type": "workspaceWrite"}})
+			"approvalPolicy": params.get("approvalPolicy"), "approvalsReviewer": revisor, "sandbox": {"type": "workspaceWrite"}})
 	elif metodo == "thread/resume":
 		estado["hilo"] = params["threadId"]
-		responder(identificador, {"thread": hilo(params["threadId"]), "model": "gpt-falso"})
+		respuesta = {"thread": hilo(params["threadId"]), "model": "gpt-falso"}
+		if ESCENARIO == "revisor_pegado":
+			# Un hilo ya cargado ignora lo que se le pida al retomarlo (AIChat, codex-auto-review.md).
+			respuesta["approvalsReviewer"] = "auto_review"
+		responder(identificador, respuesta)
 	elif metodo == "thread/fork":
 		estado["hilo"] = "hilo-bifurcado"
 		responder(identificador, {"thread": hilo("hilo-bifurcado"), "model": "gpt-falso"})
@@ -209,6 +229,12 @@ def atender_peticion(metodo: str, identificador, params: dict) -> None:
 		_turno(identificador, params)
 	elif metodo == "turn/steer":
 		turno = estado["turno_actual"]
+		if ESCENARIO == "steer_muere":
+			# El proceso muere con la petición ya escrita: nadie sabe si la llegó a leer.
+			os._exit(3)
+		if ESCENARIO == "steer_interno":
+			escribir({"id": identificador, "error": {"code": -32603, "message": "error interno"}})
+			return
 		if turno is None or params.get("expectedTurnId") != turno:
 			escribir({"id": identificador, "error": {"code": -32600, "message": "no hay turno activo"}})
 			return

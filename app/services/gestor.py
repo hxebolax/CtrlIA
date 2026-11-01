@@ -21,9 +21,10 @@ import logging
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from typing import Any
 
 from app.services.agentes import remoto
@@ -74,6 +75,24 @@ TEXTO_SIN_CONVERSACION = (
 	"conversaciones antiguas pasado un tiempo (30 días, si no se ha cambiado), o la sesión se creó y no llegó "
 	"a tener mensajes. Se conservan su título, su carpeta y sus fechas."
 )
+#: Primer mensaje de una sesión cuyo original ya no está y se lee de la copia de ``data/conservadas``.
+TEXTO_CONSERVADA = (
+	"Claude Code ya ha borrado esta conversación: lo que ves es la copia que conservó Ctrl+IA, solo para leer. "
+	"Claude Code ya no la recuerda: para seguirla, Ctrl+IA crea una sesión nueva y le cuenta la conversación anterior."
+)
+#: ``id`` de ese mensaje: es de Ctrl+IA, así que no se copia al continuar la sesión.
+ID_AVISO_CONSERVADA = "ctrlia-conservada"
+
+
+#: Lo que se le cuenta al agente de por qué recibe una conversación que no recuerda (``intercambio.contexto_para_continuar``).
+MOTIVO_CONSERVADA = (
+	"Claude Code ya borró esta conversación de su historial, así que tú no la tienes en tu memoria, pero Ctrl+IA conservó "
+	"una copia."
+)
+MOTIVO_SIN_TRANSCRIPCION = (
+	"Esta sesión de Ctrl+IA se hizo contigo, pero Claude Code ya borró su conversación de su historial, así que tú no la "
+	"tienes en tu memoria."
+)
 
 
 class SesionEnUso(ValueError):
@@ -119,6 +138,8 @@ class FilaSesion:
 	sistema: str = ""
 	#: Sesión de otro programa cuya conversación ya no está en el disco (solo quedan sus datos).
 	sin_conversacion: bool = False
+	#: Claude Code ya borró el original: se lee la copia que conservó Ctrl+IA (solo lectura).
+	conservada: bool = False
 
 	@property
 	def propia(self) -> bool:
@@ -139,6 +160,8 @@ class FilaSesion:
 			return f"Importada de {self.equipo}"
 		if self.remota:
 			return f"{NOMBRES_ORIGEN.get(self.origen, self.origen)} en {self.equipo} (SSH)"
+		if self.conservada:
+			return f"{NOMBRES_ORIGEN.get(self.origen, self.origen)}, copia conservada"
 		return NOMBRES_ORIGEN.get(self.origen, self.origen)
 
 	@property
@@ -211,6 +234,8 @@ class GestorSesiones(MixinPuntos):
 		#: Lo que se lee y reescribe en ``datos["solicitudes"]`` no se pisa entre hilos.
 		self._candado_solicitudes = threading.Lock()
 		self._parciales: dict[str, str] = {}
+		#: Mensajes añadidos al turno cuya suerte aún no se sabe: sesión → [(id del mensaje, texto)], el más antiguo primero.
+		self._anadidos: dict[str, list[tuple[int, str]]] = {}
 		self._uso: dict[str, dict[str, Any]] = {}
 		self._limites: dict[str, dict[str, Any]] = {}
 		#: Lo último preguntado con «Límites de uso de tus cuentas» (``LimitesCuenta`` por agente).
@@ -267,11 +292,13 @@ class GestorSesiones(MixinPuntos):
 		"""Lo último que se preguntó con :meth:`leer_limites_todos` (un ``LimitesCuenta``) o ``None``."""
 		return self._limites_cuenta.get(proveedor)
 
-	def leer_limites_todos(self, tiempo: float = 90.0) -> list[Any]:
+	def leer_limites_todos(self, tiempo: float = 90.0, solo: Iterable[str] | None = None) -> list[Any]:
 		"""Pregunta a la vez los límites de todos los agentes que saben darlos (bloquea: llamar desde un hilo).
 
 		Devuelve un ``app.services.limites.ResultadoAgente`` por agente, en el
 		orden de la lista de agentes. Un agente que no informa (``None``) no sale.
+
+		:param solo: identificadores de los agentes que se preguntan; sin él, todos.
 		"""
 		from concurrent.futures import ThreadPoolExecutor, wait
 
@@ -286,7 +313,8 @@ class GestorSesiones(MixinPuntos):
 				log.exception("No se pudieron leer los límites de %s", proveedor.id)
 				return limites.ErrorLimites(f"No se han podido leer: {error}")
 
-		proveedores = list(self.proveedores.values())
+		elegidos = set(solo) if solo is not None else None
+		proveedores = [p for p in self.proveedores.values() if elegidos is None or p.id in elegidos]
 		grupo = ThreadPoolExecutor(max_workers=max(1, len(proveedores)), thread_name_prefix="limites")
 		try:
 			futuros = {proveedor.id: grupo.submit(leer, proveedor) for proveedor in proveedores}
@@ -401,7 +429,10 @@ class GestorSesiones(MixinPuntos):
 				from app.services.historial import claude as historial_claude
 
 				propios = self.almacen.ids_externos("claude")
-				for sesion in historial_claude.listar_sesiones(propios, incluir_archivadas=True):
+				sesiones = historial_claude.listar_sesiones(propios, incluir_archivadas=True)
+				# Copia lo que cambia y recupera lo que Claude Code ya ha borrado (nunca espera a las copias).
+				sesiones = historial_claude.con_conservadas(sesiones, propios, copiar=bool(self._opcion("historial.conservar", True)))
+				for sesion in sesiones:
 					if sesion.id in propios:
 						continue
 					externas[sesion.clave] = sesion
@@ -410,6 +441,7 @@ class GestorSesiones(MixinPuntos):
 						carpeta=sesion.carpeta, origen=sesion.origen, estado=sesion.estado, actividad=sesion.actividad,
 						creada=sesion.creada, archivada=sesion.archivada, id_externo=sesion.id,
 						ultimo_mensaje=_recortar(sesion.ultimo_mensaje), sin_conversacion=sesion.ruta_transcript is None,
+						conservada=sesion.conservada,
 					))
 			except Exception:  # noqa: BLE001 - un historial ilegible no debe vaciar la lista
 				log.exception("No se pudo leer el historial de Claude Code")
@@ -540,13 +572,20 @@ class GestorSesiones(MixinPuntos):
 			if getattr(fuente, "equipo", ""):
 				ruta = self._copia_remota(fuente)
 			else:
-				ruta = getattr(fuente, "ruta_transcript", None) or historial_claude.ruta_transcript(clave.split(":", 1)[1])
+				identificador = clave.split(":", 1)[1]
+				ruta = getattr(fuente, "ruta_transcript", None) or historial_claude.ruta_transcript(identificador)
+				if ruta is None:
+					ruta = historial_claude.ruta_conservada(identificador)
+					fuente = fuente if ruta is None else SimpleNamespace(conservada=True)
 			if ruta is None:
 				return [MensajeVista("sistema", "Conversación no disponible. " + TEXTO_SIN_CONVERSACION, time.time())]
 			lector = historial_claude.LectorTranscript(Path(ruta))
 			with self._candado:
 				self._lectores[clave] = lector
-			return [self._de_claude(m) for m in lector.leer_todo()]
+			vista = [self._de_claude(m) for m in lector.leer_todo()]
+			if getattr(fuente, "conservada", False):
+				vista.insert(0, MensajeVista("sistema", TEXTO_CONSERVADA, vista[0].fecha if vista else time.time(), id=ID_AVISO_CONSERVADA))
+			return vista
 		if clave.startswith("codex:"):
 			proveedor = self.proveedores.get("codex")
 			if proveedor is None or not hasattr(proveedor, "leer_hilo"):
@@ -741,6 +780,8 @@ class GestorSesiones(MixinPuntos):
 		if clave.startswith(("ctrlia:", PREFIJO_IMPORTADA)) or ":" not in clave:
 			return False
 		proveedor_id, identificador = clave.split(":", 1)
+		if getattr(self.fuente_externa(clave), "conservada", False):
+			return False  # Claude Code ya no la tiene: no hay original que seguir
 		return proveedor_id in AGENTES_CON_ORIGINAL and proveedor_id in self.proveedores and not identificador.startswith("local_")
 
 	def _comprobar_libre(self, fuente: Any, ahora: float | None = None) -> None:
@@ -774,7 +815,7 @@ class GestorSesiones(MixinPuntos):
 		fallo = ""
 		if copiar:
 			try:
-				anteriores = [m for m in self.mensajes(clave_origen) if m.rol != "anteriores"]
+				anteriores = [m for m in self.mensajes(clave_origen) if m.rol != "anteriores" and m.id != ID_AVISO_CONSERVADA]
 			except Exception as error:  # noqa: BLE001 - sin historial se continúa igual: el agente sí lo recuerda
 				log.warning("No se pudo copiar el historial de %s", clave_origen, exc_info=True)
 				fallo = str(error)
@@ -824,6 +865,9 @@ class GestorSesiones(MixinPuntos):
 				return self.nueva_sesion(proveedor_id, ajustes)
 		else:
 			fuente = self.fuente_externa(clave_origen)
+			if getattr(fuente, "conservada", False):
+				# ``--resume`` fallaría: se sigue con ``preparar_desde_conservada`` (una sesión nueva con el contexto).
+				raise ValueError(TEXTO_CONSERVADA)
 			carpeta = str(getattr(fuente, "carpeta", "") or (fuente.get("carpeta") if isinstance(fuente, dict) else "") or "")
 			titulo_original = str(getattr(fuente, "titulo", "") or (fuente.get("titulo") if isinstance(fuente, dict) else "") or "")
 			titulo = titulo or f"{titulo_original or 'Sesión'} (continuación)"
@@ -850,7 +894,7 @@ class GestorSesiones(MixinPuntos):
 		if not modo:
 			# Una sesión de otro programa no guarda su modo: se usa el inicial de la configuración del agente.
 			try:
-				modo = self.proveedores[proveedor_id].modo_predeterminado(Path(carpeta))
+				modo = self.proveedores[proveedor_id].modo_sin_dialogo(Path(carpeta))
 			except Exception:  # noqa: BLE001 - sin modo, el agente usa el suyo
 				log.warning("No se pudo leer el modo de permisos inicial de %s", proveedor_id, exc_info=True)
 		if original and not clave_origen.startswith("ctrlia:"):
@@ -909,6 +953,81 @@ class GestorSesiones(MixinPuntos):
 		if viva is not None:
 			viva.ajustes.extra.update(desde_importada=clave_importada, contexto_importada=contexto.texto)
 		return contexto
+
+	def preparar_desde_conservada(self, clave: str, clave_conservada: str, mensajes: Sequence[MensajeVista]) -> Any:
+		"""Convierte la sesión propia recién creada ``clave`` en la continuación de una sesión conservada.
+
+		Claude Code ya no tiene esa conversación, así que no se puede bifurcar: como con
+		una importada, la sesión nueva recibe los mensajes (``mensajes``, ya leídos desde
+		un hilo) y el primero que se envíe al agente lleva delante la conversación anterior.
+		Devuelve el ``ContextoImportada``.
+		"""
+		from app.services import intercambio
+
+		sesion = self.almacen.sesion(clave)
+		if not clave.startswith("ctrlia:") or sesion is None:
+			raise ValueError("Solo una sesión de Ctrl+IA puede continuar una sesión conservada")
+		leidos = [m for m in mensajes if m.id != ID_AVISO_CONSERVADA]
+		titulo = self._titulo_externa(clave_conservada)
+		contexto = intercambio.contexto_para_continuar(leidos, titulo, "", "claude", motivo=MOTIVO_CONSERVADA)
+		copia = [
+			{"rol": m.rol, "texto": m.texto, "detalle": m.detalle, "herramienta": m.herramienta, "fecha": m.fecha,
+				"datos": {"cambios": list(m.cambios or []), "anterior": True}}
+			for m in leidos
+		]
+		resumen = "recortada a lo más importante (el primer mensaje y los más recientes)" if contexto.recortada else "entera"
+		copia.append({"rol": "sistema", "fecha": time.time(), "texto":
+			f"Esta sesión continúa «{titulo}», de la que Claude Code ya borró la conversación. Arriba están sus mensajes para "
+			f"leerlos; con tu primer mensaje, al agente le llegará la conversación anterior, {resumen}."})
+		self.almacen.reemplazar_mensajes(clave, copia)
+		self._dejar_contexto(clave, sesion, contexto.texto, desde_conservada=clave_conservada)
+		return contexto
+
+	def seguir_con_contexto(self, clave: str) -> str:
+		"""Sigue una sesión propia cuya conversación ya no tiene Claude Code (``--resume`` falló).
+
+		La sesión empieza una conversación nueva en el agente (sin ``--resume``) y el próximo
+		mensaje lleva delante lo que hay guardado aquí (o, si es una continuación que aún no
+		tiene mensajes, lo de la sesión de la que sale). El mensaje que no llegó al agente se
+		quita de ese resumen y se devuelve, para que la persona decida si lo reenvía: nunca se
+		reenvía solo. Devuelve su texto, o ``""``.
+		"""
+		from app.services import intercambio
+
+		sesion = self.almacen.sesion(clave)
+		if not clave.startswith("ctrlia:") or sesion is None:
+			raise ValueError("Solo se puede hacer con una sesión de Ctrl+IA")
+		guardados = list(self.almacen.mensajes(clave))
+		pendiente = ""
+		for indice in range(len(guardados) - 1, -1, -1):
+			if guardados[indice].rol == "usuario":
+				pendiente = guardados.pop(indice).texto
+				break
+			if guardados[indice].rol == "asistente":
+				break
+		if not any(m.rol in ("usuario", "asistente") for m in guardados) and sesion.bifurcada_de:
+			origen = next((s for s in self.almacen.sesiones()
+				if s.id_externo == sesion.bifurcada_de and s.clave.startswith("ctrlia:")), None)
+			if origen is not None:
+				guardados = list(self.almacen.mensajes(origen.clave))
+		contexto = intercambio.contexto_para_continuar(guardados, sesion.titulo, "", sesion.proveedor, motivo=MOTIVO_SIN_TRANSCRIPCION)
+		self.cerrar_conversacion(clave)
+		self._dejar_contexto(clave, sesion, contexto.texto, id_externo="", bifurcada_de="")
+		self.almacen.anadir_mensaje(clave, "sistema", "Claude Code ya no tenía esta conversación. A partir de aquí es una "
+			"conversación nueva para el agente: con tu próximo mensaje recibirá lo que hay guardado en esta sesión" +
+			(", recortado porque es muy largo." if contexto.recortada else "."))
+		return pendiente
+
+	def _dejar_contexto(self, clave: str, sesion: SesionPropia, contexto: str, **cambios: Any) -> None:
+		"""Deja ``contexto`` en ``extra`` para que ``_con_importada`` lo ponga delante del próximo mensaje."""
+		desde = {nombre: cambios.pop(nombre) for nombre in list(cambios) if nombre.startswith("desde_")}
+		extra = dict(sesion.extra or {})
+		extra.update(desde, contexto_importada=contexto)
+		self.almacen.actualizar_sesion(clave, extra=extra, **cambios)
+		with self._candado:
+			viva = self._conversaciones.get(clave)
+		if viva is not None:
+			viva.ajustes.extra.update(desde, contexto_importada=contexto)
 
 	def contexto_pendiente(self, clave: str) -> bool:
 		"""Si la sesión aún tiene que contarle al agente la conversación importada que continúa."""
@@ -987,6 +1106,10 @@ class GestorSesiones(MixinPuntos):
 				reglas_permitidas=list(sesion.reglas), extra=dict(sesion.extra),
 			)
 			conversacion = proveedor.crear_conversacion(ajustes, lambda evento, c=clave: self._recibir(c, evento))
+			# Aquí: importa este módulo.
+			from app.services.herramientas_sesiones import HerramientasSesiones
+
+			conversacion.herramientas_sesiones = HerramientasSesiones(self, clave)
 			self._conversaciones[clave] = conversacion
 			return conversacion
 
@@ -1012,6 +1135,76 @@ class GestorSesiones(MixinPuntos):
 		else:
 			conversacion.enviar(texto, adjuntos)
 		self._apuntar_uuid_claude(clave, conversacion, id_mensaje)
+
+	def anadir_al_turno(self, clave: str, texto: str) -> int:
+		"""Guarda el mensaje y lo mete en el turno en marcha. Devuelve el id del mensaje guardado.
+
+		Se guarda antes de entregarlo para que quede delante de lo que responda el
+		agente; lo que pase con él llega después (``_apuntar_entrega``). Si la
+		entrega falla aquí mismo, no salió nada: el mensaje se quita y se relanza el
+		error, con el texto aún en el cuadro.
+		"""
+		conversacion = self.conversacion(clave, crear=False)
+		if conversacion is None:
+			raise ValueError("Solo se puede añadir un mensaje al turno de una conversación abierta")
+		id_mensaje = self.almacen.anadir_mensaje(clave, "usuario", texto, datos={"anadido_al_turno": True})
+		with self._candado:
+			self._anadidos.setdefault(clave, []).append((id_mensaje, texto))
+		try:
+			conversacion.anadir_al_turno(texto)
+		except Exception:
+			self._sacar_anadido(clave, texto)
+			self.almacen.borrar_mensaje(id_mensaje)
+			raise
+		return id_mensaje
+
+	def _sacar_anadido(self, clave: str, texto: str) -> int:
+		"""Saca de los pendientes el mensaje añadido más antiguo con ese texto; 0 si no estaba."""
+		with self._candado:
+			pendientes = self._anadidos.get(clave, [])
+			for indice, (id_mensaje, escrito) in enumerate(pendientes):
+				if escrito == texto:
+					del pendientes[indice]
+					return id_mensaje
+		return 0
+
+	def _apuntar_entrega(self, clave: str, datos: dict[str, Any]) -> None:
+		"""Qué pasó con un mensaje añadido al turno, según el aviso del agente.
+
+		``devolver_texto``: no se envió (``no_entregado``); la interfaz lo quita al
+		tenerlo en el cuadro de respuesta, nunca antes, porque hasta entonces ese
+		mensaje es la única copia que sobrevive a cerrar el programa.
+		``sin_confirmar``: puede haberlo recibido; se queda marcado.
+		``texto_anadido``: confirmado, no hay nada que apuntar.
+		"""
+		texto = datos.get("devolver_texto") or datos.get("sin_confirmar") or datos.get("texto_anadido")
+		if not texto:
+			return
+		id_mensaje = self._sacar_anadido(clave, str(texto))
+		marca = "no_entregado" if datos.get("devolver_texto") else "sin_confirmar" if datos.get("sin_confirmar") else ""
+		if not id_mensaje or not marca:
+			return
+		with self._candado_solicitudes:  # otro hilo puede estar apuntando una petición en este mismo mensaje
+			guardado = self.almacen.mensaje(id_mensaje)
+			if guardado is None:
+				return
+			self.almacen.actualizar_mensaje(id_mensaje, datos=dict(guardado.datos, **{marca: True}))
+		datos["id_anadido"] = id_mensaje
+
+	def revisiones_automaticas(self, clave: str) -> list[Any]:
+		"""Las decisiones de la revisión automática de Codex en esta sesión (mensajes guardados), de la primera a la última."""
+		return self.almacen.mensajes_con_dato(clave, "sistema", "revision_automatica")
+
+	def retirar_no_entregado(self, id_mensaje: int) -> bool:
+		"""Quita un mensaje rechazado cuyo texto ya está en el cuadro de respuesta. ``True`` si se quitó.
+
+		Si tiene una petición del agente apuntada se queda, marcado «No entregado»:
+		borrarlo se llevaría también el rastro de esa petición.
+		"""
+		guardado = self.almacen.mensaje(id_mensaje) if id_mensaje else None
+		if guardado is None or guardado.datos.get("solicitudes"):
+			return False
+		return self.almacen.borrar_mensaje(id_mensaje)
 
 	def _con_skills(self, clave: str, conversacion: Conversacion, texto: str) -> str:
 		"""Da a la conversación las skills del catálogo elegidas para la sesión (``extra["skills"]``).
@@ -1224,6 +1417,7 @@ class GestorSesiones(MixinPuntos):
 	def cerrar_conversacion(self, clave: str) -> None:
 		with self._candado:
 			conversacion = self._conversaciones.pop(clave, None)
+			self._anadidos.pop(clave, None)
 		if conversacion is not None:
 			conversacion.cerrar()
 
@@ -1243,9 +1437,11 @@ class GestorSesiones(MixinPuntos):
 					cerrar()
 				except Exception:  # noqa: BLE001
 					log.exception("No se pudo cerrar el agente %s", proveedor.id)
+		from app.services import conservar
 		from app.services.agentes import remoto
 
 		remoto.cerrar_tuneles()
+		conservar.cerrar_todos()
 
 	# ------------------------------------------------------------------
 	# Organización
@@ -1267,7 +1463,17 @@ class GestorSesiones(MixinPuntos):
 		self.almacen.fijar_metadato(clave, favorita=favorita)
 
 	def borrar(self, clave: str) -> None:
-		"""Borra para siempre una sesión propia o importada de Ctrl+IA (no toca el historial del agente)."""
+		"""Borra para siempre una sesión propia o importada de Ctrl+IA (no toca el historial del agente).
+
+		También la copia conservada de una sesión cuyo original ya no existe: esa copia es de Ctrl+IA.
+		"""
+		if getattr(self.fuente_externa(clave), "conservada", False):
+			from app.services import conservar
+
+			conservar.conservador().olvidar(clave.split(":", 1)[1])
+			with self._candado:
+				self._externas.pop(clave, None)
+			return
 		if not clave.startswith(("ctrlia:", PREFIJO_IMPORTADA)):
 			raise ValueError("Solo se pueden borrar las sesiones de Ctrl+IA; las demás se pueden ocultar.")
 		sesion = self.almacen.sesion(clave)
@@ -1381,8 +1587,12 @@ class GestorSesiones(MixinPuntos):
 		elif tipo is TipoEvento.ARCHIVO:
 			ruta = str(datos.get("ruta") or evento.texto)
 			nombre_tipo = {"nuevo": "Archivo nuevo", "borrado": "Archivo borrado"}.get(str(datos.get("tipo")), "Archivo modificado")
-			datos["id_mensaje"] = almacen.anadir_mensaje(clave, "cambio", f"{nombre_tipo}: {ruta}",
-				detalle=str(datos.get("diff") or ""), datos={"cambios": [{"ruta": ruta, "diff": str(datos.get("diff") or "")}]})
+			diff = str(datos.get("diff") or "")
+			destino = str(datos.get("destino") or "")
+			# Movido o renombrado (Codex): el archivo está ahora en el destino y se recuerda de dónde venía.
+			cambio = {"ruta": destino, "diff": diff, "movido_desde": ruta} if destino else {"ruta": ruta, "diff": diff}
+			datos["id_mensaje"] = almacen.anadir_mensaje(clave, "cambio",
+				f"{nombre_tipo}: {ruta}" + (f" (movido a {destino})" if destino else ""), detalle=diff, datos={"cambios": [cambio]})
 		elif tipo is TipoEvento.PLAN:
 			pasos = datos.get("pasos") or []
 			texto = "\n".join(f"{_marca_paso(estado)} {paso}" for paso, estado in pasos)
@@ -1391,8 +1601,12 @@ class GestorSesiones(MixinPuntos):
 		elif tipo is TipoEvento.ERROR:
 			datos["id_mensaje"] = almacen.anadir_mensaje(clave, "error", evento.texto)
 		elif tipo is TipoEvento.AVISO:
-			if not datos.get("en_cola"):
-				datos["id_mensaje"] = almacen.anadir_mensaje(clave, "sistema", evento.texto)
+			if not datos.get("en_cola") and not datos.get("solo_estado"):
+				# La decisión de la revisión automática de Codex se guarda con su aviso: «Permisos de la sesión» la lee de ahí.
+				revision = datos.get("revision_automatica")
+				datos["id_mensaje"] = almacen.anadir_mensaje(clave, "sistema", evento.texto,
+					datos={"revision_automatica": revision} if revision else None)
+			self._apuntar_entrega(clave, datos)
 			if "modelo_sustituido" in datos and clave.startswith("ctrlia:"):
 				# Codex cambió un modelo retirado por otro, o Antigravity ya no conoce el suyo (vacío: el
 				# predeterminado): se guarda, para no volver a fallar al abrir Ctrl+IA.

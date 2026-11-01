@@ -133,7 +133,8 @@ def _principal(argumentos: list[str]) -> int:
 	# 6. Aviso por voz antes de lo pesado.
 	from app.ui.accesibilidad import voz
 
-	voz.configurar(retraso_ms=int(configuracion.obtener("anuncios.retardo_voz_ms", 120)))
+	voz.configurar(retraso_ms=int(configuracion.obtener("anuncios.retardo_voz_ms", 120)),
+		voz_windows=bool(configuracion.obtener("anuncios.voz_windows", True)))
 	if not comprobar and configuracion.obtener("general.anunciar_arranque", True):
 		voz.hablar(_("Iniciando Ctrl+IA"), interrumpir=True, sincrono=True)
 

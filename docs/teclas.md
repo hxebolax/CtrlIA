@@ -29,13 +29,16 @@ Arriba, Abajo, Izquierda y Derecha son las teclas de flecha. Aplicaciones es la 
 | Ctrl+Alt+Mayús+N | Escribir, cambiar o quitar la nota del mensaje favorito |
 | Ctrl+Alt+Mayús+R | Conversación automática entre la sesión abierta y otra |
 | Ctrl+Alt+Mayús+C | Ver la conversación automática entre sesiones |
+| Ctrl+Alt+Mayús+E | Revisar el relevo que espera tu aprobación en la conversación automática |
 | Ctrl+Alt+P | Estado de la PR y de sus comprobaciones automáticas |
 | Ctrl+Alt+Z | Deshacer los cambios de archivos desde el mensaje elegido (o tu último mensaje) |
 | Ctrl+Alt+Mayús+Z | Rehacer los cambios de archivos deshechos |
 | Ctrl+Alt+Mayús+Arriba | Un poco más de espacio para el cuadro de respuesta |
 | Ctrl+Alt+Mayús+Abajo | Un poco más de espacio para los mensajes |
 | Ctrl+Alt+H | Herramientas del agente: servidores MCP, complementos y habilidades que tiene cargados |
+| Ctrl+Alt+M | Servidores MCP de la sesión: su estado de ahora, reconectarlos, activarlos e iniciar sesión (Claude Code) |
 | Ctrl+Alt+G | Gestor de skills (tu catálogo de skills con su SKILL.md) |
+| Ctrl+Alt+B | Hacer una copia de seguridad ahora |
 | Ctrl+E | Exportar la sesión |
 | Ctrl+Mayús+E | Abrir la carpeta de la sesión en el Explorador |
 | Ctrl+O | Abrir la sesión en la app del agente |
@@ -167,7 +170,7 @@ Es el cuadro que muestra completo el mensaje elegido, debajo de la lista de mens
 | Intro | Empezar una línea nueva |
 | Ctrl+Intro | Enviar |
 | Ctrl+Mayús+Intro | Enviar ahora, interrumpiendo al agente (con adjuntos, el mensaje queda en cola) |
-| Ctrl+Alt+Intro | Añadir al turno en marcha sin detener al agente; si no llega, el texto vuelve al cuadro |
+| Ctrl+Alt+Intro | Añadir al turno en marcha sin detener al agente; si no llega, el texto vuelve al cuadro; si no se confirma, se queda en la lista marcado «Sin confirmar» |
 | Ctrl+V | Pegar texto o, si lo copiado es una imagen o archivos sin texto, adjuntarlos |
 | Ctrl+Alt+V | Adjuntar la imagen o los archivos copiados aunque lo copiado traiga también texto |
 | Ctrl+/ | Insertar un comando o habilidad |
@@ -241,7 +244,7 @@ Es el diálogo del menú Sesión, «Permisos de la sesión...» (Ctrl+Mayús+M).
 | Suprimir | En la lista, quitar la regla elegida, tras confirmarlo |
 | Escape | Cerrar |
 
-Los botones y campos tienen su letra subrayada: Alt+P lleva al modo de permisos, Alt+M lo cambia, Alt+E lleva a la lista, Alt+Q quita la regla elegida, Alt+T las quita todas y Alt+C cierra.
+Los botones y campos tienen su letra subrayada: Alt+P lleva al modo de permisos, Alt+M lo cambia, Alt+E lleva a la lista, Alt+R a las reglas de la configuración del agente, Alt+D a las decisiones de la revisión automática de Codex (si las hay), Alt+Q quita la regla elegida, Alt+T las quita todas y Alt+C cierra.
 
 ## Enviar la respuesta a otra sesión
 
@@ -253,7 +256,7 @@ Es el diálogo de Ctrl+Alt+R.
 | Ctrl+Intro | Enviar, desde cualquier sitio del diálogo |
 | Escape | Cerrar sin enviar nada |
 
-Alt+A lleva a la lista de sesiones y Alt+M al mensaje, que puedes cambiar antes de enviarlo; Alt+E pulsa «Enviar».
+Alt+A lleva a la lista de sesiones, cuya última entrada es «Nueva sesión...»; Alt+C marca la conversación automática entre las dos sesiones y, con ella marcada, Alt+U lleva a los turnos y Alt+P marca «Aprobar cada relevo a mano»; Alt+M lleva al mensaje, que puedes cambiar antes de enviarlo, y Alt+E pulsa «Enviar».
 
 ## Conversación automática entre sesiones
 
@@ -265,7 +268,30 @@ Es el diálogo de Ctrl+Alt+Mayús+R.
 | Intro | Pulsar «Empezar»; en la tarea, empezar una línea nueva |
 | Escape | Cerrar sin empezar nada |
 
-Alt+S lleva a la segunda sesión, Alt+T a la tarea, Alt+U a los turnos, Alt+R y Alt+N a las instrucciones de la primera y de la segunda sesión, y Alt+E pulsa «Empezar». Ctrl+. en cualquiera de las dos sesiones detiene la conversación.
+Alt+S lleva a la segunda sesión, Alt+A a la plantilla, Alt+T a la tarea, Alt+U a los turnos, Alt+R y Alt+N a las instrucciones de la primera y de la segunda sesión, Alt+O marca «Aprobar cada relevo a mano» y Alt+E pulsa «Empezar». Ctrl+. en cualquiera de las dos sesiones detiene la conversación.
+
+## Revisar el relevo de la conversación
+
+Es el diálogo de Ctrl+Alt+Mayús+E, cuando una respuesta espera tu aprobación.
+
+| Atajo | Acción |
+|---|---|
+| Ctrl+Intro | Seguir: pasar el mensaje tal como esté, desde cualquier sitio del diálogo |
+| Intro | En el mensaje, empezar una línea nueva |
+| Escape | Más tarde: cerrar, y el relevo sigue esperando |
+
+Alt+M lleva al mensaje, Alt+S pulsa «Seguir», Alt+P «Parar la conversación» y Alt+T «Más tarde».
+
+## Conversaciones entre sesiones guardadas
+
+| Atajo | Acción |
+|---|---|
+| Intro | Ver la conversación elegida, con lo que se dijeron intercalado |
+| Suprimir | Borrar la conversación elegida, tras confirmarlo |
+| Aplicaciones | Menú contextual: ver y borrar |
+| Escape | Cerrar |
+
+Alt+C lleva a la lista, Alt+V pulsa «Ver», Alt+B «Borrar» y Alt+E «Cerrar».
 
 ## Listas de la sesión
 
@@ -466,15 +492,31 @@ Es la ventana de Herramientas, «Informe de sesiones...» (Ctrl+I). En la lista 
 | Ctrl+D | Dar la sesión por terminada o volver a activarla |
 | Aplicaciones | Menú con estas acciones |
 
-## Exportar sesiones a un archivo
+## Exportar sesiones
 
-Es el diálogo de Archivo, «Exportar varias sesiones a un archivo...». Los botones «Marcar todas», «Desmarcar todas» y «Exportar...» tienen su letra subrayada, como todos los botones (Alt más esa letra).
+Es el diálogo de Archivo, «Exportar varias sesiones...». Los botones «Marcar todas», «Desmarcar todas», «Elegir carpeta...» y «Exportar...» tienen su letra subrayada, como todos los botones (Alt más esa letra); «Formato» se abre con Alt+F y «Carpeta de destino», con Alt+A.
 
 | Atajo | Acción |
 |---|---|
 | Espacio | En la lista, marcar o desmarcar la sesión |
 | Intro | Fuera de la lista, exportar las sesiones marcadas |
 | Aplicaciones | En la lista, menú para marcar o desmarcar la sesión, marcarlas todas o quitar todas las marcas |
+
+## Informar de un fallo
+
+Es el diálogo de Ayuda, «Informar de un fallo...». No tiene atajos propios: cada campo y cada botón tienen su letra subrayada (Alt más esa letra). Son R para «Resumen del fallo», Q para «Qué ha pasado», S para «Qué esperabas que pasara», P para «Pasos para que vuelva a pasar», I para «Lo que se incluirá», C para «Copiar», A para «Abrir una incidencia en GitHub» y E para «Cerrar».
+
+## Restaurar desde una copia
+
+Es el diálogo de Herramientas, Copias de seguridad, «Restaurar desde una copia...». En la lista de sesiones:
+
+| Atajo | Acción |
+|---|---|
+| Espacio | Marcar o desmarcar la sesión |
+| Ctrl+A | Marcar todas |
+| Ctrl+Mayús+A | Desmarcar todas |
+| Intro | Fuera de la lista, restaurar las sesiones marcadas |
+| Aplicaciones | Menú con estas órdenes y «Marcar solo las que no están en este equipo» |
 
 ## Selector de comandos y repositorios
 
@@ -528,6 +570,20 @@ Es el diálogo de Herramientas, «Preferencias...» (Ctrl+,).
 | Ctrl+H | Mostrar en un cuadro la explicación de la opción enfocada |
 | Intro | Aceptar y guardar |
 | Escape | Cancelar sin guardar (lo ya aplicado con «Aplicar» se queda) |
+
+## Servidores MCP de la sesión
+
+Es el diálogo de Ctrl+Alt+M. Alt+S lleva a la lista, Alt+D al detalle y Alt+C cierra.
+
+| Atajo | Acción |
+|---|---|
+| Intro | Lo que el servidor necesita: reconectarlo o iniciar sesión en él |
+| Ctrl+R | Reconectar el servidor elegido |
+| Ctrl+Mayús+R | Reconectar todos los que fallan |
+| Ctrl+D | Desactivar el servidor o volver a activarlo |
+| Ctrl+L | Iniciar sesión en el servidor, en una consola |
+| F5 | Volver a preguntar el estado |
+| Aplicaciones | Menú con todas las acciones |
 
 ## Visor de documentos
 

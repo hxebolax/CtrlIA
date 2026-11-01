@@ -12,9 +12,10 @@ los liste, los muestre y permita crear los que faltan:
   agentes, habilidades y comandos; y la memoria automática en
   ``<raíz>/projects/<carpeta codificada>/memory/*.md``.
 - **Codex** (``CODEX_HOME`` o ``~/.codex``): ``AGENTS.md``, ``config.toml`` y,
-  si existen, ``AGENTS.override.md``, ``skills/*/SKILL.md`` y ``prompts/*.md``;
-  las habilidades de ``~/.agents/skills``; en el proyecto ``AGENTS.md`` y, si
-  existen, ``AGENTS.override.md`` y ``.agents/skills/*/SKILL.md``.
+  si existen, ``AGENTS.override.md``, ``skills/*/SKILL.md``, ``prompts/*.md`` y la
+  memoria de ``memories/**/*.md`` (sin ``memories/rollout_summaries``, que es
+  historial); las habilidades de ``~/.agents/skills``; en el proyecto ``AGENTS.md``
+  y, si existen, ``AGENTS.override.md`` y ``.agents/skills/*/SKILL.md``.
 - **Antigravity y Gemini** (``~/.gemini``): ``GEMINI.md`` y
   ``antigravity-cli/settings.json``; en el proyecto ``GEMINI.md``,
   ``AGENTS.md`` y ``.agents/skills/*/SKILL.md``.
@@ -243,6 +244,28 @@ def _habilidades(carpeta: Path, ambito: str, agente: str) -> list[ArchivoMemoria
 	]
 
 
+def _memorias_codex(raiz: Path) -> list[ArchivoMemoria]:
+	"""Lo que Codex recuerda de ti, en ``memories``, el índice ``MEMORY.md`` primero (AIChat #371).
+
+	``memories/rollout_summaries`` guarda un resumen de cada conversación pasada: eso es
+	historial, no memoria que quieras revisar, y ni se recorre (puede haber miles).
+	"""
+	carpeta = raiz / "memories"
+	notas: list[Path] = []
+	for actual, subcarpetas, nombres in os.walk(carpeta):
+		subcarpetas[:] = [nombre for nombre in subcarpetas if nombre != "rollout_summaries"]
+		notas += [Path(actual) / nombre for nombre in nombres if nombre.lower().endswith(".md")]
+	relativas = sorted(((ruta.relative_to(carpeta), ruta) for ruta in notas if _es_archivo(ruta)),
+		key=lambda par: (par[0].as_posix().upper() != "MEMORY.MD", par[0].as_posix().lower()))
+	archivos = []
+	for relativa, ruta in relativas:
+		nombre = "Memoria de Codex"
+		if relativa.as_posix().upper() != "MEMORY.MD":
+			nombre += f": {relativa.with_suffix('').as_posix()}"
+		archivos.append(_encontrado(nombre, ruta, GLOBAL, CODEX, MEMORIA))
+	return archivos
+
+
 def _archivos_codex(carpeta: Path | None) -> list[ArchivoMemoria]:
 	raiz = raiz_codex()
 	archivos = [
@@ -257,6 +280,7 @@ def _archivos_codex(carpeta: Path | None) -> list[ArchivoMemoria]:
 	archivos += _habilidades(Path.home() / ".agents" / "skills", GLOBAL, CODEX)
 	for ruta in _listar(raiz / "prompts", "*.md"):
 		archivos.append(_encontrado(f"Comando: /prompts:{ruta.stem}", ruta, GLOBAL, CODEX, COMANDO))
+	archivos += _memorias_codex(raiz)
 	if carpeta is not None:
 		archivos.append(_agents_md_proyecto(carpeta, CODEX))
 		archivos += _si_existe(

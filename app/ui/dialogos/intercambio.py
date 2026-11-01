@@ -1,16 +1,20 @@
-"""Elegir qué sesiones se exportan a un archivo para llevarlas a otro equipo.
+"""Elegir qué sesiones se exportan y cómo.
 
 ``DialogoExportarSesiones`` muestra un desplegable «Qué sesiones» (la elegida,
 las que se ven en la lista, todas, o las de un grupo) y debajo esas sesiones
 con una casilla cada una, todas marcadas: Espacio desmarca las que no quieras.
-Tras ``wx.ID_OK``, ``claves`` tiene las marcadas e ``incluir_herramientas``
-dice si se exporta lo que hicieron las herramientas.
+«Formato» elige entre un archivo para llevarlas a otro equipo o un archivo suelto
+por sesión (Markdown, página web o texto) en la carpeta de «Carpeta de destino».
+Tras ``wx.ID_OK``, ``claves`` tiene las marcadas, ``incluir_herramientas`` dice
+si se exporta lo que hicieron las herramientas, ``formato`` el formato elegido
+y ``carpeta`` la carpeta, si son archivos sueltos.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
 import wx
 
@@ -18,14 +22,24 @@ from app.services.gestor import FilaSesion
 from app.ui.accesibilidad import voz
 from app.ui.accesibilidad.dialogos import enfocar, mostrar_error, preparar_dialogo
 from app.ui.accesibilidad.lista import ListaAccesible
-from app.ui.accesibilidad.nombres import crear_campo
+from app.ui.accesibilidad.nombres import crear_campo, crear_selector_ruta
 from app.ui.accesibilidad.teclado import vincular_menu_contextual
 from app.ui.comun import _, fecha_relativa, nombre_agente
 
 log = logging.getLogger(__name__)
 
+#: Formato de exportación con todas las sesiones en un archivo para otro equipo.
+FORMATO_ARCHIVO = "zip"
+#: ``(formato, nombre)`` de cada opción de «Formato».
+FORMATOS = [
+	(FORMATO_ARCHIVO, _("Un archivo .zip para llevarlas a otro equipo")),
+	("md", _("Un archivo Markdown por sesión")),
+	("html", _("Una página web por sesión")),
+	("txt", _("Un archivo de texto por sesión")),
+]
+
 AVISO_PRIVACIDAD = _(
-	"El archivo lleva todo lo que se dijo en esas sesiones: tus mensajes, las respuestas y, si lo marcas, "
+	"Lo exportado lleva todo lo que se dijo en esas sesiones: tus mensajes, las respuestas y, si lo marcas, "
 	"lo que hicieron las herramientas (órdenes, su salida y los cambios en archivos), donde a veces aparecen "
 	"contraseñas o claves. Guárdalo en un sitio seguro y no lo compartas. Ctrl+IA no lo sube a ningún sitio: "
 	"llevarlo al otro equipo es cosa tuya (un lápiz USB, una carpeta compartida...)."
@@ -41,12 +55,14 @@ class DialogoExportarSesiones(wx.Dialog):
 
 	def __init__(self, padre: wx.Window | None, alcances: Sequence[tuple[str, list[FilaSesion]]], inicial: int = 0,
 			leer_preferencias: Callable | None = None) -> None:
-		titulo = _("Exportar sesiones a un archivo")
+		titulo = _("Exportar sesiones")
 		super().__init__(padre, title=titulo, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER, name=titulo)
 		self.alcances = list(alcances)
 		self.filas: list[FilaSesion] = []
 		self.claves: list[str] = []
 		self.incluir_herramientas = True
+		self.formato = FORMATO_ARCHIVO
+		self.carpeta: Path | None = None
 
 		panel = wx.Panel(self)
 		raiz = wx.BoxSizer(wx.VERTICAL)
@@ -89,6 +105,17 @@ class DialogoExportarSesiones(wx.Dialog):
 		))
 		raiz.Add(self.casilla_herramientas, 0, wx.ALL, 8)
 
+		_e, self.campo_formato = crear_campo(panel, _("&Formato:"), wx.Choice, sizer=raiz,
+			choices=[nombre for _f, nombre in FORMATOS],
+			ayuda=_("Cómo se guardan: todas en un archivo .zip, para importarlas en otro equipo, o cada sesión en su propio "
+				"archivo, para leerla sin Ctrl+IA. Los archivos sueltos no se pueden importar."))
+		self.campo_formato.SetSelection(0)
+		self.campo_formato.Bind(wx.EVT_CHOICE, lambda _e: self.actualizar_formato())
+		_e, self.campo_carpeta, self.boton_carpeta = crear_selector_ruta(panel, _("C&arpeta de destino:"), sizer=raiz,
+			etiqueta_boton=_("&Elegir carpeta..."), ayuda=_(
+				"Carpeta donde se escribe un archivo por sesión; se crea si no existe. Nunca se sustituye nada: si un nombre ya "
+				"existe, el archivo nuevo lleva un número. Solo hace falta con los formatos de archivos sueltos."))
+
 		_e, self.campo_aviso = crear_campo(panel, _("A&ntes de exportar:"), wx.TextCtrl, sizer=raiz,
 			value=AVISO_PRIVACIDAD, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
 			ayuda=_("Aviso sobre los datos privados que puede llevar el archivo."))
@@ -96,7 +123,9 @@ class DialogoExportarSesiones(wx.Dialog):
 
 		botones = wx.StdDialogButtonSizer()
 		self.boton_exportar = wx.Button(panel, wx.ID_OK, _("E&xportar..."))
-		self.boton_exportar.SetHelpText(_("Pide dónde guardar el archivo y exporta las sesiones marcadas."))
+		self.boton_exportar.SetHelpText(_(
+			"Exporta las sesiones marcadas en segundo plano. Con el formato .zip, antes pide dónde guardar el archivo."
+		))
 		self.boton_exportar.SetDefault()
 		self.boton_cancelar = wx.Button(panel, wx.ID_CANCEL, _("Cancelar"))
 		self.boton_cancelar.SetHelpText(_("Cierra sin exportar nada."))
@@ -110,8 +139,19 @@ class DialogoExportarSesiones(wx.Dialog):
 		self.SetSizerAndFit(marco)
 		self.Bind(wx.EVT_BUTTON, lambda _e: self.aceptar(), id=wx.ID_OK)
 		self.rellenar()
+		self.actualizar_formato()
 		self.CentreOnParent()
 		preparar_dialogo(self, foco_inicial=self.campo_alcance)
+
+	def formato_elegido(self) -> str:
+		indice = self.campo_formato.GetSelection()
+		return FORMATOS[indice][0] if 0 <= indice < len(FORMATOS) else FORMATO_ARCHIVO
+
+	def actualizar_formato(self) -> None:
+		"""La carpeta solo cuenta con archivos sueltos: el .zip pide dónde guardarse al exportar."""
+		sueltos = self.formato_elegido() != FORMATO_ARCHIVO
+		self.campo_carpeta.Enable(sueltos)
+		self.boton_carpeta.Enable(sueltos)
 
 	def rellenar(self) -> None:
 		"""Pone en la lista las sesiones de la opción elegida, todas marcadas."""
@@ -158,8 +198,19 @@ class DialogoExportarSesiones(wx.Dialog):
 				_("Exportar sesiones"))
 			enfocar(self.lista)
 			return False
+		formato = self.formato_elegido()
+		carpeta = None
+		if formato != FORMATO_ARCHIVO:
+			carpeta = Path(self.campo_carpeta.GetValue().strip())
+			if not carpeta.is_absolute():
+				mostrar_error(self, _("Escribe en «Carpeta de destino» la carpeta completa, o elígela con su botón."),
+					_("Exportar sesiones"))
+				enfocar(self.campo_carpeta)
+				return False
 		self.claves = [f.clave for f in elegidas]
 		self.incluir_herramientas = self.casilla_herramientas.GetValue()
+		self.formato = formato
+		self.carpeta = carpeta
 		if self.IsModal():
 			self.EndModal(wx.ID_OK)
 		else:

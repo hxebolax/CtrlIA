@@ -46,7 +46,7 @@ import json
 import logging
 import re
 import shlex
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -150,6 +150,8 @@ class Cambio:
 	indice: int
 	#: Descripción del subagente que lo cambió (vacío si fue el agente principal).
 	subagente: str = ""
+	#: La ruta que tenía antes si el agente lo renombró o lo movió (vacío si no).
+	movido_desde: str = ""
 
 
 @dataclass(slots=True)
@@ -557,19 +559,11 @@ def enlaces(mensajes: Sequence[MensajeVista], incluir_archivos: bool = True) -> 
 # ── Archivos cambiados ──────────────────────────────────────────────────────────
 
 
-def contar_lineas_diff(diff: str) -> tuple[int, int]:
-	"""Líneas añadidas y quitadas de un diff unificado (sin contar ``+++``/``---``)."""
-	anadidas = quitadas = 0
-	for linea in (diff or "").splitlines():
-		if linea.startswith("+") and not linea.startswith("+++"):
-			anadidas += 1
-		elif linea.startswith("-") and not linea.startswith("---"):
-			quitadas += 1
-	return anadidas, quitadas
-
-
-#: Estilos de ``diff_legible``: palabras (de fábrica), palabras cortas o el diff tal cual.
-ESTILOS_CAMBIOS = ("palabras", "cortas", "simbolos")
+#: Estilos de ``diff_legible``: palabras (de fábrica), palabras cortas, el diff tal cual o
+#: el diff con cada línea junto a la que la sustituye (``!-`` y ``!+``).
+ESTILOS_CAMBIOS = ("palabras", "cortas", "simbolos", "parejas")
+#: Estilos que escriben signos y no palabras: solo se oyen con el nivel de puntuación que los lee.
+ESTILOS_CON_SIGNOS = ("simbolos", "parejas")
 
 _RE_CABECERA_TROZO = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$")
 
@@ -582,6 +576,61 @@ _MARCAS_LINEA = {
 	"-": ("quitada", "Menos"),
 	" ": ("sin cambios", "Igual"),
 }
+
+
+def _clasificar_diff(lineas: Sequence[str]) -> Iterator[tuple[str, str, re.Match[str] | None]]:
+	"""Qué es cada línea de un diff: ``(clase, línea, cabecera del trozo)``.
+
+	Clases: ``trozo`` (``@@``), ``nota`` (``\\ No newline...``), ``cabecera`` (``---`` y
+	``+++`` de un archivo), ``+``, ``-``, `` `` (línea del cambio) y ``otra`` (``diff --git``,
+	``index``, una separación...).
+
+	Dentro de un trozo mandan los recuentos de su ``@@``: lo que le queda por leer son
+	líneas aunque empiecen como una cabecera. Una línea quitada que empieza por ``-- ``
+	(un comentario de SQL) queda ``--- ...``, y una añadida que empieza por ``++ ``,
+	``+++ ...`` (AIChat #405). Fuera de un trozo, una cabecera es siempre la pareja
+	``--- ``, ``+++ ``; suelta, es una línea más. Si los recuentos se quedan cortos
+	(algún agente cuenta de menos), lo que siga con signo sigue siendo una línea.
+	"""
+	quedan_viejas = quedan_nuevas = 0
+	segunda_cabecera = False
+	for indice, linea in enumerate(lineas):
+		trozo = _RE_CABECERA_TROZO.match(linea)
+		if trozo:
+			quedan_viejas = int(trozo.group(2)) if trozo.group(2) is not None else 1
+			quedan_nuevas = int(trozo.group(4)) if trozo.group(4) is not None else 1
+			yield "trozo", linea, trozo
+			continue
+		if linea.startswith("\\"):
+			yield "nota", linea, None
+			continue
+		if quedan_viejas > 0 or quedan_nuevas > 0:
+			marca = linea[:1] if linea else " "
+			if marca not in _MARCAS_LINEA:
+				yield "otra", linea, None
+				continue
+			if marca != "+":
+				quedan_viejas -= 1
+			if marca != "-":
+				quedan_nuevas -= 1
+			yield marca, linea, None
+			continue
+		if segunda_cabecera:
+			segunda_cabecera = False
+			yield "cabecera", linea, None
+		elif linea.startswith("--- ") and indice + 1 < len(lineas) and lineas[indice + 1].startswith("+++ "):
+			segunda_cabecera = True
+			yield "cabecera", linea, None
+		elif linea[:1] in _MARCAS_LINEA:
+			yield linea[:1], linea, None
+		else:
+			yield "otra", linea, None
+
+
+def contar_lineas_diff(diff: str) -> tuple[int, int]:
+	"""Líneas añadidas y quitadas de un diff unificado (sin contar las cabeceras de cada archivo)."""
+	clases = Counter(clase for clase, _linea, _trozo in _clasificar_diff((diff or "").splitlines()))
+	return clases["+"], clases["-"]
 
 
 def _texto_linea(marca: str, contenido: str, numero: int | None, cortas: bool) -> str:
@@ -614,6 +663,44 @@ def _texto_cabecera_archivo(linea: str) -> str:
 	return "Después: " + ("borrado" if ruta == "/dev/null" else ruta)
 
 
+def _diff_por_parejas(diff: str) -> str:
+	"""El diff con ``!-`` y ``!+``: cada línea quitada, seguida de la que la sustituye.
+
+	Vale para un bloque de quitadas seguido de añadidas: la primera con la primera,
+	la segunda con la segunda... Las que se quedan sin pareja conservan su signo. Esas
+	líneas ya no van en el orden del archivo, que es lo que permite oír cada cambio
+	junto a su original. Las cabeceras y las líneas sin cambios se quedan como están.
+	"""
+	salida: list[str] = []
+	quitadas: list[list[str]] = []
+	anadidas: list[list[str]] = []
+
+	def volcar() -> None:
+		parejas = min(len(quitadas), len(anadidas))
+		for vieja, nueva in zip(quitadas[:parejas], anadidas[:parejas], strict=True):
+			salida.extend(["!-" + vieja[0][1:], *vieja[1:], "!+" + nueva[0][1:], *nueva[1:]])
+		for suelta in (*quitadas[parejas:], *anadidas[parejas:]):
+			salida.extend(suelta)
+		quitadas.clear()
+		anadidas.clear()
+
+	for clase, linea, _trozo in _clasificar_diff(diff.splitlines()):
+		if clase == "-":
+			if anadidas:
+				volcar()
+			quitadas.append([linea])
+		elif clase == "+":
+			anadidas.append([linea])
+		elif clase == "nota" and (anadidas or quitadas):
+			# «Sin salto de línea al final» habla de la línea anterior: se queda con ella.
+			(anadidas or quitadas)[-1].append(linea)
+		else:
+			volcar()
+			salida.append(linea)
+	volcar()
+	return "\n".join(salida)
+
+
 def diff_legible(diff: str, estilo: str = "palabras") -> str:
 	"""Un diff unificado escrito con palabras, para oírlo con un lector de pantalla.
 
@@ -627,6 +714,7 @@ def diff_legible(diff: str, estilo: str = "palabras") -> str:
 	- ``cortas``: lo mismo con palabras breves: «Más 12: …», «Menos 12: …»,
 	  «Igual 13: …» y «Líneas 12 a 19:».
 	- ``simbolos``: el diff tal cual.
+	- ``parejas``: el diff con cada línea junto a su sustituta (``_diff_por_parejas``).
 
 	Una línea quitada lleva el número de la posición que ocupaba, así que una
 	línea sustituida se oye «Línea 12, quitada» y luego «Línea 12, añadida».
@@ -636,63 +724,46 @@ def diff_legible(diff: str, estilo: str = "palabras") -> str:
 	diff = diff or ""
 	if estilo == "simbolos" or not diff.strip():
 		return diff
+	if estilo == "parejas":
+		return _diff_por_parejas(diff)
 	cortas = estilo == "cortas"
 	lineas = diff.splitlines()
 	hay_trozos = any(_RE_CABECERA_TROZO.match(linea) for linea in lineas)
 	salida: list[str] = []
-	quedan_viejas = quedan_nuevas = 0
 	numero = 0
-	for linea in lineas:
-		trozo = _RE_CABECERA_TROZO.match(linea)
-		if trozo:
-			quedan_viejas = int(trozo.group(2)) if trozo.group(2) is not None else 1
-			quedan_nuevas = int(trozo.group(4)) if trozo.group(4) is not None else 1
+	for clase, linea, trozo in _clasificar_diff(lineas):
+		if clase == "trozo":
+			nuevas = int(trozo.group(4)) if trozo.group(4) is not None else 1
 			numero = int(trozo.group(3))
 			# «+0,0» (archivo vaciado) o «+12,0» (solo quitadas): las quitadas ocupaban la línea siguiente.
-			if quedan_nuevas == 0:
+			if nuevas == 0:
 				numero += 1
-			salida.append(_texto_cabecera_trozo(numero, quedan_nuevas, trozo.group(5), cortas))
-			continue
-		if linea.startswith("\\"):
+			salida.append(_texto_cabecera_trozo(numero, nuevas, trozo.group(5), cortas))
+		elif clase == "nota":
 			nota = linea.lstrip("\\ ").strip()
 			if nota.lower() == "no newline at end of file":
 				nota = "sin salto de línea al final del archivo"
 			salida.append("Nota: " + nota)
-			continue
-		if hay_trozos:
-			if quedan_viejas <= 0 and quedan_nuevas <= 0:
-				# Fuera de un trozo: cabeceras del archivo o separación entre cambios.
-				if linea.startswith(("--- ", "+++ ")):
-					salida.append(_texto_cabecera_archivo(linea))
-				else:
-					salida.append(linea)
-				continue
-			marca = linea[:1] if linea else " "
-			if marca not in _MARCAS_LINEA:
-				salida.append(linea)
-				continue
-			salida.append(_texto_linea(marca, linea[1:], numero, cortas))
-			if marca == "+":
-				numero += 1
-				quedan_nuevas -= 1
-			elif marca == "-":
-				quedan_viejas -= 1
-			else:
-				numero += 1
-				quedan_nuevas -= 1
-				quedan_viejas -= 1
-			continue
-		# Sin cabeceras «@@»: solo se sabe la clase de cada línea.
-		marca = linea[:1]
-		if marca in ("+", "-") and not linea.startswith(("+++ ", "--- ")):
-			salida.append(_texto_linea(marca, linea[1:], None, cortas))
-		elif marca == " ":
-			salida.append(_texto_linea(marca, linea[1:], None, cortas))
-		elif linea.startswith(("--- ", "+++ ")):
+		elif clase == "cabecera":
 			salida.append(_texto_cabecera_archivo(linea))
-		else:
+		elif clase == "otra":
 			salida.append(linea)
+		elif hay_trozos:
+			salida.append(_texto_linea(clase, linea[1:], numero, cortas))
+			if clase != "-":
+				numero += 1
+		else:
+			# Sin cabeceras «@@»: solo se sabe la clase de cada línea.
+			salida.append(_texto_linea(clase, linea[1:], None, cortas))
 	return "\n".join(salida)
+
+
+def texto_cambio(cambio: Cambio, estilo: str = "palabras") -> str:
+	"""Los cambios de un archivo como se leen, con el nombre que tenía si se renombró."""
+	texto = diff_legible(cambio.diff, estilo)
+	if not cambio.movido_desde:
+		return texto
+	return "Renombrado desde: " + cambio.movido_desde + ("\n" + texto if texto else "")
 
 
 def _ruta_tras_dos_puntos(texto: str) -> str:
@@ -706,7 +777,14 @@ def _clave_ruta(ruta: str) -> str:
 	return clave_ruta(ruta)
 
 
-def _cambios_de_varias_cabeceras(texto: str, detalle: str) -> list[tuple[str, str]]:
+def _ruta_y_origen(texto: str) -> tuple[str, str]:
+	"""«Archivo modificado: viejo.py (movido a nuevo.py)» → ``("nuevo.py", "viejo.py")``; sin mover, ``(ruta, "")``."""
+	ruta = _ruta_tras_dos_puntos(texto)
+	vieja, separador, nueva = ruta.partition(" (movido a ")
+	return (nueva[:-1], vieja) if separador and nueva.endswith(")") else (ruta, "")
+
+
+def _cambios_de_varias_cabeceras(texto: str, detalle: str) -> list[tuple[str, str, str]]:
 	"""Un mensaje «cambio» con varias líneas «Archivo X: ruta» (Codex).
 
 	El detalle repite cada línea como cabecera de su diff.
@@ -724,38 +802,39 @@ def _cambios_de_varias_cabeceras(texto: str, detalle: str) -> list[tuple[str, st
 			por_cabecera[actual].append(linea)
 	resultado = []
 	for cabecera in cabeceras:
-		ruta = _ruta_tras_dos_puntos(cabecera).split(" (movido a ", 1)[0]
+		ruta, origen = _ruta_y_origen(cabecera)
 		if ruta:
-			resultado.append((ruta, "\n".join(por_cabecera[cabecera]).strip("\n")))
+			resultado.append((ruta, "\n".join(por_cabecera[cabecera]).strip("\n"), origen))
 	return resultado
 
 
-def _cambios_de_mensaje(mensaje: MensajeVista) -> list[tuple[str, str]]:
-	"""``[(ruta, diff)]`` que aporta un mensaje (vacío si no es un cambio)."""
+def _cambios_guardados(mensaje: MensajeVista) -> list[tuple[str, str, str]]:
+	"""Los ``datos["cambios"]`` de un mensaje como ``(ruta, diff, de dónde se movió)``."""
+	return [
+		(str(cambio.get("ruta") or "").strip(), str(cambio.get("diff") or ""), str(cambio.get("movido_desde") or ""))
+		for cambio in (mensaje.cambios or [])
+		if isinstance(cambio, dict) and str(cambio.get("ruta") or "").strip()
+	]
+
+
+def _cambios_de_mensaje(mensaje: MensajeVista) -> list[tuple[str, str, str]]:
+	"""``[(ruta, diff, de dónde se movió)]`` que aporta un mensaje (vacío si no es un cambio)."""
 	if mensaje.rol == "cambio":
-		cambios = [
-			(str(cambio.get("ruta") or "").strip(), str(cambio.get("diff") or ""))
-			for cambio in (mensaje.cambios or [])
-			if isinstance(cambio, dict) and str(cambio.get("ruta") or "").strip()
-		]
+		cambios = _cambios_guardados(mensaje)
 		if cambios:
 			return cambios
 		varios = _cambios_de_varias_cabeceras(mensaje.texto, mensaje.detalle)
 		if varios:
 			return varios
-		ruta = _ruta_tras_dos_puntos(mensaje.texto).split(" (movido a ", 1)[0]
+		ruta, origen = _ruta_y_origen(mensaje.texto)
 		detalle = mensaje.detalle or ""
 		primera = (mensaje.texto or "").strip().split("\n", 1)[0].strip()
 		if detalle.startswith(primera + "\n"):
 			detalle = detalle[len(primera) + 1:]
-		return [(ruta, detalle)] if ruta else []
+		return [(ruta, detalle, origen)] if ruta else []
 	if mensaje.rol == "herramienta":
 		# El historial de Claude Code guarda el diff en la propia herramienta.
-		cambios = [
-			(str(cambio.get("ruta") or "").strip(), str(cambio.get("diff") or ""))
-			for cambio in (mensaje.cambios or [])
-			if isinstance(cambio, dict) and str(cambio.get("ruta") or "").strip()
-		]
+		cambios = _cambios_guardados(mensaje)
 		if cambios:
 			return cambios
 		texto = (mensaje.texto or "").strip()
@@ -764,16 +843,17 @@ def _cambios_de_mensaje(mensaje: MensajeVista) -> list[tuple[str, str]]:
 			if ruta:
 				# El detalle de una herramienta no es un diff: solo se usa si
 				# no llega un mensaje «cambio» con el diff real de esa ruta.
-				return [(ruta, "")]
+				return [(ruta, "", "")]
 	return []
 
 
-def _acumular(resultado: list[Cambio], por_ruta: dict[str, Cambio], ruta: str, diff: str, indice: int, subagente: str = "") -> None:
+def _acumular(resultado: list[Cambio], por_ruta: dict[str, Cambio], ruta: str, diff: str, indice: int, subagente: str = "",
+		movido_desde: str = "") -> None:
 	clave = _clave_ruta(ruta)
 	existente = por_ruta.get(clave)
 	diff = diff.strip("\n")
 	if existente is None:
-		cambio = Cambio(ruta, diff, indice, subagente)
+		cambio = Cambio(ruta, diff, indice, subagente, movido_desde)
 		por_ruta[clave] = cambio
 		resultado.append(cambio)
 		return
@@ -782,6 +862,8 @@ def _acumular(resultado: list[Cambio], por_ruta: dict[str, Cambio], ruta: str, d
 		existente.diff = existente.diff + "\n\n" + diff if existente.diff else diff
 	if subagente and not existente.subagente:
 		existente.subagente = subagente
+	if movido_desde and not existente.movido_desde:
+		existente.movido_desde = movido_desde
 
 
 def archivos_cambiados(mensajes: Sequence[MensajeVista]) -> list[Cambio]:
@@ -794,8 +876,8 @@ def archivos_cambiados(mensajes: Sequence[MensajeVista]) -> list[Cambio]:
 	resultado: list[Cambio] = []
 	por_ruta: dict[str, Cambio] = {}
 	for indice, mensaje in enumerate(mensajes):
-		for ruta, diff in _cambios_de_mensaje(mensaje):
-			_acumular(resultado, por_ruta, ruta, diff, indice)
+		for ruta, diff, movido_desde in _cambios_de_mensaje(mensaje):
+			_acumular(resultado, por_ruta, ruta, diff, indice, movido_desde=movido_desde)
 	return resultado
 
 
@@ -808,7 +890,7 @@ def combinar_cambios(principales: Sequence[Cambio], subagentes: Iterable[Subagen
 	resultado: list[Cambio] = []
 	por_ruta: dict[str, Cambio] = {}
 	for cambio in principales:
-		_acumular(resultado, por_ruta, cambio.ruta, cambio.diff, cambio.indice, cambio.subagente)
+		_acumular(resultado, por_ruta, cambio.ruta, cambio.diff, cambio.indice, cambio.subagente, cambio.movido_desde)
 	for subagente in subagentes:
 		for cambio in subagente.archivos:
 			_acumular(resultado, por_ruta, cambio.ruta, cambio.diff, subagente.indice, subagente.descripcion or subagente.tipo or "subagente")

@@ -69,33 +69,40 @@ def modo_claude(carpeta: Path | None = None) -> str | None:
 	return None
 
 
-def _ajustes_codex(documento: DocumentoConfig | None) -> tuple[str | None, str | None]:
-	"""``(sandbox_mode, approval_policy)`` de un config.toml, mirando antes el perfil activo."""
+def _ajustes_codex(documento: DocumentoConfig | None) -> tuple[str | None, str | None, str | None]:
+	"""``(sandbox_mode, approval_policy, approvals_reviewer)`` de un config.toml, mirando antes el perfil activo."""
 	if documento is None:
-		return None, None
+		return None, None, None
 	perfil = _texto(documento, "profile")
-	sandbox = _texto(documento, "profiles", perfil, "sandbox_mode") if perfil else None
-	aprobacion = _texto(documento, "profiles", perfil, "approval_policy") if perfil else None
-	return sandbox or _texto(documento, "sandbox_mode"), aprobacion or _texto(documento, "approval_policy")
+
+	def valor(clave: str) -> str | None:
+		return (_texto(documento, "profiles", perfil, clave) if perfil else None) or _texto(documento, clave)
+
+	return valor("sandbox_mode"), valor("approval_policy"), valor("approvals_reviewer")
 
 
 def modo_codex(carpeta: Path | None = None) -> str | None:
-	"""Modo de Ctrl+IA que corresponde a ``sandbox_mode`` y ``approval_policy`` de Codex.
+	"""Modo de Ctrl+IA que corresponde a ``sandbox_mode``, ``approval_policy`` y ``approvals_reviewer`` de Codex.
 
-	El config.toml del proyecto manda sobre el de tu usuario, clave a clave.
+	El config.toml del proyecto manda sobre el de tu usuario, clave a clave. La
+	revisión automática solo cuenta si Codex puede preguntar (con «never» no hay
+	nada que revisar) y si hay aislamiento.
 	"""
 	from app.services.config_agentes.catalogo_codex import AGENTE, PROYECTO, USUARIO
 
-	sandbox, aprobacion = _ajustes_codex(_documento(AGENTE, USUARIO, carpeta))
+	sandbox, aprobacion, revisor = _ajustes_codex(_documento(AGENTE, USUARIO, carpeta))
 	if carpeta is not None:
-		sandbox_p, aprobacion_p = _ajustes_codex(_documento(AGENTE, PROYECTO, carpeta))
-		sandbox, aprobacion = sandbox_p or sandbox, aprobacion_p or aprobacion
+		sandbox_p, aprobacion_p, revisor_p = _ajustes_codex(_documento(AGENTE, PROYECTO, carpeta))
+		sandbox, aprobacion, revisor = sandbox_p or sandbox, aprobacion_p or aprobacion, revisor_p or revisor
+	automatica = revisor in ("auto_review", "guardian_subagent")
 	if sandbox == "read-only":
-		return "solo_lectura"
+		return "solo_lectura_auto" if automatica and aprobacion != "never" else "solo_lectura"
 	if sandbox == "danger-full-access":
 		return "acceso_total"
 	if aprobacion == "never":
 		return "sin_preguntas"
+	if automatica:
+		return "espacio_trabajo_auto"
 	if sandbox == "workspace-write":
 		return "espacio_trabajo"
 	return None

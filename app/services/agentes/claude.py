@@ -60,12 +60,25 @@ Con «Dar a los agentes las herramientas de Ctrl+IA» (Preferencias, Agentes), e
 (``sdkMcpServers``): Claude Code le habla con ``control_request`` ``mcp_message``
 por esta misma conexión (también por SSH) y lo atiende
 ``herramientas_propias``; sus herramientas van en ``--allowedTools`` porque son
-inofensivas. Esas peticiones nunca abren un turno.
+inofensivas. Esas peticiones nunca abren un turno. Junto a él va
+``ccd_session_mgmt`` (``herramientas_sesiones``), el servidor de la app de
+escritorio al que llaman comandos como ``/wrap``.
 
 Cada mensaje lleva su ``uuid`` (``ultimo_uuid_usuario``) y Claude Code guarda el
 estado de los archivos antes de cada uno (``CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING``):
 ``deshacer_archivos`` pide ``rewind_files`` al proceso abierto o a uno nuevo con
 ``--resume`` que solo hace eso.
+
+Añadir al turno
+===============
+
+Va sin ``interrupt``, por la entrada del proceso abierto. Con
+``--replay-user-messages`` Claude Code devuelve cada mensaje, con su ``uuid`` y
+``isReplay``, en el momento en que lo recoge (comprobado con 2.1.308): a mitad de
+turno, tras la herramienta en la que estaba; si lo pilló escribiendo la respuesta
+final, después de ese resultado, y entonces lo responde aparte con otro resultado.
+Si el proceso se cierra sin ese eco, el mensaje queda sin confirmar: nunca se
+dice que no se envió, porque ya estaba escrito.
 
 Facturación
 ===========
@@ -90,11 +103,13 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from app.services.agentes import elicitacion, procesos, remoto
 from app.services.agentes.base import (
+	NOTA_SIN_CONFIRMAR,
 	Adjunto,
 	AjustesSesion,
 	Capacidades,
@@ -155,6 +170,14 @@ _RE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
 _RE_REGLA = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,199}(\([^\r\n]{0,500}\))?$")
 #: «Claude Code 2.1.238 does not support this model; version 2.1.280 or newer is required» (la API, con 2.1.238).
 _RE_VERSION_INSUFICIENTE = re.compile(r"Claude Code (\d[\w.-]*) does not support this model; version (\d[\w.-]*) or newer")
+#: «No conversation found with session ID: <id>»: ``--resume`` de una sesión cuya transcripción ya no existe
+#: (Claude Code 2.1.308: va en ``errors`` del ``result`` y en su salida de errores, y sale con código 1).
+_RE_SIN_TRANSCRIPCION = re.compile(r"No conversation found", re.IGNORECASE)
+#: El ``ERROR`` de ese caso lleva ``sin_transcripcion``: la interfaz ofrece ``GestorSesiones.seguir_con_contexto``.
+TEXTO_SIN_TRANSCRIPCION = (
+	"Claude Code ya no tiene la conversación de esta sesión: borra las antiguas pasado un tiempo (cleanupPeriodDays, 30 "
+	"días de fábrica). Tus mensajes siguen en Ctrl+IA, pero el agente no los recuerda y no ha recibido el último."
+)
 
 #: Nombre interno de las peticiones de los servidores MCP en ``_solicitudes``.
 HERRAMIENTA_ELICITACION = "__elicitacion_mcp__"
@@ -246,11 +269,29 @@ TIEMPO_USO = 60.0
 #: siempre. Documentada en las variables de entorno de Claude Code (2.1.233 o posterior).
 VARIABLE_LISTA_TAREAS = "CLAUDE_CODE_ENABLE_TODO_TOOLS"
 #: Con «0», ``claude -p`` conecta sus servidores MCP (y los conectores de claude.ai) ANTES de
-#: empezar el turno. De fábrica los conecta en segundo plano: como Ctrl+IA lanza un proceso por
-#: turno, cada mensaje empezaba con los MCP «desconectados» o «aún conectándose», Claude Code lo
-#: anotaba en la conversación («The following MCP servers have disconnected...») y el modelo lo
-#: contaba. Comprobado en las cadenas de Claude Code 2.1.238 (``!vf(MCP_CONNECTION_NONBLOCKING)``).
+#: empezar el turno. De fábrica los conecta en segundo plano: cada proceso nuevo empezaba con los
+#: MCP «desconectados» o «aún conectándose», Claude Code lo anotaba en la conversación («The
+#: following MCP servers have disconnected...») y el modelo lo contaba. Comprobado en las cadenas
+#: de Claude Code 2.1.238 (``!vf(MCP_CONNECTION_NONBLOCKING)``).
 VARIABLE_MCP_SIN_ESPERA = "MCP_CONNECTION_NONBLOCKING"
+#: Esa espera tiene un tope de 5 s (``MCP_CONNECT_TIMEOUT_MS``) y, con ``--input-format stream-json``,
+#: Claude Code no espera nada más: lo que tarda más (lo normal con ``npx``, ``uvx`` o Docker) empezaba
+#: «pending» y fuera del turno (comprobado con 2.1.308 y servidores de prueba lentos). Las tres
+#: variables valen el tiempo de Preferencias: sin ``MCP_TIMEOUT`` el servidor se daría por fallido a
+#: los 30 s y sin ``CLAUDE_CODE_MCP_STARTUP_WAIT_MS`` (2.1.274) el primer turno solo espera 2 s.
+VARIABLES_ESPERA_MCP = ("MCP_TIMEOUT", "MCP_CONNECT_TIMEOUT_MS", "CLAUDE_CODE_MCP_STARTUP_WAIT_MS")
+#: Servidores stdio que se conectan a la vez: de fábrica 3, así que el cuarto empieza cuando acaba uno
+#: de los tres primeros. 8 es lo que usa la app de escritorio de Claude.
+VARIABLE_MCP_EN_PARALELO = "MCP_SERVER_CONNECTION_BATCH_SIZE"
+MCP_EN_PARALELO = "8"
+#: Segundos de fábrica de esa espera (Preferencias, Agentes).
+SEGUNDOS_ESPERA_MCP = 30
+#: Segundos sin contestar a ``initialize`` tras los que se avisa de que se están conectando los MCP.
+ESPERA_AVISO_MCP = 4.0
+#: Segundos que se espera a que Claude Code conteste a ``mcp_status`` y ``mcp_toggle``.
+ESPERA_ESTADO_MCP = 10.0
+#: Segundos entre comprobaciones mientras algún servidor sigue conectándose.
+PAUSA_REVISAR_MCP = 3.0
 #: Para las consultas que no conversan (``/usage``, la lista de comandos): sin ``--mcp-config``,
 #: ``--strict-mcp-config`` no carga ningún servidor MCP ni conector. Si no, cada consulta arrancaba
 #: todos los servidores de la persona (y los que abren un navegador o piden iniciar sesión, lo hacían).
@@ -265,28 +306,38 @@ _RE_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 _ACUSE_MCP = {"jsonrpc": "2.0", "result": {}, "id": 0}
 
 
-def variables_anadidas(lista_tareas: bool = False, esperar_mcp: bool = False) -> dict[str, str]:
+def variables_anadidas(lista_tareas: bool = False, esperar_mcp: bool = False,
+		segundos_mcp: int = SEGUNDOS_ESPERA_MCP) -> dict[str, str]:
 	"""Variables que Ctrl+IA pone a Claude Code, aquí o en otro equipo por SSH.
 
 	Sin lista de tareas no se toca ``VARIABLE_LISTA_TAREAS``: si la persona la
-	tiene puesta por su cuenta, sigue valiendo. Lo mismo con ``VARIABLE_MCP_SIN_ESPERA``:
-	si ya la tiene en su entorno, manda la suya.
+	tiene puesta por su cuenta, sigue valiendo. Lo mismo con los tiempos de los
+	servidores MCP: si ya tiene uno en su entorno, manda el suyo. La excepción es
+	``VARIABLE_MCP_SIN_ESPERA``, que con la opción activada siempre vale «0»: lo
+	que se abre desde la app de escritorio de Claude hereda su ``true``, y la
+	preferencia ya sirve para no esperar.
 	"""
 	# Con la segunda, Claude Code guarda el estado de los archivos antes de cada mensaje y admite
 	# «rewind_files» (deshacer los cambios de un mensaje: ``ConversacionClaude.deshacer_archivos``).
 	variables = {"CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1", VARIABLE_PUNTOS_ARCHIVOS: "true"}
 	if lista_tareas:
 		variables[VARIABLE_LISTA_TAREAS] = "1"
-	if esperar_mcp and VARIABLE_MCP_SIN_ESPERA not in os.environ:
+	if esperar_mcp:
 		variables[VARIABLE_MCP_SIN_ESPERA] = "0"
+		for nombre in VARIABLES_ESPERA_MCP:
+			if nombre not in os.environ:
+				variables[nombre] = str(int(segundos_mcp) * 1000)
+		if VARIABLE_MCP_EN_PARALELO not in os.environ:
+			variables[VARIABLE_MCP_EN_PARALELO] = MCP_EN_PARALELO
 	return variables
 
 
-def entorno_claude(lista_tareas: bool = False, esperar_mcp: bool = False) -> dict[str, str]:
+def entorno_claude(lista_tareas: bool = False, esperar_mcp: bool = False,
+		segundos_mcp: int = SEGUNDOS_ESPERA_MCP) -> dict[str, str]:
 	return procesos.entorno_hijo(
 		quitar=VARIABLES_DE_SESION + VARIABLES_DE_FACTURACION,
 		prefijos=PREFIJOS_DE_SESION,
-		anadir=variables_anadidas(lista_tareas, esperar_mcp),
+		anadir=variables_anadidas(lista_tareas, esperar_mcp, segundos_mcp),
 	)
 
 
@@ -328,7 +379,8 @@ class ProveedorClaude(Proveedor):
 			permitir_clave_api: bool = False, lista_tareas: bool | Callable[[], bool] = True,
 			esperar_mcp: bool | Callable[[], bool] = True,
 			minutos_abierto: int | Callable[[], int] = MINUTOS_ABIERTO_POR_DEFECTO,
-			chrome: bool | Callable[[], bool] = False) -> None:
+			chrome: bool | Callable[[], bool] = False,
+			segundos_mcp: int | Callable[[], int] = SEGUNDOS_ESPERA_MCP) -> None:
 		self._ejecutable = ejecutable
 		#: Orden fija para las pruebas (``[python, fake_claude.py]``).
 		self._orden_base = list(orden_base) if orden_base else None
@@ -337,6 +389,8 @@ class ProveedorClaude(Proveedor):
 		self._lista_tareas = lista_tareas
 		#: Preferencias, «Esperar a que se conecten las herramientas MCP de Claude» (se lee en cada turno).
 		self._esperar_mcp = esperar_mcp
+		#: Preferencias, «Tiempo de espera de las herramientas MCP de Claude» (segundos; se lee en cada turno).
+		self._segundos_mcp = segundos_mcp
 		#: Preferencias, «Mantener Claude Code abierto entre mensajes» (minutos; se lee en cada turno).
 		self._minutos_abierto = minutos_abierto
 		#: Preferencias, «Dejar que Claude use Chrome» (``--chrome``; se lee en cada turno).
@@ -368,6 +422,15 @@ class ProveedorClaude(Proveedor):
 		except Exception:  # noqa: BLE001 - una preferencia ilegible deja la espera activada, como de fábrica
 			log.debug("No se pudo leer la preferencia de los servidores MCP", exc_info=True)
 			return True
+
+	def segundos_mcp(self) -> int:
+		"""Segundos que Claude Code espera a cada servidor MCP al arrancar."""
+		try:
+			valor = self._segundos_mcp() if callable(self._segundos_mcp) else self._segundos_mcp
+			return max(1, int(valor))
+		except Exception:  # noqa: BLE001 - una preferencia ilegible deja el valor de fábrica
+			log.debug("No se pudo leer el tiempo de espera de los servidores MCP", exc_info=True)
+			return SEGUNDOS_ESPERA_MCP
 
 	def minutos_abierto(self) -> int:
 		"""Minutos que ``claude -p`` sigue abierto sin uso entre mensajes (0: un proceso por mensaje)."""
@@ -601,6 +664,15 @@ def _extraer_comandos(respuesta: dict[str, Any]) -> list[tuple[str, str]]:
 	return comandos
 
 
+@dataclass(slots=True)
+class _Anadido:
+	"""Un mensaje añadido al turno que Claude Code aún no ha recogido."""
+
+	texto: str
+	#: Llegó tras el resultado del turno: Claude lo responde aparte en vez de tenerlo en cuenta en lo que hacía.
+	tarde: bool = False
+
+
 class _ProcesoClaude:
 	"""Un ``claude -p`` en marcha; con «Mantener Claude Code abierto» atiende varios turnos seguidos."""
 
@@ -619,6 +691,12 @@ class _ProcesoClaude:
 		self.despertar = 0.0
 		#: Tareas periódicas creadas con CronCreate y no borradas: viven dentro de este proceso.
 		self.tareas_cron = 0
+		#: Hay un hilo revisando sus servidores MCP (``ConversacionClaude._revisar_mcp``).
+		self.revisando_mcp = False
+		#: Servidores que ya se han reintentado solos en este proceso: un reintento por servidor.
+		self.mcp_reintentados: set[str] = set()
+		#: Mensajes añadidos al turno, escritos y sin recoger todavía: uuid → mensaje.
+		self.anadidos: dict[str, _Anadido] = {}
 
 	def tiene_programado(self, ahora: float) -> bool:
 		"""Si cerrar ahora perdería algo que Claude dejó programado (AIChat #233)."""
@@ -687,6 +765,8 @@ class ConversacionClaude(Conversacion):
 		self._servidores_mcp: dict[str, str] = {}
 		#: Lo que Claude Code dijo que tenía cargado en su último ``system/init`` (AIChat #311).
 		self._init: dict[str, Any] = {}
+		#: Servidores MCP de los que ya se ha avisado, con el estado avisado (nombre → estado).
+		self._mcp_avisados: dict[str, str] = {}
 		self._cerrada = False
 		#: La sesión ya existe en Claude Code (se puede retomar con --resume).
 		self._sesion_creada = bool(ajustes.id_externo) and not ajustes.bifurcar_de
@@ -694,6 +774,12 @@ class ConversacionClaude(Conversacion):
 			raise ValueError("Identificador de sesión no válido")
 
 	# -- API pública ------------------------------------------------------------
+
+	@property
+	def anadidos_pendientes(self) -> int:
+		"""Mensajes añadidos al turno en marcha que Claude Code todavía no ha recogido."""
+		with self._candado:
+			return len(self._vivo.anadidos) if self._vivo is not None else 0
 
 	def enviar(self, texto: str, adjuntos: Sequence[Adjunto] = ()) -> None:
 		with self._candado:
@@ -750,29 +836,208 @@ class ConversacionClaude(Conversacion):
 			resultado.nota = ("Claude Code dice lo que tiene cargado al empezar a responder: envía un mensaje en esta "
 				"sesión y vuelve a mirarlo.")
 			return resultado
-		return inventario.desde_init_claude(self._init)
+		vivo = self._proceso_listo()
+		return inventario.desde_init_claude(self._init, self._estado_mcp(vivo) if vivo is not None else None)
+
+	# -- Servidores MCP ---------------------------------------------------------
+
+	def _proceso_listo(self) -> _ProcesoClaude | None:
+		"""El proceso abierto, si ya ha contestado a ``initialize`` (antes no atiende peticiones de control)."""
+		with self._candado:
+			vivo = self._vivo
+		if vivo is None or not vivo.vivo() or vivo.proceso is None or not vivo.inicializado.is_set():
+			return None
+		return vivo
+
+	def _estado_mcp(self, vivo: _ProcesoClaude) -> list[dict[str, Any]] | None:
+		"""Filas de ``mcp_status``; ``None`` si Claude Code no contesta o no lo admite."""
+		assert vivo.proceso is not None
+		try:
+			datos = self._control_y_esperar(vivo.proceso, {"subtype": "mcp_status"}, ESPERA_ESTADO_MCP)
+		except (RuntimeError, TimeoutError):
+			log.debug("Claude Code no ha dicho el estado de sus servidores MCP", exc_info=True)
+			return None
+		respuesta = datos.get("response") or {}
+		filas = (respuesta.get("response") or {}).get("mcpServers")
+		return [fila for fila in filas if isinstance(fila, dict)] if isinstance(filas, list) else None
+
+	def servidores_mcp(self) -> Any:
+		from app.services import servidores_mcp
+
+		vivo = self._proceso_listo()
+		filas = self._estado_mcp(vivo) if vivo is not None else None
+		if filas is None:
+			filas = self._init.get("mcp_servers")
+		return servidores_mcp.lista_desde_claude(filas)
+
+	def mcp_en_vivo(self) -> bool:
+		return self._proceso_listo() is not None
+
+	def _control_mcp(self, peticion: dict[str, Any], tiempo: float) -> None:
+		"""Petición que cambia un servidor MCP. Cuenta como uso del proceso abierto."""
+		vivo = self._proceso_listo()
+		if vivo is None or vivo.proceso is None:
+			raise RuntimeError("Claude Code no está abierto: se conectará con tu próximo mensaje.")
+		if vivo.temporizador is not None:
+			self._programar_cierre(vivo)
+		respuesta = self._control_y_esperar(vivo.proceso, peticion, tiempo).get("response") or {}
+		if respuesta.get("subtype") == "error":
+			raise RuntimeError(str(respuesta.get("error") or "Claude Code no ha podido hacerlo."))
+
+	def _turno_en_marcha(self) -> bool:
+		with self._candado:
+			return self._turno is not None and not self._turno.terminado
+
+	def reconectar_mcp(self, nombre: str) -> None:
+		if self._turno_en_marcha():
+			# Claude Code no atiende nada más mientras reconecta: un permiso concedido esperó 24 s (2.1.308).
+			raise RuntimeError("Claude está trabajando. Espera a que termine o detenlo, y vuelve a intentarlo.")
+		self._control_mcp({"subtype": "mcp_reconnect", "serverName": nombre}, self._proveedor.segundos_mcp() + ESPERA_ESTADO_MCP)
+		with self._candado:
+			self._mcp_avisados.pop(nombre, None)
+
+	def activar_mcp(self, nombre: str, activo: bool) -> None:
+		self._control_mcp({"subtype": "mcp_toggle", "serverName": nombre, "enabled": bool(activo)}, ESPERA_ESTADO_MCP)
+		with self._candado:
+			self._mcp_avisados.pop(nombre, None)
+
+	def orden_inicio_sesion_mcp(self, nombre: str) -> list[str] | None:
+		base = self._proveedor.orden_base()
+		if not base or remoto.es_remota(self.ajustes.extra):
+			return None
+		return [*base, "mcp", "login", nombre]
+
+	def _vigilar_mcp(self, vivo: _ProcesoClaude | None, filas: Any) -> None:
+		"""Tras un ``system/init``: si algún servidor no está conectado, se revisa en otro hilo (el lector no puede esperar)."""
+		from app.services.servidores_mcp import lista_desde_claude
+
+		servidores = lista_desde_claude(filas)
+		with self._candado:
+			avisados = bool(self._mcp_avisados)
+		if (vivo is None or vivo.proceso is None or vivo.revisando_mcp
+				or not (avisados or any(s.estado in ("failed", "needs-auth", "pending") for s in servidores))):
+			return
+		vivo.revisando_mcp = True
+		threading.Thread(target=self._revisar_mcp, args=(vivo,), name="claude-mcp-estado", daemon=True).start()
+
+	def _revisar_mcp(self, vivo: _ProcesoClaude) -> None:
+		"""Avisa de los servidores que se quedan sin conectar y sigue a los que aún se conectan.
+
+		Un servidor que falla en el arranque no se vuelve a intentar en todo el proceso
+		(hasta ``claude_minutos_abierto`` minutos), y Claude Code no lo cuenta: sin esto
+		la persona solo veía que el agente no tenía la herramienta.
+		"""
+		from app.services.servidores_mcp import lista_desde_claude
+
+		limite = time.monotonic() + self._proveedor.segundos_mcp() + ESPERA_ESTADO_MCP
+		try:
+			while vivo.vivo() and not self._cerrada:
+				filas = self._estado_mcp(vivo)
+				if filas is None:
+					return
+				servidores = lista_desde_claude(filas)
+				self._avisar_mcp(servidores)
+				self._reintentar_mcp_en_reposo(vivo)
+				if not any(s.estado == "pending" for s in servidores) or time.monotonic() > limite:
+					return
+				time.sleep(PAUSA_REVISAR_MCP)
+		except Exception:  # noqa: BLE001 - revisar los MCP nunca debe molestar a la conversación
+			log.exception("No se pudo revisar el estado de los servidores MCP de Claude Code")
+		finally:
+			vivo.revisando_mcp = False
+
+	def _reintentar_mcp_en_reposo(self, vivo: _ProcesoClaude | None) -> None:
+		"""Sin turno en marcha, reintenta una vez cada servidor que falló en este proceso.
+
+		Solo en reposo: Claude Code no atiende nada más mientras reconecta. Cubre sobre
+		todo la primera vez de un ``npx`` o un ``uvx``, que se pasa del tiempo descargando.
+		"""
+		if vivo is None or vivo.proceso is None or self._turno_en_marcha():
+			return
+		with self._candado:
+			nombres = [nombre for nombre, estado in self._mcp_avisados.items()
+				if estado == "failed" and nombre not in vivo.mcp_reintentados]
+			vivo.mcp_reintentados.update(nombres)
+		if nombres:
+			threading.Thread(target=self._reintentar_mcp, args=(vivo, nombres), name="claude-mcp-reintento", daemon=True).start()
+
+	def _reintentar_mcp(self, vivo: _ProcesoClaude, nombres: list[str]) -> None:
+		from app.services.servidores_mcp import lista_desde_claude
+
+		assert vivo.proceso is not None
+		try:
+			for nombre in nombres:
+				if self._turno_en_marcha() or not vivo.vivo():
+					vivo.mcp_reintentados.discard(nombre)  # se reintenta en el próximo reposo
+					continue
+				try:
+					respuesta = self._control_y_esperar(vivo.proceso, {"subtype": "mcp_reconnect", "serverName": nombre},
+						self._proveedor.segundos_mcp() + ESPERA_ESTADO_MCP).get("response") or {}
+				except (RuntimeError, TimeoutError):
+					log.info("El servidor MCP %s no ha contestado al reintento", nombre, exc_info=True)
+					continue
+				log.info("Reintento del servidor MCP %s: %s", nombre, respuesta.get("subtype"))
+			filas = self._estado_mcp(vivo) if vivo.vivo() else None
+			if filas is not None:
+				self._avisar_mcp(lista_desde_claude(filas))
+		except Exception:  # noqa: BLE001 - revisar los MCP nunca debe molestar a la conversación
+			log.exception("No se pudo reintentar un servidor MCP de Claude Code")
+
+	def _avisar_mcp(self, servidores: list[Any]) -> None:
+		"""Un aviso por servidor y estado: al quedarse sin conectar y, si se avisó, al volver."""
+		from app.services.servidores_mcp import aviso_de_problema
+
+		for servidor in servidores:
+			with self._candado:
+				avisado = self._mcp_avisados.get(servidor.nombre)
+				if servidor.con_problema:
+					if avisado == servidor.estado:
+						continue
+					self._mcp_avisados[servidor.nombre] = servidor.estado
+				elif avisado is None or servidor.estado == "pending":
+					continue
+				else:
+					self._mcp_avisados.pop(servidor.nombre, None)
+			if servidor.con_problema:
+				log.warning("Servidor MCP de Claude Code sin conectar: %s (%s: %s)", servidor.nombre, servidor.estado, servidor.motivo)
+				self._emitir(TipoEvento.AVISO, aviso_de_problema(servidor), mcp=servidor.nombre)
+			elif servidor.estado == "connected":
+				self._emitir(TipoEvento.AVISO, "La herramienta externa «%s» de Claude ya está conectada." % servidor.nombre,
+					mcp=servidor.nombre)
 
 	def anadir_al_turno(self, texto: str) -> None:
 		"""Mete el mensaje en el turno en marcha sin detenerlo: va a la entrada del proceso abierto.
 
 		Claude Code lo lee en cuanto acaba lo que está haciendo (una herramienta, un
-		párrafo) y lo tiene en cuenta en ese mismo turno. Si no hay turno en marcha,
-		o Claude aún no tiene su primer mensaje, el texto vuelve al cuadro de
-		respuesta: nunca se convierte por su cuenta en un mensaje nuevo.
+		párrafo) y lo tiene en cuenta en ese mismo turno; al recogerlo devuelve el
+		eco que confirma que lo tiene (``_al_eco``). Si no hay turno en marcha, o
+		Claude aún no tiene su primer mensaje, no se escribe nada y el texto vuelve
+		al cuadro de respuesta: nunca se convierte por su cuenta en un mensaje nuevo.
+		Si lo que falla es la escritura, ya no se puede asegurar que no llegara.
 		"""
 		with self._candado:
 			turno = self._turno
 			listo = (turno is not None and not turno.terminado and turno.mensaje_escrito and not turno.interrumpido
 				and turno.proceso is not None and turno.proceso.vivo and not self._cerrada)
-			uuid_mensaje = str(uuid.uuid4())
-			escrito = listo and turno.proceso.escribir_json(self._mensaje_usuario(texto, [], uuid_mensaje))
-			if escrito:
-				self.ultimo_uuid_usuario = uuid_mensaje
-		if not escrito:
+			escrito = False
+			if listo:
+				uuid_mensaje = str(uuid.uuid4())
+				vivo = turno.vivo
+				if vivo is not None:
+					vivo.anadidos[uuid_mensaje] = _Anadido(texto, tarde=turno.resultados_pendientes == 0)
+				escrito = turno.proceso.escribir_json(self._mensaje_usuario(texto, [], uuid_mensaje))
+				if escrito:
+					self.ultimo_uuid_usuario = uuid_mensaje
+				elif vivo is not None:
+					vivo.anadidos.pop(uuid_mensaje, None)
+		if not listo:
 			self._emitir(TipoEvento.AVISO, "Claude no está trabajando en un turno ahora mismo; tu mensaje no se ha "
 				"enviado. El texto vuelve al cuadro de respuesta.", devolver_texto=texto)
-			return
-		log.info("Mensaje añadido al turno en marcha de Claude Code")
+		elif not escrito:
+			self._emitir(TipoEvento.AVISO, "Claude Code no ha confirmado que recibiera tu mensaje. " + NOTA_SIN_CONFIRMAR,
+				sin_confirmar=texto)
+		else:
+			log.info("Mensaje añadido al turno en marcha de Claude Code")
 
 	def pendientes(self) -> list[str]:
 		with self._candado:
@@ -992,7 +1257,7 @@ class ConversacionClaude(Conversacion):
 		ajustes = self.ajustes
 		orden = [
 			*base, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-			"--include-partial-messages", "--permission-prompt-tool", "stdio",
+			"--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio",
 		]
 		# Sin modo elegido no se pasa nada: así manda el «defaultMode» de los settings.json de Claude Code.
 		if ajustes.modo_permiso:
@@ -1009,11 +1274,9 @@ class ConversacionClaude(Conversacion):
 			# Solo aquí: el Chrome de la persona está en este equipo, no en el del otro lado del SSH.
 			orden.append("--chrome")
 		reglas = [regla for regla in ajustes.reglas_permitidas if _RE_REGLA.match(regla) and not regla.startswith(PREFIJO_CARPETA)]
-		if self.herramientas_ctrlia is not None and not self.herramientas_ctrlia.retirada:
-			# Las herramientas de Ctrl+IA (servidor «en proceso») son inofensivas: no se pregunta por ellas.
-			from app.services.herramientas_propias import NOMBRE_SERVIDOR
-
-			reglas.append("mcp__" + NOMBRE_SERVIDOR)
+		# «ctrlia» solo afecta a esta sesión: no se pregunta por él. De los comandos de sesión, solo por lo que no lee
+		# ni cambia otra sesión (``herramientas_sesiones.SIN_PREGUNTAR``).
+		reglas += self._reglas_en_proceso()
 		if reglas:
 			orden += ["--allowedTools", *reglas]
 		for carpeta in ajustes.extra.get("carpetas_adicionales", []) or []:
@@ -1132,7 +1395,7 @@ class ConversacionClaude(Conversacion):
 	def _reglas_validas(self) -> set[str]:
 		return {regla for regla in self.ajustes.reglas_permitidas if _RE_REGLA.match(regla)}
 
-	def _firma(self, lista_tareas: bool, esperar_mcp: bool) -> tuple[Any, ...]:
+	def _firma(self, lista_tareas: bool, esperar_mcp: bool, segundos_mcp: int) -> tuple[Any, ...]:
 		"""Lo que va en la orden o en el entorno de ``claude -p`` (sin el modo ni el título): si cambia, se relanza."""
 		ajustes = self.ajustes
 		datos_remotos = remoto.datos_remotos(ajustes.extra) or {}
@@ -1140,7 +1403,7 @@ class ConversacionClaude(Conversacion):
 			self.herramientas_ctrlia is not None,
 			ajustes.modelo if _RE_MODELO.match(ajustes.modelo or "x") else "", ajustes.esfuerzo,
 			tuple(str(c) for c in ajustes.extra.get("carpetas_adicionales", []) or []),
-			str(datos_remotos.get("equipo") or ""), bool(lista_tareas), bool(esperar_mcp),
+			str(datos_remotos.get("equipo") or ""), bool(lista_tareas), bool(esperar_mcp), int(segundos_mcp),
 			self._proveedor.usar_chrome(), str(ajustes.extra.get("estilo") or ""),
 			tuple(sorted(str(s.get("carpeta") or "") for s in self.skills)),
 		)
@@ -1148,9 +1411,10 @@ class ConversacionClaude(Conversacion):
 	def _lanzar_turno(self, texto: str, adjuntos: list[Adjunto], uuid_mensaje: str = "") -> None:
 		lista_tareas = self._proveedor.usar_lista_tareas()
 		esperar_mcp = self._proveedor.esperar_mcp()
+		segundos_mcp = self._proveedor.segundos_mcp()
 		# Antes de la firma: activar o desactivar las herramientas de Ctrl+IA relanza Claude Code.
 		herramientas = self._preparar_herramientas_ctrlia("Claude")
-		firma = self._firma(lista_tareas, esperar_mcp)
+		firma = self._firma(lista_tareas, esperar_mcp, segundos_mcp)
 		reglas = self._reglas_validas()
 		anterior = self._vivo
 		if (anterior is not None and anterior.vivo() and self._proveedor.minutos_abierto() > 0
@@ -1170,13 +1434,13 @@ class ConversacionClaude(Conversacion):
 		self._turno = turno
 		try:
 			orden = self.construir_orden()
-			carpeta, entorno = self.ajustes.carpeta, entorno_claude(lista_tareas, esperar_mcp)
+			carpeta, entorno = self.ajustes.carpeta, entorno_claude(lista_tareas, esperar_mcp, segundos_mcp)
 			equipo = remoto.equipo_de(self.ajustes.extra)
 			if equipo is not None:
 				orden = remoto.orden_remota(
 					equipo, "claude", orden[1:], remoto.carpeta_remota(self.ajustes.extra),
 					quitar=VARIABLES_DE_SESION + VARIABLES_DE_FACTURACION,
-					anadir=variables_anadidas(lista_tareas, esperar_mcp),
+					anadir=variables_anadidas(lista_tareas, esperar_mcp, segundos_mcp),
 				)
 				carpeta, entorno = None, remoto.entorno_ssh()
 		except (FileNotFoundError, ValueError, remoto.ErrorRemoto) as error:
@@ -1205,15 +1469,19 @@ class ConversacionClaude(Conversacion):
 		mensaje = self._mensaje_usuario(texto, adjuntos, uuid_mensaje)
 		inicio: dict[str, Any] = {"subtype": "initialize", "hooks": None}
 		if herramientas is not None:
-			# Servidor MCP «en proceso»: Claude Code le habla con «mcp_message» por esta misma conexión.
-			from app.services.herramientas_propias import NOMBRE_SERVIDOR
-
-			inicio["sdkMcpServers"] = [NOMBRE_SERVIDOR]
+			# Servidores MCP «en proceso»: Claude Code les habla con «mcp_message» por esta misma conexión.
+			inicio["sdkMcpServers"] = self._servidores_en_proceso()
 		turno.proceso.escribir_json({"type": "control_request", "request_id": "ctrlia-inicio", "request": inicio})
 		threading.Thread(target=self._enviar_tras_inicializar, args=(turno, mensaje), name="claude-envio", daemon=True).start()
 
 	def _enviar_tras_inicializar(self, turno: _Turno, mensaje: dict[str, Any]) -> None:
-		turno.inicializado.wait(ESPERA_INICIALIZAR)
+		esperar_mcp = self._proveedor.esperar_mcp()
+		# Con la espera, Claude Code contesta a «initialize» cuando acaba con sus servidores MCP.
+		maximo = ESPERA_INICIALIZAR + (self._proveedor.segundos_mcp() if esperar_mcp else 0)
+		if not turno.inicializado.wait(ESPERA_AVISO_MCP) and esperar_mcp and not (turno.abortado or turno.terminado):
+			self._emitir(TipoEvento.AVISO, "Claude Code está conectando tus herramientas externas (servidores MCP). "
+				"Tu mensaje saldrá en cuanto estén listas.")
+		turno.inicializado.wait(max(0.0, maximo - ESPERA_AVISO_MCP))
 		if turno.abortado or turno.terminado or turno.proceso is None:
 			return
 		if not turno.proceso.escribir_json(mensaje):
@@ -1225,6 +1493,8 @@ class ConversacionClaude(Conversacion):
 		"""Línea de un proceso: va al turno en marcha o, si Claude empieza solo, a un turno espontáneo."""
 		if ('"mcp_message"' in linea or '"control_response"' in linea) and self._control_propio(vivo, linea):
 			return  # herramientas de Ctrl+IA o respuesta que alguien espera: nunca abre un turno
+		if '"isReplay"' in linea and self._al_eco(vivo, linea):
+			return  # antes de mirar si el proceso sigue en uso: un retirado aún atiende lo que tenía en la entrada
 		with self._candado:
 			if vivo is not self._vivo:
 				return  # un proceso retirado: lo que diga ya no cuenta
@@ -1232,6 +1502,32 @@ class ConversacionClaude(Conversacion):
 			if turno is None or turno.terminado or turno.vivo is not vivo:
 				turno = self._turno_espontaneo(vivo, linea)
 		self._al_linea(turno, linea)
+
+	def _al_eco(self, vivo: _ProcesoClaude, linea: str) -> bool:
+		"""Claude Code ha recogido uno de nuestros mensajes (``--replay-user-messages``). ``True`` si la línea era un eco.
+
+		El eco de cada mensaje llega con el uuid con el que se escribió; solo importa el
+		de los añadidos al turno. Si llega tras el resultado, Claude lo responde con otro
+		resultado: el turno sigue hasta ese, y deja de contar la espera del primero.
+		"""
+		datos = procesos.json_o_nada(linea)
+		if datos is None or datos.get("type") != "user" or not datos.get("isReplay"):
+			return False
+		with self._candado:
+			anadido = vivo.anadidos.pop(str(datos.get("uuid") or ""), None)
+			turno = self._turno
+			if anadido is None:
+				return True
+			if turno is not None and turno.vivo is vivo and not turno.terminado and turno.resultados_pendientes == 0:
+				anadido.tarde = True
+				turno.resultados_pendientes = 1
+				if turno.temporizador is not None:
+					turno.temporizador.cancel()
+					turno.temporizador = None
+		texto = ("Claude ya había terminado y ahora responde a tu mensaje." if anadido.tarde
+			else "Claude ha recogido tu mensaje en el turno en marcha.")
+		self._emitir(TipoEvento.AVISO, texto, anadido=True, texto_anadido=anadido.texto)
+		return True
 
 	def _control_propio(self, vivo: _ProcesoClaude, linea: str) -> bool:
 		"""Atiende lo que no es de ningún turno: el servidor MCP de Ctrl+IA y las respuestas esperadas. ``True`` si lo era."""
@@ -1254,20 +1550,59 @@ class ConversacionClaude(Conversacion):
 			self._al_mcp(vivo.proceso, str(datos.get("request_id") or ""), peticion)
 		return True
 
-	def _al_mcp(self, proceso: procesos.ProcesoLineas, identificador: str, peticion: dict[str, Any]) -> None:
-		"""Mensaje JSON-RPC para el servidor MCP «en proceso» de Ctrl+IA (``mcp_message``)."""
+	def _servidores_en_proceso(self) -> list[str]:
+		"""Servidores MCP «en proceso» de esta sesión: «ctrlia» y, con el gestor delante, los comandos de sesión."""
+		if self.herramientas_ctrlia is None or self.herramientas_ctrlia.retirada:
+			return []
 		from app.services.herramientas_propias import NOMBRE_SERVIDOR
 
-		sesion = self.herramientas_ctrlia
+		nombres = [NOMBRE_SERVIDOR]
+		if self.herramientas_sesiones is not None:
+			from app.services import herramientas_sesiones
+
+			nombres.append(herramientas_sesiones.NOMBRE_SERVIDOR)
+		return nombres
+
+	def _reglas_en_proceso(self) -> list[str]:
+		"""Reglas de ``--allowedTools`` de los servidores «en proceso»."""
+		from app.services import herramientas_sesiones
+
+		reglas: list[str] = []
+		for nombre in self._servidores_en_proceso():
+			if nombre == herramientas_sesiones.NOMBRE_SERVIDOR:
+				reglas += [f"mcp__{nombre}__{herramienta}" for herramienta in herramientas_sesiones.SIN_PREGUNTAR]
+			else:
+				reglas.append("mcp__" + nombre)
+		return reglas
+
+	def _atencion_mcp(self, servidor: Any, mensaje: Any) -> Callable[[], dict[str, Any] | None] | None:
+		"""Quién atiende un mensaje de ese servidor «en proceso»; ``None`` si Ctrl+IA no lo tiene."""
+		from app.services.herramientas_propias import NOMBRE_SERVIDOR
+
+		ctrlia, sesiones = self.herramientas_ctrlia, self.herramientas_sesiones
+		if ctrlia is None:
+			return None
+		if servidor == NOMBRE_SERVIDOR:
+			return lambda: ctrlia.atender(mensaje)
+		if sesiones is not None:
+			from app.services import herramientas_sesiones
+
+			if servidor == herramientas_sesiones.NOMBRE_SERVIDOR:
+				return lambda: sesiones.atender(mensaje, self._uso_herramienta_ctrlia)
+		return None
+
+	def _al_mcp(self, proceso: procesos.ProcesoLineas, identificador: str, peticion: dict[str, Any]) -> None:
+		"""Mensaje JSON-RPC para un servidor MCP «en proceso» de Ctrl+IA (``mcp_message``)."""
 		mensaje = peticion.get("message")
-		if peticion.get("server_name") != NOMBRE_SERVIDOR or sesion is None:
+		atender = self._atencion_mcp(peticion.get("server_name"), mensaje)
+		if atender is None:
 			log.info("Claude Code habla con un servidor MCP «en proceso» que Ctrl+IA no tiene: %s", peticion.get("server_name"))
 			proceso.escribir_json({"type": "control_response", "response": {"subtype": "error", "request_id": identificador,
 				"error": "Servidor MCP desconocido"}})
 			return
 
 		def responder() -> None:
-			respuesta = sesion.atender(mensaje) or _ACUSE_MCP
+			respuesta = atender() or _ACUSE_MCP
 			proceso.escribir_json({"type": "control_response", "response": {"subtype": "success", "request_id": identificador,
 				"response": {"mcp_response": respuesta}}})
 
@@ -1363,6 +1698,7 @@ class ConversacionClaude(Conversacion):
 					self._servidores_mcp[_nombre_normalizado(nombre_servidor)] = nombre_servidor
 			self._emitir(TipoEvento.INICIADO, id_externo=self.ajustes.id_externo,
 				modelo=str(datos.get("model") or ""), modo=str(datos.get("permissionMode") or ""))
+			self._vigilar_mcp(turno.vivo, datos.get("mcp_servers"))
 		elif subtipo == "session_state_changed":
 			turno.vio_estados = True
 			if turno.vivo is not None:
@@ -1509,6 +1845,10 @@ class ConversacionClaude(Conversacion):
 	def _al_resultado(self, turno: _Turno, datos: dict[str, Any]) -> None:
 		turno.resultados_pendientes = max(0, turno.resultados_pendientes - 1)
 		turno.ultimo_resultado = datos
+		if turno.vivo is not None:
+			with self._candado:
+				for anadido in turno.vivo.anadidos.values():
+					anadido.tarde = True  # lo que no se recogió antes de este resultado ya no entra en este trabajo
 		uso = datos.get("usage") or {}
 		total_contexto = 0
 		for info in (datos.get("modelUsage") or {}).values():
@@ -1531,7 +1871,10 @@ class ConversacionClaude(Conversacion):
 			errores = datos.get("errors") or []
 			texto = str(datos.get("result") or "") or "; ".join(str(e) for e in errores) or "Claude terminó con un error."
 			version = _RE_VERSION_INSUFICIENTE.search(texto)
-			if "not logged in" in texto.lower() or "/login" in texto:
+			if _RE_SIN_TRANSCRIPCION.search(texto):
+				self._emitir(TipoEvento.ERROR, TEXTO_SIN_TRANSCRIPCION, sin_transcripcion=True)
+				texto = ""
+			elif "not logged in" in texto.lower() or "/login" in texto:
 				texto = ("Claude Code no tiene la sesión iniciada en este equipo. Ve a Herramientas, Agentes instalados, "
 					"elige Claude Code y pulsa «Iniciar sesión».")
 			elif version:
@@ -1539,7 +1882,8 @@ class ConversacionClaude(Conversacion):
 					f"{version.group(2)} o posterior. Actualízalo escribiendo «claude update» en una consola y vuelve a "
 					"enviar el mensaje, o elige otro modelo en «Opciones de la sesión» (Ctrl+Mayús+O). Si no se actualiza "
 					"solo, puede que tengas desactivadas sus actualizaciones automáticas.")
-			self._emitir(TipoEvento.ERROR, texto, sin_sesion="/login" in str(datos.get("result") or ""))
+			if texto:
+				self._emitir(TipoEvento.ERROR, texto, sin_sesion="/login" in str(datos.get("result") or ""))
 		if not turno.vio_estados:
 			# CLI sin eventos de estado: el resultado marca el final del turno.
 			self._comprobar_fin(turno, forzar=True)
@@ -1635,7 +1979,17 @@ class ConversacionClaude(Conversacion):
 			if self._vivo is vivo:
 				self._vivo = None
 			turno = self._turno
+			sin_recoger = list(vivo.anadidos.values())
+			vivo.anadidos.clear()
+			cerrada = self._cerrada
 		vivo.cancelar_temporizador()
+		for anadido in sin_recoger:
+			if cerrada:
+				# Es la persona quien cierra la sesión o el programa: no hay a quién avisar.
+				log.info("Conversación cerrada con un mensaje añadido al turno sin confirmar")
+				continue
+			self._emitir(TipoEvento.AVISO, "Claude Code se ha cerrado sin confirmar que recogiera tu mensaje. " + NOTA_SIN_CONFIRMAR,
+				sin_confirmar=anadido.texto)
 		if turno is not None and turno.vivo is vivo and not turno.terminado:
 			self._cerrar_turno(turno, codigo, salio=True)
 		else:
@@ -1662,7 +2016,10 @@ class ConversacionClaude(Conversacion):
 		if not resultado and not turno.abortado and not turno.interrumpido:
 			errores = turno.proceso.errores_recientes(5) if turno.proceso else []
 			detalle = " ".join(errores)[-500:]
-			if "unknown option" in detalle:
+			if _RE_SIN_TRANSCRIPCION.search(detalle):
+				self._emitir(TipoEvento.ERROR, TEXTO_SIN_TRANSCRIPCION, sin_transcripcion=True)
+				texto = ""
+			elif "unknown option" in detalle:
 				texto = "Tu versión de Claude Code es demasiado antigua. Actualízala escribiendo «claude update» en una consola (en el equipo donde está Claude Code) y pulsa F5 en «Agentes instalados»."
 			elif "login" in detalle.lower() or "auth" in detalle.lower():
 				texto = "Claude Code necesita que inicies sesión. Usa «Iniciar sesión» en «Agentes instalados»."
@@ -1670,7 +2027,8 @@ class ConversacionClaude(Conversacion):
 				texto = f"Claude Code se cerró sin responder (código {codigo})."
 				if detalle:
 					texto += f" Detalle: {detalle}"
-			self._emitir(TipoEvento.ERROR, texto)
+			if texto:
+				self._emitir(TipoEvento.ERROR, texto)
 		self._emitir(TipoEvento.FIN_TURNO, correcto=correcto, interrumpido=turno.interrumpido,
 			resumen=str(resultado.get("result") or ""))
 		self._cambiar_estado(Estado.ERROR if (not correcto and not turno.interrumpido and not resultado) else Estado.INACTIVA)
@@ -1680,6 +2038,7 @@ class ConversacionClaude(Conversacion):
 					self._lanzar_turno(*cola)
 		elif not salio:
 			self._programar_cierre(turno.vivo)
+			self._reintentar_mcp_en_reposo(turno.vivo)
 
 	# -- Permisos ---------------------------------------------------------------
 

@@ -159,14 +159,24 @@ def describir_control_enfocado(ventana: wx.Window | None = None) -> None:
 	"""Acción de Ctrl+H: dice el nombre y la ayuda del control con el foco."""
 	control = wx.Window.FindFocus()
 	if control is None:
-		voz.hablar(_("No hay ningún control con el foco."), canal=voz.NAVEGACION)
+		_decir(_("No hay ningún control con el foco."), ventana)
 		return
 	nombre = nombre_para_anunciar(control) or _("Este control")
 	ayuda = ayuda_efectiva(control)
 	if ayuda:
-		voz.hablar(_("{nombre}. {ayuda}").format(nombre=nombre, ayuda=ayuda), canal=voz.NAVEGACION)
+		_decir(_("{nombre}. {ayuda}").format(nombre=nombre, ayuda=ayuda), ventana)
 	else:
-		voz.hablar(_("{nombre}. No hay ayuda para este control.").format(nombre=nombre), canal=voz.NAVEGACION)
+		_decir(_("{nombre}. No hay ayuda para este control.").format(nombre=nombre), ventana)
+
+
+def _decir(texto: str, ventana: wx.Window | None) -> None:
+	"""Lo dice o, con la voz de Windows apagada y sin lector, lo enseña en un cuadro."""
+	if voz.sin_voz_por_no_haber_lector():
+		from app.ui.accesibilidad.dialogos import mostrar_mensaje
+
+		mostrar_mensaje(ventana, texto, _("Ayuda"))
+		return
+	voz.hablar(texto, canal=voz.NAVEGACION)
 
 
 _INTERACTIVOS = (

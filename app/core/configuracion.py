@@ -84,6 +84,8 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"lista_tareas_claude": True,
 		# Claude Code espera a sus servidores MCP antes de cada turno (MCP_CONNECTION_NONBLOCKING=0).
 		"esperar_mcp_claude": True,
+		# Segundos de esa espera, por servidor (MCP_TIMEOUT y los demás tiempos de claude.VARIABLES_ESPERA_MCP).
+		"segundos_mcp_claude": 30,
 		# Claude Code con «Claude en Chrome» (--chrome): sus herramientas del navegador (AIChat #319).
 		# Activada desde la 1.4.4: sin ella, las sesiones de Ctrl+IA no tenían las herramientas de Chrome
 		# que sí tienen las de la app de escritorio; cada acción en el navegador sigue pidiendo permiso.
@@ -117,6 +119,8 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"ejemplos_revisados": False,
 	},
 	"historial": {
+		# Copiar las conversaciones de Claude Code a data/conservadas antes de que Claude Code las borre.
+		"conservar": True,
 		"claude": True,
 		"codex": True,
 		"antigravity": True,
@@ -168,6 +172,7 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"indicador_permiso": True,
 		"indicador_error": True,
 		"indicador_detenido": True,
+		"indicador_entrega": True,
 		"indicador_adjuntos": True,
 		"indicador_codigo": True,
 		"indicador_enlaces": True,
@@ -183,6 +188,8 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"tareas": False,
 		"mis_mensajes": False,
 		"avisos_importantes": "voz",
+		# Sin lector de pantalla, hablar con la voz de Windows (SAPI). Apagada, solo calla esa voz, nunca el lector.
+		"voz_windows": True,
 		"sonidos": True,
 		"retardo_voz_ms": 120,
 		"aviso_contexto": 80,
@@ -262,7 +269,7 @@ REGLAS: dict[str, Regla] = {
 	"lista.vista": Regla(longitud_maxima=200),
 	"lectura.fechas": Regla(opciones=("relativas", "absolutas")),
 	"mensajes.recientes": Regla(opciones=(0, 50, 100, 250, 500)),
-	"mensajes.estilo_cambios": Regla(opciones=("palabras", "cortas", "simbolos")),
+	"mensajes.estilo_cambios": Regla(opciones=("palabras", "cortas", "simbolos", "parejas")),
 	"anuncios.nivel": Regla(opciones=("completo", "resumen", "silencio")),
 	"anuncios.avisos_importantes": Regla(opciones=("voz", "mensaje", "ambos")),
 	"anuncios.retardo_voz_ms": Regla(minimo=0, maximo=600),
@@ -279,6 +286,7 @@ REGLAS: dict[str, Regla] = {
 	"agentes.carpeta_predeterminada": Regla(longitud_maxima=1000),
 	"agentes.servidor_ollama": Regla(longitud_maxima=500),
 	"agentes.claude_minutos_abierto": Regla(opciones=(0, 5, 15, 30, 60)),
+	"agentes.segundos_mcp_claude": Regla(opciones=(10, 30, 60, 120, 300)),
 }
 
 

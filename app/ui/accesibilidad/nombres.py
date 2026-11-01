@@ -164,15 +164,18 @@ def crear_selector_ruta(
 	comodin: str = "*.*",
 	ayuda: str = "",
 	sizer: wx.Sizer | None = None,
+	etiqueta_boton: str = "",
 ) -> tuple[wx.StaticText, wx.TextCtrl, wx.Button]:
 	"""Selector de carpeta o archivo accesible: etiqueta + campo + «Examinar...».
 
 	Alternativa a ``DirPickerCtrl``/``FilePickerCtrl`` (su campo interno queda
 	sin nombre en algunas versiones). El campo toma la etiqueta por estar
 	creado justo después; el botón abre el diálogo nativo de Windows.
+
+	:param etiqueta_boton: otra etiqueta para el botón, si su ``&`` choca en esa ventana.
 	"""
 	texto, campo = crear_campo(padre, etiqueta, wx.TextCtrl, value=valor, ayuda=ayuda)
-	boton = wx.Button(padre, label=_("E&xaminar..."))
+	boton = wx.Button(padre, label=etiqueta_boton or _("E&xaminar..."))
 	boton.SetHelpText(_("Abre un cuadro para elegir la carpeta.") if carpeta else _("Abre un cuadro para elegir el archivo."))
 
 	def al_examinar(_evento: wx.CommandEvent) -> None:

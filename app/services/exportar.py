@@ -16,6 +16,11 @@ archivo (``.md``, ``.html``/``.htm``, ``.txt``) o se indica a mano.
 La escritura es atómica: se escribe un temporal en la misma carpeta y se
 sustituye el destino con ``os.replace`` (un fallo a medias no deja el
 archivo cortado). Siempre en UTF-8.
+
+:func:`exportar_muchas` (AIChat #462) escribe cada sesión en su propio archivo
+dentro de una carpeta. Ahí nunca se sustituye nada: cada archivo se crea en
+exclusiva y, si el nombre ya existe, se le pone un número; una sesión que falla
+se apunta y no detiene las demás.
 """
 
 from __future__ import annotations
@@ -26,12 +31,12 @@ import logging
 import os
 import re
 import tempfile
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from app.services.gestor import MensajeVista
+from app.services.gestor import FilaSesion, MensajeVista
 from app.ui.comun import NOMBRES_AGENTE, _, markdown_seguro, nombre_agente
 
 log = logging.getLogger(__name__)
@@ -402,3 +407,146 @@ def exportar(
 	escribir_atomico(ruta, contenido)
 	log.info("Conversación exportada en %s (%s, %s mensajes)", ruta, tipo, len(mensajes))
 	return ruta
+
+
+# ── Muchas sesiones, cada una en su archivo ─────────────────────────────────────
+
+#: Extensión de cada formato (la primera de las que admite).
+EXTENSION_FORMATO = {"md": ".md", "html": ".html", "txt": ".txt"}
+#: Caracteres de un nombre de archivo sin la extensión.
+MAX_NOMBRE = 80
+#: Cuántos archivos con el mismo nombre se numeran antes de dar la sesión por fallida.
+MAX_NUMERACION = 9999
+#: Fallos que se detallan en el resumen final.
+MAX_FALLOS_RESUMEN = 10
+
+_RE_NO_VALIDOS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVADOS = frozenset({"con", "prn", "aux", "nul", *(f"{p}{n}" for p in ("com", "lpt") for n in range(1, 10))})
+
+
+@dataclass(slots=True)
+class ResultadoMuchas:
+	"""Lo que hizo :func:`exportar_muchas`."""
+
+	#: ``(título, ruta, mensajes)`` de cada archivo escrito.
+	escritas: list[tuple[str, Path, int]] = field(default_factory=list)
+	#: ``(título, motivo)`` de cada sesión que no se pudo exportar.
+	fallidas: list[tuple[str, str]] = field(default_factory=list)
+	#: Se detuvo antes de acabar.
+	detenida: bool = False
+
+
+def datos_de_fila(fila: FilaSesion) -> dict[str, str]:
+	"""Datos del encabezado de una sesión exportada."""
+	return {_("Agente"): nombre_agente(fila.proveedor), _("Carpeta"): fila.carpeta, _("Origen"): fila.nombre_origen}
+
+
+def nombre_archivo(titulo: str, tipo: str) -> str:
+	"""Nombre válido en Windows para una sesión: sin caracteres prohibidos ni nombres reservados."""
+	limpio = _RE_NO_VALIDOS.sub("_", " ".join((titulo or "").split()))[:MAX_NOMBRE].strip(" ._") or _("sesion")
+	if limpio.casefold().split(".")[0] in _RESERVADOS:
+		limpio = "_" + limpio
+	return limpio + EXTENSION_FORMATO[tipo]
+
+
+def _crear_sin_sustituir(carpeta: Path, nombre: str, contenido: str) -> Path:
+	"""Escribe un archivo nuevo, numerado si el nombre ya existe. Nunca sustituye nada."""
+	raiz, extension = os.path.splitext(nombre)
+	for numero in range(1, MAX_NUMERACION + 1):
+		ruta = carpeta / (nombre if numero == 1 else f"{raiz} ({numero}){extension}")
+		try:
+			archivo = open(ruta, "x", encoding="utf-8", newline="\n")  # noqa: SIM115 - se cierra abajo, y sabiendo que es nuestro
+		except FileExistsError:
+			continue
+		try:
+			with archivo:
+				archivo.write(contenido)
+		except BaseException:
+			# Es nuestro (creación exclusiva): nada escrito a medias se queda con el nombre.
+			try:
+				ruta.unlink()
+			except OSError:
+				log.debug("No se pudo borrar %s", ruta, exc_info=True)
+			raise
+		return ruta
+	raise OSError(_("Hay demasiados archivos con ese nombre."))
+
+
+def _sin_salida_de_herramientas(mensaje: MensajeVista) -> MensajeVista:
+	"""El mensaje sin salida de órdenes ni diferencias (como en el archivo para otro equipo)."""
+	if mensaje.rol not in ("herramienta", "cambio"):
+		return mensaje
+	cambios = [{"ruta": str(c.get("ruta") or "")} for c in (mensaje.cambios or []) if isinstance(c, dict)]
+	return replace(mensaje, detalle="", cambios=cambios)
+
+
+def exportar_muchas(
+	filas: Sequence[FilaSesion],
+	leer: Callable[[str], Sequence[MensajeVista]],
+	carpeta: Path,
+	formato: str = "md",
+	*,
+	incluir_herramientas: bool = True,
+	cancelado: Callable[[], bool] = lambda: False,
+	progreso: Callable[[int, int], None] | None = None,
+) -> ResultadoMuchas:
+	"""Escribe cada sesión en su propio archivo dentro de ``carpeta``, que se crea si hace falta.
+
+	Bloquea: llamar desde un hilo. Lee las sesiones de una en una, para no tener
+	todas en memoria.
+
+	:param leer: ``leer(clave)`` da los mensajes (normalmente ``GestorSesiones.mensajes``).
+	:param formato: ``"md"``, ``"html"`` o ``"txt"``.
+	:param incluir_herramientas: ``False`` deja cada acción sin su salida ni sus cambios.
+	:param cancelado: se mira antes de cada sesión; lo ya escrito se queda.
+	:param progreso: ``progreso(hechas, total)`` antes de cada sesión y al acabar.
+	:raises ValueError: formato desconocido.
+	:raises OSError: no se pudo crear la carpeta.
+	"""
+	tipo = deducir_formato(Path("sesion"), formato)
+	carpeta = Path(carpeta)
+	carpeta.mkdir(parents=True, exist_ok=True)
+	resultado = ResultadoMuchas()
+	total = len(filas)
+	for indice, fila in enumerate(filas):
+		if cancelado():
+			resultado.detenida = True
+			return resultado
+		if progreso is not None:
+			progreso(indice, total)
+		titulo = fila.titulo or _("Conversación")
+		try:
+			mensajes = list(leer(fila.clave) or [])
+			if not mensajes:
+				raise ValueError(_("no tiene mensajes"))
+			if not incluir_herramientas:
+				mensajes = [_sin_salida_de_herramientas(m) for m in mensajes]
+			contenido = _GENERADORES[tipo](mensajes, titulo, datos_de_fila(fila))
+			ruta = _crear_sin_sustituir(carpeta, nombre_archivo(titulo, tipo), contenido)
+		except Exception as error:  # noqa: BLE001 - una sesión que falla no detiene las demás
+			log.warning("No se pudo exportar una sesión", exc_info=True)
+			resultado.fallidas.append((titulo, str(error) or type(error).__name__))
+			continue
+		resultado.escritas.append((titulo, ruta, len(mensajes)))
+	if progreso is not None:
+		progreso(total, total)
+	log.info("Exportadas %s sesiones (%s) con %s fallos", len(resultado.escritas), tipo, len(resultado.fallidas))
+	return resultado
+
+
+def resumen_muchas(resultado: ResultadoMuchas, carpeta: Path) -> str:
+	"""El mensaje con el que acaba una exportación de muchas sesiones."""
+	escritas = len(resultado.escritas)
+	if resultado.detenida:
+		partes = [_("Exportación detenida. Sesiones exportadas en {c} antes de detenerla: {n}.").format(c=carpeta, n=escritas)]
+	elif escritas:
+		partes = [_("Sesiones exportadas en {c}: {n}.").format(c=carpeta, n=escritas)]
+	else:
+		partes = [_("No se ha exportado ninguna sesión.")]
+	if resultado.fallidas:
+		partes.append(_("No se pudieron exportar: {n}.").format(n=len(resultado.fallidas)))
+		partes.extend(f"- {titulo}: {motivo}" for titulo, motivo in resultado.fallidas[:MAX_FALLOS_RESUMEN])
+		resto = len(resultado.fallidas) - MAX_FALLOS_RESUMEN
+		if resto > 0:
+			partes.append(_("Y {n} más.").format(n=resto))
+	return "\n".join(partes)

@@ -2,7 +2,7 @@
 
 Ctrl+IA («Control IA») es un programa para Windows que reúne en una sola ventana, accesible con lector de pantalla y teclado, tus conversaciones con los agentes de IA de programación: Claude Code, Codex, Antigravity, Gemini CLI, Ollama y cualquier agente compatible con ACP, en tu equipo o en otro por SSH.
 
-- Versión actual: 1.5.2.
+- Versión actual: 1.5.3.
 - Autor: Héctor J. Benítez Corredera.
 - Licencia: GNU GPL versión 3 (ver «Licencia»).
 - Repositorio: <https://github.com/hxebolax/CtrlIA>.
@@ -135,7 +135,7 @@ Ctrl+IA es gratuito. Si te resulta útil y quieres apoyar su desarrollo, puedes 
 | Git | Git para Windows, para clonar y para las funciones de deshacer y copias aisladas |
 | Opcional | `gh` (publicar y probar a mano las funciones de GitHub), Node.js (instalar agentes), NVDA o JAWS (probar la accesibilidad) y al menos un agente para conversaciones reales |
 
-Dependencias del programa (`requirements.txt`): wxPython, accessible_output2, markdown, requests, cryptography y tomlkit. De desarrollo (`requirements-dev.txt`): cx_Freeze, pytest, pytest-cov, ruff y comtypes.
+Dependencias del programa (`requirements.txt`): wxPython, accessible_output2, markdown, requests, cryptography, tomlkit y pyzipper. De desarrollo (`requirements-dev.txt`): cx_Freeze, pytest, pytest-cov, ruff y comtypes.
 
 ## Preparar el entorno
 

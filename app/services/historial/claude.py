@@ -93,6 +93,8 @@ class SesionClaude:
 	ruta_remota: str = ""  # transcript en ese equipo (ruta POSIX)
 	#: Un proceso de Claude Code (terminal, app) tiene la sesión abierta ahora, aunque esté sin hacer nada.
 	abierta: bool = False
+	#: Claude Code ya borró el original: ``ruta_transcript`` es la copia de ``data/conservadas``, solo para leer.
+	conservada: bool = False
 
 
 @dataclass(slots=True)
@@ -1528,6 +1530,92 @@ def listar_sesiones(ids_propios: set[str] = frozenset(), incluir_archivadas: boo
 	sesiones = sorted(recolector.sesiones, key=lambda s: (-s.actividad, s.clave))
 	log.debug("Listadas %d sesiones de Claude en %.3f s", len(sesiones), time.perf_counter() - inicio)
 	return sesiones
+
+
+# ---------------------------------------------------------------------------
+# Chats conservados (AIChat #438): la copia de data/conservadas cuando falta el original
+# ---------------------------------------------------------------------------
+
+#: Lo que se guarda de cada sesión junto a su copia; basta para volver a listarla sin el original.
+_CAMPOS_CONSERVADOS = ("titulo", "carpeta", "origen", "creada", "actividad", "archivada", "id_escritorio", "ultimo_mensaje")
+
+
+def _metadatos_conservados(sesion: SesionClaude) -> dict[str, Any]:
+	return {campo: getattr(sesion, campo) for campo in _CAMPOS_CONSERVADOS}
+
+
+def _sesion_conservada(identificador: str, datos: dict[str, Any], ruta: Path) -> SesionClaude:
+	"""La sesión de un registro conservado cuyo original ya ni siquiera aparece al listar."""
+	carpeta = str(datos.get("carpeta") or "")
+	return SesionClaude(
+		clave="claude:%s" % identificador,
+		id=identificador,
+		titulo=str(datos.get("titulo") or "") or _titulo_por_defecto(carpeta),
+		carpeta=carpeta,
+		origen=str(datos.get("origen") or ORIGEN_OTRA),
+		creada=_segundos(datos.get("creada")),
+		actividad=_segundos(datos.get("actividad")),
+		estado=ESTADO_INACTIVA,
+		archivada=datos.get("archivada") is True,
+		ruta_transcript=ruta,
+		id_escritorio=str(datos.get("id_escritorio") or ""),
+		ultimo_mensaje=str(datos.get("ultimo_mensaje") or ""),
+		conservada=True,
+	)
+
+
+def con_conservadas(sesiones: list[SesionClaude], ids_propios: set[str] = frozenset(), copiar: bool = True) -> list[SesionClaude]:
+	"""Completa la lista con lo conservado en ``data/conservadas`` y encarga las copias nuevas.
+
+	Las sesiones con original se encargan al hilo de ``app.services.conservar`` si han
+	cambiado (solo con ``copiar``). Si el original ya no está, ``ruta_transcript`` pasa a
+	ser la copia y la sesión queda marcada (``conservada``), aunque solo aparezca en la
+	copia. Las de Ctrl+IA no se conservan aparte: sus mensajes ya están en la base de datos.
+	Nunca lanza ni escribe en la carpeta de Claude Code.
+	"""
+	try:
+		from app.services import conservar
+
+		almacen = conservar.conservador()
+		guardadas = almacen.registros()
+		vistas: set[str] = set()
+		resultado: list[SesionClaude] = []
+		for sesion in sesiones:
+			if sesion.id:
+				vistas.add(sesion.id)
+			if not es_id_seguro(sesion.id) or sesion.id in ids_propios:
+				resultado.append(sesion)
+			elif sesion.ruta_transcript is not None:
+				metadatos = _metadatos_conservados(sesion)
+				if copiar and not almacen.al_dia(sesion.id, metadatos):
+					almacen.anotar(sesion.id, sesion.ruta_transcript, metadatos)
+				resultado.append(sesion)
+			else:
+				copia = almacen.ruta_copia(sesion.id) if sesion.id in guardadas else None
+				if copia is None:
+					resultado.append(sesion)
+				else:
+					sesion.ruta_transcript = copia
+					sesion.conservada = True
+					sesion.estado = ESTADO_INACTIVA
+					resultado.append(sesion)
+		for identificador, datos in guardadas.items():
+			if identificador in vistas or identificador in ids_propios:
+				continue
+			copia = almacen.ruta_copia(identificador)
+			if copia is not None:
+				resultado.append(_sesion_conservada(identificador, datos, copia))
+		return sorted(resultado, key=lambda s: (-s.actividad, s.clave))
+	except Exception:  # noqa: BLE001 - los chats conservados son un extra: nunca deben vaciar la lista
+		log.warning("No se pudieron leer los chats conservados", exc_info=True)
+		return sesiones
+
+
+def ruta_conservada(session_id: str) -> Path | None:
+	"""La copia conservada de una sesión, o ``None``."""
+	from app.services import conservar
+
+	return conservar.conservador().ruta_copia(session_id)
 
 
 def estado_vivo_de_datos(archivos: Iterable[dict]) -> dict[str, _EstadoVivo]:

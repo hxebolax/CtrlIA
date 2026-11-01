@@ -99,6 +99,11 @@ def ruta_skills() -> Path:
 	return subcarpeta("skills")
 
 
+def ruta_conservadas() -> Path:
+	"""Copias de las conversaciones de los agentes que Ctrl+IA conserva (``app/services/conservar.py``)."""
+	return subcarpeta("conservadas")
+
+
 # ── Recursos que viajan con la distribución ───────────────────────────────────
 
 def ruta_skills_ejemplo() -> Path:

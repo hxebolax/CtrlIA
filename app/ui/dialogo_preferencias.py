@@ -59,8 +59,8 @@ def N_(texto: str) -> str:  # noqa: N802 - convención de gettext
 
 
 # Tipos de opción admitidos.
-BOOL, ENTERO, DECIMAL, TEXTO, OPCION, CARPETA, SECRETO, COLUMNAS = (
-	"bool", "entero", "decimal", "texto", "opcion", "carpeta", "secreto", "columnas",
+BOOL, ENTERO, DECIMAL, TEXTO, OPCION, CARPETA, SECRETO, COLUMNAS, INFORMACION = (
+	"bool", "entero", "decimal", "texto", "opcion", "carpeta", "secreto", "columnas", "informacion",
 )
 
 
@@ -80,6 +80,8 @@ class Opcion:
 		``columnas``, pares ``(id, nombre)`` de todas las columnas posibles.
 	:param ejemplos: para ``columnas``, pares ``(id, texto de ejemplo)`` con los
 		que se enseña cómo sonará una fila.
+	:param texto: para ``informacion`` (un texto de solo lectura, no una opción), la
+		función que lo devuelve al abrir el diálogo. ``clave`` no existe en la configuración.
 	"""
 
 	clave: str
@@ -91,6 +93,13 @@ class Opcion:
 	incremento: float = 0.1
 	opciones: tuple[tuple[Any, str], ...] = ()
 	ejemplos: tuple[tuple[str, str], ...] = ()
+	texto: Callable[[], str] | None = None
+
+
+def _texto_retencion() -> str:
+	from app.services.conservar import describir_retencion
+
+	return describir_retencion()
 
 
 @dataclass(frozen=True)
@@ -157,10 +166,16 @@ PAGINAS: tuple[Pagina, ...] = (
 				"opción, Claude Code solo la usa con algunos modelos. Vale para las sesiones de Ctrl+IA desde el "
 				"siguiente mensaje; necesita Claude Code 2.1.233 o posterior.")),
 		Opcion("agentes.esperar_mcp_claude", N_("Esperar a que se conecten las &herramientas MCP de Claude antes de cada mensaje"), BOOL,
-			N_("Claude Code arranca de nuevo en cada mensaje y, sin esta opción, empieza a responder mientras sus "
-				"servidores MCP y conectores todavía se están conectando: entonces dice que se han desconectado o que "
-				"no los tiene. Con ella, espera a que estén listos (un poco más al empezar cada respuesta; un servidor "
-				"que no responde la retrasa hasta que Claude Code se rinde con él). Vale desde el siguiente mensaje.")),
+			N_("Cada vez que Claude Code arranca y, sin esta opción, empieza a responder mientras sus servidores MCP y "
+				"conectores todavía se están conectando: entonces dice que se han desconectado o que no los tiene. Con ella, "
+				"espera a que estén listos (un poco más al empezar; un servidor que no responde lo retrasa hasta el tiempo "
+				"de la opción siguiente). Vale desde el siguiente mensaje.")),
+		Opcion("agentes.segundos_mcp_claude", N_("Tiempo má&ximo para conectar cada herramienta MCP de Claude:"), OPCION,
+			N_("Cuánto se espera a cada servidor MCP antes de darlo por fallido cuando Claude Code arranca. Los que usan npx, "
+				"uvx o Docker pueden tardar bastante, sobre todo la primera vez. Si uno no llega a tiempo, Ctrl+IA lo "
+				"reintenta una vez y te avisa del motivo. Vale desde el siguiente mensaje."),
+			opciones=((10, N_("10 segundos")), (30, N_("30 segundos")), (60, N_("1 minuto")), (120, N_("2 minutos")),
+				(300, N_("5 minutos")))),
 		Opcion("agentes.chrome_claude", N_("Dejar que Claude &use Chrome (Claude en Chrome)"), BOOL,
 			N_("Arranca Claude Code con su integración «Claude en Chrome»: si tienes Chrome abierto con la extensión "
 				"Claude instalada y con tu sesión iniciada, Claude puede ver tus pestañas, leer páginas y rellenar "
@@ -182,8 +197,9 @@ PAGINAS: tuple[Pagina, ...] = (
 				"estás en su ventana, suena y sale una notificación de Windows; como mucho un aviso cada 10 segundos), dar la "
 				"sesión por terminada como con Control+D y cambiarle el título. Solo afectan a su propia sesión y cada uso "
 				"queda en la conversación. Valen para Claude Code, Codex, Antigravity, Gemini y los agentes ACP de este "
-				"equipo, y para Claude Code por SSH. Viene activada. Vale desde la próxima vez que arranque el agente de "
-				"cada sesión.")),
+				"equipo, y para Claude Code por SSH. Claude Code recibe además los comandos de sesión: ve la lista de tus demás "
+				"sesiones y, si se lo permites, lee sus mensajes u oculta las de Ctrl+IA. Viene activada. Vale desde la próxima vez que arranque el agente "
+				"de cada sesión.")),
 	)),
 	Pagina(N_("Historial"), (
 		Opcion("historial.claude", N_("Mostrar las sesiones de C&laude Code de otros programas"), BOOL,
@@ -203,6 +219,15 @@ PAGINAS: tuple[Pagina, ...] = (
 				"terminal, de la app o del Mac siguen esa misma sesión en lugar de crear una copia, así que lo que hables "
 				"aquí aparece después allí. Solo se hace si la sesión no está abierta en el otro programa ni se ha usado "
 				"en los dos últimos minutos; si lo está, Ctrl+IA te ofrece hacer una copia. Desactivada, siempre se copia.")),
+		Opcion("historial.conservar", N_("&Guardar en Ctrl+IA una copia de las conversaciones de Claude Code"), BOOL,
+			N_("Claude Code borra sus conversaciones pasado un tiempo (30 días de fábrica). Con esta opción, Ctrl+IA copia en su "
+				"carpeta de datos las de la terminal, la app y Cowork que aparecen en la lista, poco a poco y en segundo plano. "
+				"Cuando el original desaparece, la sesión sigue en la lista, se puede leer y buscar, y se puede continuar en una "
+				"sesión nueva. Las copias ocupan espacio y no van cifradas. Desactivada, no se copia nada más, pero lo ya "
+				"conservado sigue ahí.")),
+		Opcion("historial.retencion", N_("Cuánto guarda cada ag&ente:"), INFORMACION,
+			N_("Cuánto tiempo guarda cada agente sus conversaciones y cuántas conserva Ctrl+IA. Solo se puede leer."),
+			texto=_texto_retencion),
 		Opcion("lista.mostrar_ocultas", N_("Mostrar también las sesiones oc&ultas"), BOOL,
 			N_("Las sesiones ocultas aparecen en todas las vistas, no solo en Ver, Mostrar, Ocultas.")),
 		Opcion("lista.mostrar_archivadas", N_("Mostrar también las sesiones arc&hivadas"), BOOL,
@@ -226,10 +251,12 @@ PAGINAS: tuple[Pagina, ...] = (
 			N_("Al ver los cambios de un archivo (en las listas de la sesión o al abrir un mensaje de cambio), cada "
 				"línea dice si se añadió, se quitó o sigue igual. «Con palabras»: «Línea 12, añadida: …». «Con palabras "
 				"cortas»: «Más 12: …», «Menos 12: …», «Igual 13: …». «Con los signos + y −»: el cambio tal cual, como en "
-				"Git; los signos solo se oyen si el nivel de puntuación de tu lector de pantalla los lee. Guardar los "
+				"Git. «Con los signos y cada línea junto a su sustituta»: como el anterior, pero una línea quitada va "
+				"seguida de la que la sustituye, marcadas con !- y !+; las que no tienen pareja conservan su signo. Los "
+				"signos solo se oyen si el nivel de puntuación de tu lector de pantalla los lee. Guardar los "
 				"cambios como archivo siempre guarda el original con los signos."),
 			opciones=(("palabras", N_("Con palabras")), ("cortas", N_("Con palabras cortas")),
-				("simbolos", N_("Con los signos + y −")))),
+				("simbolos", N_("Con los signos + y −")), ("parejas", N_("Con los signos y cada línea junto a su sustituta")))),
 	)),
 	Pagina(N_("Lectura de listas"), (
 		Opcion("lectura.numero_fila", N_("Al ir a izquierda y derecha, decir el &número de fila"), BOOL,
@@ -297,6 +324,9 @@ PAGINAS: tuple[Pagina, ...] = (
 			N_("Avisa de que una acción del agente (una orden, una herramienta) terminó con error.")),
 		Opcion("lectura.indicador_detenido", N_("Indicador «Detenido» en los turnos que no terminaron"), BOOL,
 			N_("Avisa en el último mensaje de un turno que se detuvo antes de acabar, por ejemplo porque lo detuviste tú.")),
+		Opcion("lectura.indicador_entrega", N_("Indicador «Sin confirmar» en los mensajes añadidos al turno"), BOOL,
+			N_("Avisa de un mensaje añadido al turno cuando el agente no ha confirmado que lo recibió («Sin confirmar»: "
+				"puede haberlo recibido) o cuando no le llegó y aún no ha vuelto a tu cuadro de respuesta («No entregado»).")),
 		Opcion("lectura.indicador_adjuntos", N_("Indicador de archivos adjuntos"), BOOL,
 			N_("Dice cuántos archivos adjuntaste a tu mensaje.")),
 		Opcion("lectura.indicador_codigo", N_("Indicador de bloques de có&digo"), BOOL,
@@ -326,7 +356,12 @@ PAGINAS: tuple[Pagina, ...] = (
 		Opcion("anuncios.avisos_importantes", N_("Avisos i&mportantes:"), OPCION,
 			N_("Errores y peticiones de permiso: por voz, en un cuadro de mensaje o de las dos formas."),
 			opciones=(("voz", N_("Por voz")), ("mensaje", N_("En un cuadro de mensaje")), ("ambos", N_("Las dos cosas")))),
-		Opcion("anuncios.braille", N_("Enviar los avisos también a la línea &braille"), BOOL,
+		Opcion("anuncios.voz_windows", N_("Hablar con la voz de &Windows cuando no hay lector de pantalla"), BOOL,
+			N_("Sin NVDA, JAWS ni otro lector en marcha, Ctrl+IA lee las respuestas y los avisos con la voz de Windows. Si ves la "
+				"pantalla y prefieres usarlo en silencio, desmárcala: todo queda en pantalla y los avisos importantes salen en "
+				"un cuadro. No afecta a tu lector de pantalla: si hay uno en marcha, Ctrl+IA sigue hablando por él. «Leer en "
+				"voz alta» sigue sonando porque lo pides tú.")),
+		Opcion("anuncios.braille",N_("Enviar los avisos también a la línea &braille"), BOOL,
 			N_("Cada aviso de Ctrl+IA aparece también en tu línea braille, si tu lector de pantalla lo permite.")),
 		Opcion("anuncios.braille_sin_voz", N_("Mostrar en braille los avisos aunque la voz esté &silenciada"), BOOL,
 			N_("Con la voz de Ctrl+IA silenciada (Control+Mayúsculas+V) o con «Silencio» en «¿Qué se lee de las respuestas?», "
@@ -593,6 +628,8 @@ class DialogoPreferencias(wx.Dialog):
 			control = wx.TextCtrl(panel, style=wx.TE_PASSWORD)
 		elif opcion.tipo in (TEXTO, CARPETA):
 			control = wx.TextCtrl(panel)
+		elif opcion.tipo == INFORMACION:
+			control = wx.TextCtrl(panel, size=(-1, 130), style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
 		elif opcion.tipo == COLUMNAS:
 			# Un botón cuyo texto dice las columnas elegidas; al pulsarlo se eligen y ordenan.
 			control = wx.Button(panel, label=_("Elegir..."), style=wx.BU_LEFT)
@@ -663,6 +700,12 @@ class DialogoPreferencias(wx.Dialog):
 	# ── Valores ──────────────────────────────────────────────────────────────
 
 	def _valor_guardado(self, opcion: Opcion) -> Any:
+		if opcion.tipo == INFORMACION:
+			try:
+				return opcion.texto() if opcion.texto is not None else ""
+			except Exception:  # noqa: BLE001 - un texto informativo nunca debe impedir abrir Preferencias
+				log.warning("No se pudo preparar el texto de «%s»", opcion.clave, exc_info=True)
+				return ""
 		if opcion.tipo == SECRETO:
 			valor = self._secretos.obtener(opcion.clave) or ""
 			self._valores_secretos[opcion.clave] = valor
@@ -708,7 +751,7 @@ class DialogoPreferencias(wx.Dialog):
 		return {
 			clave: self._leer_control(opcion, control)
 			for clave, (opcion, control, _pagina) in self._controles.items()
-			if opcion.tipo != SECRETO
+			if opcion.tipo not in (SECRETO, INFORMACION)
 		}
 
 	# ── Acciones ─────────────────────────────────────────────────────────────
@@ -755,7 +798,7 @@ class DialogoPreferencias(wx.Dialog):
 	def restablecer_controles(self) -> None:
 		"""Pone los valores de fábrica en los controles (sin guardar)."""
 		for clave, (opcion, control, _pagina) in self._controles.items():
-			if opcion.tipo == SECRETO:
+			if opcion.tipo in (SECRETO, INFORMACION):
 				continue  # los secretos no tienen valor de fábrica: no se borran por esto
 			self._escribir_control(opcion, control, self._config.valor_por_defecto(clave))
 

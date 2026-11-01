@@ -503,13 +503,13 @@ def test_archivos_de_reglas_de_codex(tmp_path, monkeypatch):
 
 	monkeypatch.setenv("CODEX_HOME", str(tmp_path))
 	assert reglas_codex.archivos_de_reglas() == []
-	assert "no tiene archivos de reglas" in reglas_codex.describir([])
+	assert reglas_codex.SIN_REGLAS in reglas_codex.describir([])
 	(tmp_path / "rules").mkdir()
-	(tmp_path / "rules" / "default.rules").write_text("x", encoding="utf-8")
+	(tmp_path / "rules" / "default.rules").write_text('prefix_rule(pattern=["git"])\n', encoding="utf-8")
 	(tmp_path / "rules" / "notas.txt").write_text("x", encoding="utf-8")
 	archivos = reglas_codex.archivos_de_reglas()
 	assert [a.name for a in archivos] == ["default.rules"]
-	assert "1 archivos de reglas" in reglas_codex.describir(archivos)
+	assert "órdenes que empiezan por git" in reglas_codex.describir(*reglas_codex.reglas_de(archivos))
 
 
 def test_reenviar_elige_la_respuesta_y_los_destinos():

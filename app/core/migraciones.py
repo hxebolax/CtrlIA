@@ -278,4 +278,36 @@ MIGRACIONES: tuple[Migracion, ...] = (
 		""",
 		funcion=_migrar_catalogo_a_skills,
 	),
+	Migracion(
+		"Vista combinada de las conversaciones automáticas entre sesiones",
+		sql="""
+			-- La conversación intercalada, para que no se pierda al cerrar. Cada mensaje sigue
+			-- además en su sesión; por eso, si se borra una de las dos, se borra con ella.
+			CREATE TABLE conversaciones_sesiones (
+				id INTEGER PRIMARY KEY,
+				sesion_a TEXT NOT NULL REFERENCES sesiones (clave) ON DELETE CASCADE,
+				sesion_b TEXT NOT NULL REFERENCES sesiones (clave) ON DELETE CASCADE,
+				nombre_a TEXT NOT NULL DEFAULT '',
+				nombre_b TEXT NOT NULL DEFAULT '',
+				tarea TEXT NOT NULL DEFAULT '',
+				max_turnos INTEGER NOT NULL DEFAULT 0,
+				turno INTEGER NOT NULL DEFAULT 0,
+				estado TEXT NOT NULL DEFAULT 'en_marcha',
+				motivo_fin TEXT NOT NULL DEFAULT '',
+				creada REAL NOT NULL,
+				actualizada REAL NOT NULL
+			);
+			CREATE INDEX idx_conversaciones_sesiones_fecha ON conversaciones_sesiones (actualizada DESC);
+
+			CREATE TABLE conversaciones_sesiones_entradas (
+				id INTEGER PRIMARY KEY,
+				conversacion INTEGER NOT NULL REFERENCES conversaciones_sesiones (id) ON DELETE CASCADE,
+				quien TEXT NOT NULL DEFAULT '',
+				texto TEXT NOT NULL DEFAULT '',
+				fecha REAL NOT NULL,
+				nota INTEGER NOT NULL DEFAULT 0   -- 1: nota del propio Ctrl+IA, no un mensaje de nadie
+			);
+			CREATE INDEX idx_entradas_conversacion ON conversaciones_sesiones_entradas (conversacion, id);
+		""",
+	),
 )

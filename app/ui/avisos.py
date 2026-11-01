@@ -101,6 +101,7 @@ def aplicar_preferencias_voz() -> None:
 		retraso_ms=int(opcion("anuncios.retardo_voz_ms", 120)),
 		braille=bool(opcion("anuncios.braille", True)),
 		braille_sin_voz=bool(opcion("anuncios.braille_sin_voz", True)),
+		voz_windows=bool(opcion("anuncios.voz_windows", True)),
 	)
 
 
@@ -140,11 +141,13 @@ def _escribir_en_barra(texto: str) -> None:
 		wx.CallAfter(escribir)
 
 
-def anunciar(texto: str, interrumpir: bool = False) -> None:
+def anunciar(texto: str, interrumpir: bool = False, siempre: bool = False) -> None:
 	"""Dice una frase corta por el lector de pantalla (seguro desde cualquier hilo).
 
 	Con el nivel «Silencio» no se dice, pero va a la línea braille si la opción
 	«Mostrar en braille lo que no se dice» está activa.
+
+	:param siempre: lo ha pedido la persona: suena aunque la voz de Windows esté apagada.
 	"""
 	if not texto:
 		return
@@ -153,7 +156,7 @@ def anunciar(texto: str, interrumpir: bool = False) -> None:
 		if _estado["opcion"]("anuncios.braille_sin_voz", True):
 			voz.hablar(texto, interrumpir=interrumpir, solo_braille=True)
 		return
-	voz.hablar(texto, interrumpir=interrumpir)
+	voz.hablar(texto, interrumpir=interrumpir, siempre=siempre)
 
 
 def notificar(texto: str, titulo: str = "", padre: wx.Window | None = None) -> None:
@@ -162,6 +165,8 @@ def notificar(texto: str, titulo: str = "", padre: wx.Window | None = None) -> N
 		return
 	_apuntar(texto)
 	modo = _estado["opcion"]("anuncios.avisos_importantes", "voz")
+	if modo == "voz" and voz.sin_voz_por_no_haber_lector():
+		modo = "mensaje"  # sin voz de Windows ni lector, «por voz» no lo oiría nadie
 	# El nivel «Silencio» calla las respuestas, no los avisos importantes: esos
 	# siguen su propia opción para que nunca se pierda un error o un permiso.
 	if modo in ("voz", "ambos"):
@@ -190,7 +195,7 @@ def historial() -> list[tuple[float, str]]:
 
 def repetir_ultimo() -> None:
 	texto = ultimo_aviso()
-	voz.hablar(texto or _("Todavía no hay avisos."), interrumpir=True)
+	voz.hablar(texto or _("Todavía no hay avisos."), interrumpir=True, siempre=True)
 
 
 # ── Sonidos ───────────────────────────────────────────────────────────────────

@@ -2,6 +2,59 @@
 
 Cada versión tiene su apartado, de la más reciente a la más antigua. Los cambios se cuentan con palabras de quien usa el programa: qué puedes hacer y dónde.
 
+## Versión 1.5.3 - 2026-11-01
+
+### Novedades
+
+- Sesión, «Servidores MCP de la sesión...» (Ctrl+Alt+M), con Claude Code: el estado de ahora de tus servidores MCP y conectores, cuántas herramientas tiene cada uno, de dónde viene y por qué falla. Desde ahí los reconectas, los activas o desactivas e inicias sesión en ellos, sin salir de Ctrl+IA.
+- Preferencias, Agentes, «Tiempo máximo para conectar cada herramienta MCP de Claude» (Alt+X): 10 o 30 segundos (de fábrica), 1, 2 o 5 minutos.
+- «Herramientas del agente» (Ctrl+Alt+H) con Claude Code da el estado de ahora de los servidores, con el motivo, y no el de cuando empezó la respuesta.
+- Preferencias, Anuncios, «Hablar con la voz de Windows cuando no hay lector de pantalla» (Alt+W): si ves la pantalla y no usas lector, desmárcala para usar Ctrl+IA en silencio. Sin lector, Ctrl+IA leía en voz alta las respuestas y los avisos. Con ella apagada todo queda en pantalla, y los avisos importantes y la ayuda de Ctrl+H salen en un cuadro. No afecta a NVDA, JAWS ni a ningún otro lector.
+- Informar de un fallo: Ayuda, «Informar de un fallo...» prepara un informe con lo que ha pasado, lo que esperabas y los pasos, y enseña exactamente lo que se incluirá antes de enviarlo. Lleva las versiones, cada agente (versión, si la sesión está iniciada y cómo está instalado), cuántas sesiones hay de cada tipo y el estado de los servidores MCP de la sesión abierta, sin tu cuenta, tus rutas, los títulos de tus sesiones, tus mensajes ni la orden o la dirección de los servidores. «Copiar» lo deja en el portapapeles y «Abrir una incidencia en GitHub» lo abre en el navegador para que lo envíes tú.
+- Exportar muchas sesiones a archivos sueltos: Archivo, «Exportar varias sesiones...» tiene ahora «Formato» y «Carpeta de destino» para guardar cada sesión en su propio archivo Markdown, HTML o de texto. Se hace en segundo plano y te dice por dónde va. Nunca sustituye nada (si el nombre existe, el archivo nuevo lleva un número), una sesión que falla no detiene las demás y al acabar hay un resumen.
+- Comandos de sesión en Claude Code: los comandos y habilidades pensados para la app de escritorio de Claude, como /wrap, tienen ahora las herramientas que necesitan. Claude puede ver la lista de tus sesiones y, pidiéndote permiso, buscar en ellas, leer sus mensajes y ocultar las de Ctrl+IA. Las sesiones de otros programas y las importadas siguen siendo de solo lectura. Van con la opción «Dar a los agentes las herramientas de Ctrl+IA».
+- El paquete de diagnóstico lleva también los datos de tus agentes y cuántas sesiones tienes, sin nada personal.
+- Enviar la respuesta a otra sesión (Ctrl+Alt+R): la lista termina en «Nueva sesión...», que abre ese cuadro con la respuesta como primer mensaje para elegir el agente, la carpeta y el modo. Propone el agente y la carpeta de la sesión de origen.
+- Enviar la respuesta a otra sesión: una casilla nueva arranca con ella una conversación automática entre las dos sesiones, también con una sesión nueva. Contesta primero la que la recibe, y lo que añadas detrás de la respuesta le llega como palabras tuyas. Si no se puede, la casilla dice por qué.
+- Conversación automática entre sesiones: cada respuesta pasa con la lista de archivos que cambió ese turno, para que quien revisa sepa qué mirar.
+- Conversación automática entre sesiones: se para sola si las respuestas se repiten o si los agentes solo se dan las gracias, y dice por qué.
+- Conversación automática entre sesiones: con la opción «Aprobar cada relevo a mano», cada respuesta espera a que la veas con Ctrl+Alt+Mayús+E: puedes seguir, cambiarla o parar.
+- Conversación automática entre sesiones: plantillas de constructor y revisor, segunda opinión, debate y plan y ejecución, que rellenan las instrucciones de las dos sesiones. No cambian sus permisos.
+- Conversación automática entre sesiones: antes de empezar, Ctrl+IA comprueba tus límites de uso, sin gastar cuota, y te pregunta si alguno está cerca.
+- Conversación automática entre sesiones: mientras hablan puedes dirigirte a una con «@Codex ...», «@ambos ...» o «Codex, ...». Ese mensaje va aparte: su contestación no se pasa a la otra sesión y no cuenta como turno.
+- Conversación automática entre sesiones: lo que se han dicho ya no se pierde al cerrar. Ctrl+Alt+Mayús+C muestra la última, y «Conversaciones entre sesiones guardadas» (menú Sesión) las reúne para leerlas o borrarlas. Si borras una de las dos sesiones, se borra también su conversación guardada.
+
+- Copias de seguridad, en Herramientas, «Copias de seguridad». «Hacer una copia ahora...» (Ctrl+Alt+B) guarda en un solo .zip el historial, la memoria y los ajustes de Claude Code, Codex, Gemini CLI y Antigravity, y tus datos de Ctrl+IA, por si pierdes o cambias de equipo. Nunca lleva inicios de sesión ni claves de los agentes. Se hace en segundo plano, con el avance en la barra de estado, y se relee entera antes de darla por buena; «Detener la copia en curso» no deja nada a medias.
+- Las copias se pueden cifrar con una frase (AES-256, también los nombres de los archivos). 7-Zip las abre si la frase no lleva ñ ni tildes. La frase no se guarda en la copia: si la olvidas, no se puede abrir.
+- «Programar copias...»: cada día o cada semana, cuántas conservar y en qué carpeta, con la frase protegida por Windows para tu cuenta. Ctrl+IA lo mira al abrirse y cada diez minutos, y la hace sin molestar; si falla, te lo dice como mucho una vez al día. Solo borra las antiguas de este equipo, y tras una copia completa.
+- «Comprobar una copia...» relee una copia y dice si está entera.
+- «Restaurar desde una copia...»: eliges con casillas qué sesiones de Ctrl+IA, Claude Code, Codex y Gemini CLI vuelven, como importadas de solo lectura, con sus grupos y su marca de oculta. Restaurar otra vez las actualiza, no las duplica, y nunca se tocan los archivos de los agentes.
+- Chats conservados: Claude Code borra sus conversaciones antiguas (30 días de fábrica), y ahora Ctrl+IA guarda una copia de las de la terminal, la app y Cowork, poco a poco y sin frenar nada. Si el original desaparece, la sesión sigue en la lista, con el origen «copia conservada», y se puede leer, buscar, exportar y continuar en una sesión nueva. Se desactiva en Preferencias, Historial, que también dice cuánto guarda cada agente.
+- Añadir al turno en marcha (Ctrl+Alt+Intro) con Claude Code: ahora te avisa cuando Claude recoge tu mensaje y, si ya había terminado, te dice que está respondiendo a él.
+- Codex: dos modos de permisos nuevos, «Solo lectura, con revisión automática» y «Carpeta del proyecto, con revisión automática». Lo que Codex te preguntaría lo decide él con un subagente que valora el riesgo. Se eligen por sesión y nunca son los de fábrica. Cada decisión se anuncia, lo que no permite te lo notifica y todas se leen en Permisos de la sesión (Ctrl+Mayús+M), en «Decisiones de la revisión automática» (Alt+D).
+- Permisos de la sesión enseña las reglas guardadas de Codex, una por línea y con su archivo: «Permitido sin preguntar», «Pregunta siempre» o «Nunca se permite». Ctrl+IA solo las lee: nunca las ejecuta ni las cambia.
+- «Lo que el agente sabe de ti» (Ctrl+Mayús+K) incluye la memoria de Codex, sin los resúmenes de conversaciones pasadas.
+- Nuevo estilo para leer las líneas cambiadas (Preferencias, Mensajes): cada línea quitada va seguida de la que la sustituye, marcadas con !- y !+.
+- Si Codex renombró un archivo, sus cambios empiezan por «Renombrado desde:» y la lista lo dice en su fila.
+- El visor de un mensaje con formato dice siempre quién lo escribió: el autor es el primer encabezado y los del mensaje van debajo.
+- Nuevos indicadores «Sin confirmar» y «No entregado» en la columna Indicadores, con su opción en Preferencias, Lectura de listas.
+
+### Correcciones
+
+- Claude Code: las herramientas MCP que tardan en arrancar ya están disponibles desde tu primer mensaje. Claude Code solo esperaba 5 segundos: lo que usa npx, uvx o Docker suele tardar más, así que empezaba sin esas herramientas, y decía que no las tenía o que se habían desconectado, aunque en una consola funcionasen. Con Codex no pasaba porque espera a cada servidor. Ahora se espera de verdad, hasta el tiempo de Preferencias, y se conectan hasta ocho servidores a la vez en lugar de tres.
+- Claude Code: si un servidor MCP no puede conectarse o necesita que inicies sesión, Ctrl+IA te lo dice en la conversación, una vez y con el motivo en español. Antes no decía nada y solo veías que Claude no tenía la herramienta.
+- Claude Code: un servidor MCP que falla al arrancar se reintenta solo una vez, al terminar la respuesta, y si conecta te lo dice. Antes se quedaba sin conectar hasta que se cerrase Claude Code. Así se cubre la primera vez de un npx o un uvx, que se pasa del tiempo descargando.
+- Claude Code: si tarda más de unos segundos en empezar porque está conectando tus herramientas, te lo dice.
+- Claude Code: abrir Ctrl+IA desde una terminal de la app de escritorio de Claude ya no desactiva la espera a los servidores MCP.
+- Lista de mensajes: el foco se queda donde lo dejaste cuando llegan mensajes nuevos, también si lo dejaste en el último. Antes, al irte al cuadro de respuesta desde el último mensaje, cada mensaje nuevo te llevaba al final, y al volver con Alt+2 perdías por dónde ibas. Ahora sigues bajando desde ahí, y Fin te lleva al último. Tampoco lo pierdes si la lista se recarga.
+- El nombre de tu cuenta de Windows podía quedar sin tapar en el paquete de diagnóstico si una ruta acababa la línea o iba seguida de más texto.
+- Claude Code: si una sesión de Ctrl+IA lleva tanto tiempo sin usarse que Claude Code borró su conversación, ya no sale un error en inglés. Ctrl+IA lo explica y te ofrece seguir con el contexto: el agente empieza una conversación nueva, tu próximo mensaje le lleva lo guardado en la sesión y lo que no llegó vuelve al cuadro de respuesta, sin enviarse solo.
+- Un mensaje añadido al turno que el agente rechazaba volvía al cuadro de respuesta y seguía en la lista como enviado: al repetirlo quedaba duplicado. Ahora sale de la lista.
+- Un mensaje añadido al turno ya no se da por no enviado sin saberlo. Si el agente se cierra o no contesta, se queda en la lista marcado «Sin confirmar», no vuelve al cuadro y nunca se reenvía solo; con Codex solo cuenta como no enviado un rechazo explícito.
+- Una línea quitada o añadida que empezaba por «-- » o «++ », como un comentario de SQL, no se contaba o se leía como la cabecera de un archivo.
+- Al releer una sesión de Codex, los cambios de archivos denegados o fallidos ya no cuentan como archivos cambiados.
+- «Quién revisa las aprobaciones» de la configuración de Codex no tenía ningún efecto: ahora hace que «Nueva sesión» proponga el modo con revisión automática.
+
 ## Versión 1.5.2 - 2026-10-22
 
 ### Correcciones

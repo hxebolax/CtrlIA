@@ -513,7 +513,8 @@ def test_detectar(entorno):
 
 def test_listas_del_proveedor():
 	proveedor = ProveedorCodex(orden=["inexistente"])
-	assert [m.id for m in proveedor.modos_permiso()] == ["solo_lectura", "espacio_trabajo", "sin_preguntas", "acceso_total"]
+	assert [m.id for m in proveedor.modos_permiso()] == ["solo_lectura", "espacio_trabajo", "sin_preguntas", "acceso_total",
+		"solo_lectura_auto", "espacio_trabajo_auto"]
 	assert "peligro" in proveedor.modos_permiso()[3].etiqueta.lower()
 	assert [(e.id, e.etiqueta) for e in proveedor.esfuerzos()[1:]] == [
 		("low", "Bajo"), ("medium", "Medio"), ("high", "Alto"), ("xhigh", "Muy alto"),

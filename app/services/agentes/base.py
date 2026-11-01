@@ -254,6 +254,10 @@ class Capacidades:
 
 ReceptorEventos = Callable[[Evento], None]
 
+#: Lo que se dice de un mensaje añadido al turno que el agente no ha confirmado (``AVISO`` con ``sin_confirmar``).
+NOTA_SIN_CONFIRMAR = ("Sigue en la conversación, marcado «Sin confirmar»: revisa lo que responda antes de enviarlo otra vez. "
+	"Ctrl+IA no lo reenviará.")
+
 
 class Conversacion(ABC):
 	"""Sesión viva con un agente. Todos los métodos son seguros desde la interfaz."""
@@ -268,6 +272,8 @@ class Conversacion(ABC):
 		self.ultimo_uuid_usuario = ""
 		#: Herramientas propias de Ctrl+IA de esta sesión (``herramientas_propias.SesionHerramientas``), si se dieron.
 		self.herramientas_ctrlia: Any = None
+		#: Comandos de sesión (``herramientas_sesiones.HerramientasSesiones``); los pone el gestor y solo los usa Claude Code.
+		self.herramientas_sesiones: Any = None
 		self._estado = Estado.INACTIVA
 		self._candado_estado = threading.Lock()
 
@@ -301,12 +307,41 @@ class Conversacion(ABC):
 		"""
 		return None
 
+	def servidores_mcp(self) -> Any:
+		"""Servidores MCP de la sesión (``list[servidores_mcp.ServidorMcp]``), o ``None`` si el agente no los gestiona.
+
+		Puede bloquear: llamar desde un hilo. Solo Claude Code los gestiona de momento.
+		"""
+		return None
+
+	def mcp_en_vivo(self) -> bool:
+		"""Si ``servidores_mcp`` es el estado de ahora y no el de la última vez que el agente estuvo abierto."""
+		return False
+
+	def reconectar_mcp(self, nombre: str) -> None:
+		"""Reconecta un servidor MCP. Puede bloquear; ``RuntimeError`` con el motivo si no se puede."""
+		raise NotImplementedError("Este agente no reconecta sus servidores MCP desde Ctrl+IA")
+
+	def activar_mcp(self, nombre: str, activo: bool) -> None:
+		"""Activa o desactiva un servidor MCP. Puede bloquear; ``RuntimeError`` con el motivo si no se puede."""
+		raise NotImplementedError("Este agente no activa ni desactiva sus servidores MCP desde Ctrl+IA")
+
+	def orden_inicio_sesion_mcp(self, nombre: str) -> list[str] | None:
+		"""Orden para iniciar sesión en un servidor MCP en una consola, o ``None`` si no se puede desde aquí."""
+		return None
+
 	def anadir_al_turno(self, texto: str) -> None:
 		"""Mete el mensaje en el turno en marcha sin detenerlo (solo si ``Capacidades.anadir_al_turno``).
 
-		Si no se puede entregar, NUNCA se envía como mensaje normal: se emite un
-		``AVISO`` con ``devolver_texto`` para que la interfaz lo devuelva al
-		cuadro de respuesta y el usuario decida.
+		Nunca se convierte por su cuenta en un mensaje normal. Lo que pase con él
+		llega como un ``AVISO`` (la interfaz nunca reenvía nada):
+
+		- ``devolver_texto``: NO lo recibió (no salió de Ctrl+IA o el agente lo rechazó
+		  de forma explícita). Vuelve al cuadro de respuesta y la persona decide.
+		- ``sin_confirmar``: cualquier otra cosa (tiempo agotado, otro error, el proceso
+		  murió con el mensaje ya escrito). Puede tenerlo: no vuelve al cuadro como si
+		  no se hubiera enviado, y se queda en la conversación marcado.
+		- ``anadido`` con ``texto_anadido``: lo ha recibido.
 		"""
 		raise NotImplementedError("Este agente no admite añadir mensajes al turno en marcha")
 
@@ -349,6 +384,8 @@ class Conversacion(ABC):
 		from app.services import herramientas_propias
 
 		herramientas_propias.retirar(self.herramientas_ctrlia)
+		if self.herramientas_sesiones is not None:
+			self.herramientas_sesiones.retirada = True
 
 	def _uso_herramienta_ctrlia(self, accion: str, datos: dict[str, Any]) -> None:
 		"""El agente ha usado una herramienta de Ctrl+IA: queda como aviso (mensaje de sistema) y la interfaz actúa."""
@@ -360,6 +397,12 @@ class Conversacion(ABC):
 			texto = "%s ha dado la sesión por terminada%s." % (agente, ": " + motivo.rstrip(".") if motivo else "")
 		elif accion == "renombrar_sesion":
 			texto = "%s ha renombrado la sesión: «%s»." % (agente, datos.get("titulo", ""))
+		elif accion == "ocultar_sesion":
+			motivo = str(datos.get("motivo") or "")
+			texto = "%s ha ocultado la sesión «%s»%s. Está en Ver, Mostrar, Ocultas." % (
+				agente, datos.get("titulo", ""), ": " + motivo.rstrip(".") if motivo else "")
+		elif accion == "mostrar_sesion":
+			texto = "%s ha vuelto a mostrar la sesión «%s»." % (agente, datos.get("titulo", ""))
 		else:
 			return
 		self._emitir(TipoEvento.AVISO, texto, herramienta_ctrlia=accion, **datos)
@@ -440,6 +483,10 @@ class Proveedor(ABC):
 		inicial; los demás, ``modo_de_serie``.
 		"""
 		return self.modo_de_serie()
+
+	def modo_sin_dialogo(self, carpeta: Path | None = None) -> str:
+		"""Modo de una sesión que se crea sin enseñar el modo a la persona («Continuar aquí»)."""
+		return self.modo_predeterminado(carpeta)
 
 	def leer_limites(self) -> Any:
 		"""Límites de uso de la cuenta (5 horas y semanal) sin enviar mensajes ni gastar cuota.

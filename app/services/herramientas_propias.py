@@ -1,6 +1,7 @@
 """Herramientas propias de Ctrl+IA para los agentes (servidor MCP «ctrlia»).
 
-Ctrl+IA da a cada sesión tres herramientas que solo afectan a ESA sesión:
+Ctrl+IA da a cada sesión tres herramientas que solo afectan a ESA sesión (los comandos
+de sesión de Claude Code, que sí ven otras sesiones, están en ``herramientas_sesiones``):
 
 - ``avisar``: un aviso breve para la persona usuaria (voz y braille; con
   sonido y notificación de Windows si la ventana no está activa). Como mucho
@@ -210,12 +211,16 @@ def resultado_herramienta(texto: str, error: bool = False) -> dict[str, Any]:
 
 
 def atender_mcp(mensaje: Any, llamar: Callable[[str, dict[str, Any], dict[str, Any]], dict[str, Any]] | None,
-		con_herramientas: bool = True) -> dict[str, Any] | None:
+		con_herramientas: bool = True, herramientas: list[dict[str, Any]] | None = None,
+		nombre_servidor: str = NOMBRE_SERVIDOR, instrucciones: str = INSTRUCCIONES) -> dict[str, Any] | None:
 	"""Respuesta JSON-RPC a un mensaje MCP; ``None`` para las notificaciones y respuestas.
 
 	:param llamar: ``llamar(nombre, argumentos, meta)`` atiende ``tools/call``.
 	:param con_herramientas: ``False``: ``tools/list`` vacío (opción desactivada).
+	:param herramientas: definiciones de otro servidor (de fábrica, las de «ctrlia»); también
+		``nombre_servidor`` e ``instrucciones``: las usa ``herramientas_sesiones``.
 	"""
+	definiciones = HERRAMIENTAS if herramientas is None else herramientas
 	if not isinstance(mensaje, dict):
 		return _error(None, -32600, "Petición no válida")
 	metodo = mensaje.get("method")
@@ -233,18 +238,18 @@ def atender_mcp(mensaje: Any, llamar: Callable[[str, dict[str, Any], dict[str, A
 		return _resultado(ident, {
 			"protocolVersion": version,
 			"capabilities": {"tools": {"listChanged": False}},
-			"serverInfo": {"name": NOMBRE_SERVIDOR, "title": "Ctrl+IA", "version": APP_VERSION},
-			"instructions": INSTRUCCIONES,
+			"serverInfo": {"name": nombre_servidor, "title": "Ctrl+IA", "version": APP_VERSION},
+			"instructions": instrucciones,
 		})
 	if metodo == "ping":
 		return _resultado(ident, {})
 	if metodo == "tools/list":
-		return _resultado(ident, {"tools": HERRAMIENTAS if con_herramientas else []})
+		return _resultado(ident, {"tools": definiciones if con_herramientas else []})
 	if metodo == "tools/call":
 		nombre = params.get("name")
 		argumentos = params.get("arguments") if isinstance(params.get("arguments"), dict) else {}
 		meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
-		if not isinstance(nombre, str) or nombre not in NOMBRES_HERRAMIENTAS or llamar is None:
+		if not isinstance(nombre, str) or llamar is None or not any(h["name"] == nombre for h in definiciones):
 			return _error(ident, -32602, "Herramienta desconocida: %s" % nombre)
 		try:
 			return _resultado(ident, llamar(nombre, argumentos, meta))
@@ -256,7 +261,7 @@ def atender_mcp(mensaje: Any, llamar: Callable[[str, dict[str, Any], dict[str, A
 	return _error(ident, -32601, "Método no admitido: %s" % metodo)
 
 
-def _texto_limpio(valor: Any, una_linea: bool) -> str:
+def texto_limpio(valor: Any, una_linea: bool) -> str:
 	"""Texto sin caracteres de control; en una línea si ``una_linea``."""
 	if not isinstance(valor, str):
 		return ""
@@ -300,13 +305,13 @@ class SesionHerramientas:
 		if nombre == "avisar":
 			return self._avisar(argumentos)
 		if nombre == "dar_por_terminada":
-			motivo = _texto_limpio(argumentos.get("motivo"), una_linea=True)
+			motivo = texto_limpio(argumentos.get("motivo"), una_linea=True)
 			if len(motivo) > MAX_MOTIVO:
 				raise ErrorHerramienta("El motivo pasa de %d caracteres: resúmelo." % MAX_MOTIVO)
 			self._usar("dar_por_terminada", {"motivo": motivo})
 			return resultado_herramienta("Hecho: Ctrl+IA da esta sesión por terminada en cuanto acabes este turno.")
 		if nombre == "renombrar_sesion":
-			titulo = _texto_limpio(argumentos.get("titulo"), una_linea=True)
+			titulo = texto_limpio(argumentos.get("titulo"), una_linea=True)
 			if not titulo:
 				raise ErrorHerramienta("Falta el título.")
 			if len(titulo) > MAX_TITULO:
@@ -317,7 +322,7 @@ class SesionHerramientas:
 		raise ErrorHerramienta("Herramienta desconocida: %s" % nombre)
 
 	def _avisar(self, argumentos: dict[str, Any]) -> dict[str, Any]:
-		texto = _texto_limpio(argumentos.get("texto"), una_linea=False)
+		texto = texto_limpio(argumentos.get("texto"), una_linea=False)
 		if not texto:
 			raise ErrorHerramienta("Falta el texto del aviso.")
 		if len(texto) > MAX_AVISO:

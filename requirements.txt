@@ -10,3 +10,5 @@ requests>=2.34
 cryptography>=50.0
 # Editar el config.toml de Codex sin perder sus comentarios ni su formato.
 tomlkit>=0.13
+# Cifrado AES-256 de las copias de seguridad, en un ZIP que 7-Zip y WinZip abren (trae pycryptodomex).
+pyzipper>=0.4

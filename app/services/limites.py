@@ -158,6 +158,17 @@ class ResultadoAgente:
 	durante_sesion: list[str] = field(default_factory=list)
 
 
+def cercanos(resultados: Iterable[ResultadoAgente], umbral: int, ahora: float | None = None) -> list[str]:
+	"""Las ventanas de uso que llegan a ``umbral`` %, para avisar antes de gastar en muchos turnos.
+
+	Una ventana ya reiniciada no cuenta, y de un agente que no ha informado no se sabe nada: no se avisa.
+	"""
+	ahora = ahora if ahora is not None else time.time()
+	return [f"{resultado.nombre}: {texto_ventana(ventana, ahora)}"
+		for resultado in resultados if resultado.limites is not None
+		for ventana in resultado.limites.ventanas if ventana.porcentaje >= umbral and not ventana.caducada(ahora)]
+
+
 #: Agentes que no permiten preguntar sus límites, con el motivo (se explica en el documento).
 SIN_CONSULTA = (
 	("Gemini CLI", "su cuota es diaria (peticiones por día de tu licencia de Gemini Code Assist) y solo se puede ver "

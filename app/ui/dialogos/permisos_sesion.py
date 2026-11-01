@@ -8,7 +8,8 @@ Las reglas son solo de esta sesión y solo las guarda Ctrl+IA: nunca se
 escriben en los archivos de configuración de Claude Code ni de Codex. Con
 Claude Code, «Permitir durante esta sesión» guarda también la carpeta que
 sugiere (``Carpeta(ruta)``). Debajo, solo para leer, las reglas de la propia
-configuración del agente para esa carpeta (AIChat #336).
+configuración del agente para esa carpeta (AIChat #336) y, en los modos de Codex
+con revisión automática, lo que Codex ha decidido sin preguntarte (AIChat #374).
 
 - Claude Code las recibe al empezar cada turno: quitar una surte efecto desde
   el próximo mensaje (el turno en marcha conserva lo que tenía).
@@ -21,6 +22,8 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import wx
 
@@ -91,12 +94,17 @@ def texto_fecha(fecha: float | None) -> str:
 	return time.strftime("%d/%m/%Y %H:%M", time.localtime(fecha))
 
 
+def texto_decisiones(mensajes: Sequence[Any]) -> str:
+	"""Las decisiones de la revisión automática de Codex, una por línea, la más reciente primero."""
+	return "\n".join("{f}: {t}".format(f=texto_fecha(m.fecha), t=" ".join(m.texto.split())) for m in reversed(mensajes))
+
+
 class DialogoPermisosSesion(wx.Dialog):
 	"""Lista y quita lo permitido en una sesión. Al cerrar, ``self.reglas`` tiene la lista final."""
 
 	def __init__(self, padre: wx.Window | None, titulo_sesion: str, nombre_agente: str, modo: str, ayuda_modo: str,
 			reglas: list[str], fechas: dict[str, float] | None = None, trabajando: bool = False,
-			cuando: str = "", reglas_agente: str = "") -> None:
+			cuando: str = "", reglas_agente: str = "", decisiones: str = "") -> None:
 		super().__init__(padre, title=_("Permisos de la sesión"), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
 		self.reglas = list(reglas)
 		self.fechas = dict(fechas or {})
@@ -140,6 +148,16 @@ class DialogoPermisosSesion(wx.Dialog):
 					"carpeta, una regla por línea con su archivo. Valen también fuera de Ctrl+IA. Solo se pueden leer "
 					"aquí.").format(a=nombre_agente), sizer=raiz)
 			self.reglas_agente.SetMinSize(self.FromDIP(wx.Size(520, 120)))
+
+		self.decisiones: wx.TextCtrl | None = None
+		if decisiones:
+			# Solo lectura (AIChat #374): lo que Codex decidió sin preguntarte, porque elegiste ese modo.
+			_e, self.decisiones = crear_campo(panel, _("&Decisiones de la revisión automática:"), wx.TextCtrl, value=decisiones,
+				style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
+				ayuda=_("Lo que {a} ha permitido o denegado por sí mismo en esta sesión, una decisión por línea, la más "
+					"reciente primero, con su fecha, la acción y el motivo que dio. Solo se pueden leer aquí.").format(a=nombre_agente),
+				sizer=raiz)
+			self.decisiones.SetMinSize(self.FromDIP(wx.Size(520, 120)))
 
 		botones = wx.BoxSizer(wx.HORIZONTAL)
 		self.boton_quitar = wx.Button(panel, label=_("&Quitar"))

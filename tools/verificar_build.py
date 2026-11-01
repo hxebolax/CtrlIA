@@ -26,7 +26,7 @@ from pathlib import Path
 # Carpetas de data/ que nunca deben distribuirse (mismo criterio que setup_cx.py).
 DATA_PROHIBIDO = {
 	"config", "logs", "db", "database", "cache", "temp", "tmp", "sessions",
-	"backups", "downloads", "descargas", "claves", "keys", "crash", "diagnostico",
+	"backups", "downloads", "descargas", "claves", "keys", "crash", "diagnostico", "conservadas",
 }
 # Extensiones que delatan datos generados en tiempo de ejecución.
 EXTENSIONES_SOSPECHOSAS = {".log", ".jsonl", ".db", ".db-wal", ".db-shm", ".sqlite", ".key", ".enc", ".bak", ".tmp"}

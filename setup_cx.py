@@ -33,7 +33,7 @@ ICONO = RAIZ / "data" / "icons" / "app.ico"
 # Subcarpetas de data/ que SÍ se distribuyen (lista blanca).
 DATA_DISTRIBUIBLE = ["bin", "sounds", "locales", "docs", "icons", "plugins", "skills_ejemplo"]
 # Subcarpetas que JAMÁS pueden distribuirse: si alguien las añade arriba, se para.
-DATA_PROHIBIDO = {"config", "logs", "db", "cache", "temp", "sessions", "backups", "downloads"}
+DATA_PROHIBIDO = {"config", "logs", "db", "cache", "temp", "sessions", "backups", "downloads", "conservadas"}
 # Copia de data/skills_ejemplo FUERA de data/ (el nombre está también en app/core/paths.py,
 # ruta_copia_skills_ejemplo): los actualizadores de la 1.5.0 y anteriores no copian esa carpeta de data,
 # pero el programa sí; al arrancar, si falta, se pone desde aquí.
@@ -41,12 +41,12 @@ COPIA_EJEMPLOS = "copia_skills_ejemplo"
 # Archivos que nunca se copian aunque estén en una carpeta distribuible.
 PATRONES_EXCLUIDOS = ("__pycache__", ".ruff_cache", ".pytest_cache", "*.pyc", "*.log", "*.tmp", "*.bak", "*.db", "*.key", ".gitkeep", "desktop.ini", "Thumbs.db")
 
-PAQUETES = ["wx", "app", "markdown", "requests", "certifi", "cryptography", "tomlkit"]
+PAQUETES = ["wx", "app", "markdown", "requests", "certifi", "cryptography", "tomlkit", "pyzipper", "Cryptodome"]
 # accessible_output2 se importa de forma diferida: sus dependencias hay que nombrarlas.
 PAQUETES_OPCIONALES = ["accessible_output2", "libloader", "platform_utils", "comtypes", "win32com", "pythoncom"]
 # Documentación de usuario: la fuente está en docs/ y viaja a data/docs/.
 ARCHIVOS_EXTRA = [(f"docs/{nombre}", f"data/docs/{nombre}") for nombre in ("manual.md", "teclas.md", "changelog.md")]
-EXCLUDES = ["tkinter", "unittest", "pydoc_data", "pip", "pytest", "_pytest", "ruff", "cx_Freeze", "tests"]
+EXCLUDES = ["tkinter", "unittest", "pydoc_data", "pip", "pytest", "_pytest", "ruff", "cx_Freeze", "tests", "Cryptodome.SelfTest"]
 
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -143,6 +143,34 @@ class SkillCatalogo:
 	modificado: float = 0.0
 
 
+@dataclass(slots=True)
+class ConversacionGuardada:
+	"""Una conversación automática entre sesiones, sin sus entradas."""
+
+	id: int
+	sesion_a: str
+	sesion_b: str
+	nombre_a: str = ""
+	nombre_b: str = ""
+	tarea: str = ""
+	max_turnos: int = 0
+	turno: int = 0
+	estado: str = ""
+	motivo_fin: str = ""
+	creada: float = 0.0
+	actualizada: float = 0.0
+
+
+@dataclass(slots=True)
+class EntradaConversacion:
+	"""Una entrada de la vista combinada de una conversación entre sesiones."""
+
+	quien: str
+	texto: str
+	fecha: float
+	nota: bool = False
+
+
 def nueva_clave() -> str:
 	return f"ctrlia:{uuid.uuid4()}"
 
@@ -248,6 +276,26 @@ class Almacen:
 			self.bd.ejecutar("UPDATE mensajes SET detalle = ? WHERE id = ?", (detalle, id_mensaje))
 		if datos is not None:
 			self.bd.ejecutar("UPDATE mensajes SET datos = ? WHERE id = ?", (json.dumps(datos, ensure_ascii=False), id_mensaje))
+
+	def borrar_mensaje(self, id_mensaje: int) -> bool:
+		"""Quita un mensaje y su marca de favorito. ``False`` si no existía.
+
+		Solo para lo que no llegó a ser parte de la conversación (un mensaje añadido
+		al turno que el agente rechazó y que ya ha vuelto al cuadro de respuesta).
+		"""
+		sesion = self.bd.valor("SELECT sesion FROM mensajes WHERE id = ?", (id_mensaje,), None)
+		if sesion is None:
+			return False
+		with self.bd.transaccion() as conexion:
+			conexion.execute("DELETE FROM mensajes_favoritos WHERE sesion = ? AND mensaje = ?", (sesion, str(id_mensaje)))
+			conexion.execute("DELETE FROM mensajes WHERE id = ?", (id_mensaje,))
+		return True
+
+	def mensajes_con_dato(self, sesion: str, rol: str, clave: str) -> list[MensajeGuardado]:
+		"""Los mensajes de ``rol`` que llevan ``clave`` en sus datos, del más antiguo al más reciente."""
+		filas = self.bd.consultar("SELECT * FROM mensajes WHERE sesion = ? AND rol = ? AND datos LIKE ? ORDER BY id",
+			(sesion, rol, f'%"{clave}"%'))
+		return [self._a_mensaje(fila) for fila in filas]
 
 	def mensajes(self, sesion: str, desde_id: int = 0) -> list[MensajeGuardado]:
 		filas = self.bd.consultar("SELECT * FROM mensajes WHERE sesion = ? AND id > ? ORDER BY id", (sesion, desde_id))
@@ -623,3 +671,39 @@ class Almacen:
 			"SELECT DISTINCT categoria FROM skills WHERE categoria != '' ORDER BY categoria COLLATE NOCASE",
 		)
 		return [fila["categoria"] for fila in filas]
+
+	# -- Conversaciones automáticas entre sesiones -----------------------------------
+
+	def crear_conversacion_sesiones(self, sesion_a: str, sesion_b: str, nombre_a: str, nombre_b: str, tarea: str,
+			max_turnos: int) -> int:
+		ahora = time.time()
+		return self.bd.insertar(
+			"INSERT INTO conversaciones_sesiones (sesion_a, sesion_b, nombre_a, nombre_b, tarea, max_turnos, creada, actualizada) "
+			"VALUES (?,?,?,?,?,?,?,?)",
+			(sesion_a, sesion_b, nombre_a, nombre_b, tarea, max_turnos, ahora, ahora),
+		)
+
+	def anadir_entrada_conversacion(self, conversacion: int, quien: str, texto: str, fecha: float, nota: bool = False) -> None:
+		with self.bd.transaccion() as conexion:
+			conexion.execute(
+				"INSERT INTO conversaciones_sesiones_entradas (conversacion, quien, texto, fecha, nota) VALUES (?,?,?,?,?)",
+				(conversacion, quien, texto, fecha, int(nota)),
+			)
+			conexion.execute("UPDATE conversaciones_sesiones SET actualizada = ? WHERE id = ?", (fecha, conversacion))
+
+	def actualizar_conversacion_sesiones(self, conversacion: int, turno: int, estado: str, motivo_fin: str = "") -> None:
+		self.bd.ejecutar("UPDATE conversaciones_sesiones SET turno = ?, estado = ?, motivo_fin = ? WHERE id = ?",
+			(turno, estado, motivo_fin, conversacion))
+
+	def conversaciones_sesiones(self) -> list[ConversacionGuardada]:
+		"""Las conversaciones guardadas, de la más reciente a la más antigua."""
+		filas = self.bd.consultar("SELECT * FROM conversaciones_sesiones ORDER BY actualizada DESC, id DESC")
+		return [ConversacionGuardada(**dict(fila)) for fila in filas]
+
+	def entradas_conversacion(self, conversacion: int) -> list[EntradaConversacion]:
+		filas = self.bd.consultar("SELECT quien, texto, fecha, nota FROM conversaciones_sesiones_entradas "
+			"WHERE conversacion = ? ORDER BY id", (conversacion,))
+		return [EntradaConversacion(fila["quien"], fila["texto"], fila["fecha"], bool(fila["nota"])) for fila in filas]
+
+	def borrar_conversacion_sesiones(self, conversacion: int) -> None:
+		self.bd.ejecutar("DELETE FROM conversaciones_sesiones WHERE id = ?", (conversacion,))

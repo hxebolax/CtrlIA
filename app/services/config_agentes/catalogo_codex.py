@@ -90,8 +90,11 @@ AJUSTES = (
 			("unelevated", "Sin elevar (aísla menos)")), defecto="Elevado"),
 	Ajuste("features.prefer_mxc", "Usar MXC si está disponible", BOOL, "Si MXC no existe, usa otro modo.", P),
 	Ajuste("allow_login_shell", "Usar un shell de inicio de sesión", BOOL, "", P, defecto="Activado"),
-	Ajuste("approvals_reviewer", "Quién revisa las aprobaciones", OPCION, "", P,
-		(("user", "Tú"), ("auto_review", "Revisión automática")), defecto="Tú"),
+	Ajuste("approvals_reviewer", "Quién revisa las aprobaciones", OPCION,
+		"Con «Revisión automática», un subagente de Codex decide las peticiones por ti. En Ctrl+IA manda el modo de cada "
+		"sesión: este ajuste solo hace que «Nueva sesión» te proponga ese modo, y vale en Codex fuera de Ctrl+IA.", P,
+		(("user", "Tú"), ("auto_review", "Revisión automática")), defecto="Tú",
+		riesgo="Con «Revisión automática», Codex permite o deniega sin preguntarte lo que antes te preguntaba."),
 
 	# Herramientas y entorno
 	Ajuste("web_search", "Búsqueda web", OPCION, "", H,

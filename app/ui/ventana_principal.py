@@ -41,6 +41,7 @@ from app.ui.accesibilidad.dialogos import mostrar_error, mostrar_mensaje
 from app.ui.bandeja import IconoBandeja
 from app.ui.comun import _
 from app.ui.vp_conversacion import MixinConversacion
+from app.ui.vp_copias import INTERVALO_COPIAS_MS, MixinCopias
 from app.ui.vp_disposicion import MixinDisposicion
 from app.ui.vp_mensajes import MixinMensajes
 from app.ui.vp_pr import MixinPR
@@ -66,7 +67,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("clonar", _("Clonar un repositorio de &GitHub..."), _("Descarga un repositorio de GitHub y empieza una sesión en él."), "accion_clonar_github"),
 		("-",),
 		("exportar", _("&Exportar la sesión...\tCtrl+E"), _("Guarda la conversación en Markdown, HTML o texto."), "accion_exportar"),
-		("exportar_varias", _("Exportar &varias sesiones a un archivo..."), _("Guarda las sesiones que elijas, un grupo o todas en un archivo para leerlas en otro equipo."), "accion_exportar_varias"),
+		("exportar_varias", _("Exportar &varias sesiones..."), _("Guarda las sesiones que elijas, un grupo o todas: en un archivo para leerlas en otro equipo o cada una en su propio archivo (Markdown, HTML o texto) dentro de una carpeta."), "accion_exportar_varias"),
 		("importar", _("I&mportar sesiones..."), _("Trae las sesiones de un archivo exportado en otro equipo, para leerlas y buscar en ellas."), "accion_importar"),
 		("borrar_importadas", _("Borrar las sesiones im&portadas..."), _("Quita de Ctrl+IA todas las copias importadas de otros equipos."), "accion_borrar_importadas"),
 		("carpeta", _("Abrir la carpeta en el E&xplorador\tCtrl+Shift+E"), _("Abre en el Explorador de Windows la carpeta de trabajo de la sesión."), "accion_abrir_explorador"),
@@ -79,7 +80,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 	(_("&Sesión"), [
 		("enviar", _("&Enviar\tCtrl+Enter"), _("Envía lo que has escrito. Si el agente está trabajando, queda en cola."), "accion_enviar"),
 		("enviar_ahora", _("Enviar &ahora\tCtrl+Shift+Enter"), _("Interrumpe al agente y le pasa tu mensaje en este mismo momento."), "accion_enviar_ahora"),
-		("anadir_turno", _("Añadir al tur&no en marcha\tCtrl+Alt+Enter"), _("Mete tu mensaje en lo que está haciendo el agente sin detenerlo (Codex y Claude Code). Si no se puede entregar, vuelve al cuadro de respuesta."), "accion_anadir_al_turno"),
+		("anadir_turno", _("Añadir al tur&no en marcha\tCtrl+Alt+Enter"), _("Mete tu mensaje en lo que está haciendo el agente sin detenerlo (Codex y Claude Code). Si no le llega, vuelve al cuadro de respuesta; si no confirma que lo tiene, se queda en la lista marcado «Sin confirmar» y nunca se reenvía solo."), "accion_anadir_al_turno"),
 		("detener", _("&Detener\tCtrl+."), _("Detiene lo que esté haciendo el agente. Los mensajes en cola vuelven al cuadro de respuesta."), "accion_detener"),
 		("responder", _("&Responder al agente...\tCtrl+Shift+A"), _("Abre la petición de permiso o la pregunta pendiente del agente."), "accion_responder"),
 		("-",),
@@ -87,10 +88,12 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("adjuntar", _("Ad&juntar archivos...\tCtrl+Shift+F"), _("Adjunta archivos o imágenes al próximo mensaje."), "accion_adjuntar"),
 		("pegar_adjunto", _("Adjuntar lo copiado (imagen o archi&vos)\tCtrl+Alt+V"), _("Adjunta al próximo mensaje la imagen o los archivos que hayas copiado, aunque lo copiado traiga también texto."), "accion_pegar_adjunto"),
 		("plantillas", _("&Plantillas de mensajes...\tCtrl+Shift+P"), _("Mensajes guardados para reutilizar."), "accion_plantillas"),
-		("reenviar", _("Enviar la respuesta a otra sesión...\tCtrl+Alt+R"), _("Pasa la respuesta elegida, o la última del agente, a otra sesión de Ctrl+IA de cualquier agente, para que la revise o la conteste. Puedes cambiarla antes de enviarla."), "accion_reenviar"),
+		("reenviar", _("Enviar la respuesta a otra sesión...\tCtrl+Alt+R"), _("Pasa la respuesta elegida, o la última del agente, a otra sesión de Ctrl+IA de cualquier agente o a una nueva, para que la revise o la conteste. Puedes cambiarla antes de enviarla y arrancar con ella una conversación automática."), "accion_reenviar"),
 		("conversacion_sesiones", _("Conversación automática entre sesiones...\tCtrl+Alt+Shift+R"), _("Dos sesiones de Ctrl+IA, de cualquier agente, se hablan solas unos turnos: la abierta recibe la tarea y cada respuesta pasa a la otra. Los permisos y las preguntas te siguen llegando a ti."), "accion_conversacion_sesiones"),
+		("revisar_relevo", _("Revisar el relevo de la conversación...\tCtrl+Alt+Shift+E"), _("Con «Aprobar cada relevo a mano»: enseña la respuesta que espera para pasar a la otra sesión, para seguir, cambiarla o parar."), "accion_revisar_relevo"),
 		("detener_conversacion_sesiones", _("Detener la conversación entre sesiones"), _("Para la conversación automática: la respuesta del turno en marcha ya no se pasa a la otra sesión. Control+punto en una de las dos también la detiene."), "accion_detener_conversacion_sesiones"),
-		("ver_conversacion_sesiones", _("Ver la conversación entre sesiones\tCtrl+Alt+Shift+C"), _("Muestra la conversación automática, en marcha o la última, con las respuestas de las dos sesiones intercaladas y quién dice qué."), "accion_ver_conversacion_sesiones"),
+		("ver_conversacion_sesiones", _("Ver la conversación entre sesiones\tCtrl+Alt+Shift+C"), _("Muestra la conversación automática, en marcha o la última, también la de antes de cerrar Ctrl+IA, con las respuestas de las dos sesiones intercaladas y quién dice qué."), "accion_ver_conversacion_sesiones"),
+		("conversaciones_guardadas", _("Conversaciones entre sesiones guardadas..."), _("Todas las conversaciones automáticas guardadas: para volver a leerlas o borrarlas."), "accion_conversaciones_guardadas"),
 		("citar", _("Citar el mensaje o el fra&gmento en la respuesta\tCtrl+R"), _("Añade al cuadro de respuesta, como cita, el mensaje elegido o lo seleccionado en el panel de lectura, para contestar punto por punto."), "accion_citar"),
 		("deshacer_archivos", _("Deshacer los cam&bios de archivos desde el mensaje...\tCtrl+Alt+Z"), _("Devuelve los archivos de la carpeta a como estaban antes de tu mensaje elegido (o del último tuyo): enseña antes qué pasará con cada archivo. Con el agente parado."), "accion_deshacer_archivos"),
 		("rehacer_archivos", _("Rehacer los cambios de archivos deshechos...\tCtrl+Alt+Shift+Z"), _("Vuelve a poner los cambios del último deshacer de la sesión, como los dejó el agente."), "accion_rehacer_archivos"),
@@ -102,7 +105,8 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("propiedades", _("Propiedade&s...\tAlt+Enter"), _("Todos los datos de la sesión: agente, carpeta, identificadores, fechas."), "accion_propiedades"),
 		("submenu", _("PR y co&mprobaciones"), "crear_menu_pr"),
 		("herramientas_agente", _("&Herramientas del agente...\tCtrl+Alt+H"), _("Los servidores MCP y conectores, complementos, habilidades y herramientas que tiene cargados el agente en esta sesión, con su estado."), "accion_herramientas_agente"),
-		("memoria", _("Lo que el agente sabe de t&i...\tCtrl+Shift+K"), _("Instrucciones y memoria que lee el agente: CLAUDE.md, AGENTS.md, GEMINI.md..."), "accion_memoria"),
+		("servidores_mcp", _("Servidores MCP de la sesión...\tCtrl+Alt+M"), _("El estado de ahora de los servidores MCP y conectores de Claude Code en esta sesión y por qué falla cada uno: reconectarlos, activarlos o desactivarlos e iniciar sesión en ellos."), "accion_servidores_mcp"),
+		("memoria",_("Lo que el agente sabe de t&i...\tCtrl+Shift+K"), _("Instrucciones y memoria que lee el agente: CLAUDE.md, AGENTS.md, GEMINI.md..."), "accion_memoria"),
 	]),
 	(_("&Ver"), [
 		("ir_sesiones", _("Ir a la lista de &sesiones\tAlt+1"), _("Lleva el foco a la lista de sesiones."), "ir_a_sesiones"),
@@ -163,6 +167,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("equipos_ssh", _("&Equipos por SSH..."),_("Añade un Mac o un equipo Linux al que entras por SSH para que los agentes trabajen allí."), "accion_equipos_ssh"),
 		("limites", _("Lí&mites de uso de tus cuentas...\tCtrl+Shift+Y"), _("Pregunta a Claude Code, Codex y Antigravity cuánto llevas gastado del límite de 5 horas y del semanal, sin enviar mensajes ni gastar cuota."), "accion_limites"),
 		("informe", _("&Informe de sesiones...\tCtrl+I"), _("Todas las sesiones con su tamaño, sus mensajes y los totales, para decidir qué ocultar o archivar."), "accion_informe"),
+		("submenu", _("Copias de seg&uridad"), "crear_menu_copias"),
 		("-",),
 		("preferencias", _("&Preferencias...\tCtrl+,"), _("Configura Ctrl+IA."), "accion_preferencias"),
 		("sonidos", _("S&onidos..."), _("Prueba cada sonido, actívalo o desactívalo y abre la carpeta de tus sonidos propios."), "accion_sonidos"),
@@ -177,6 +182,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("novedades", _("&Novedades de la versión"), _("Qué ha cambiado en esta versión."), "accion_novedades"),
 		("ayuda_control", _("Ayuda del control &enfocado\tCtrl+H"), _("Explica para qué sirve el control donde está el foco."), "accion_ayuda_control"),
 		("-",),
+		("informar_fallo", _("&Informar de un fallo..."), _("Prepara un informe con lo que ha pasado y los datos del programa, sin datos personales, para copiarlo o abrir una incidencia en GitHub."), "accion_informar_fallo"),
 		("actualizaciones", _("&Buscar actualizaciones..."), _("Comprueba si hay una versión nueva de Ctrl+IA."), "accion_buscar_actualizaciones"),
 		("cafe", _("Invítame a un &café si te gusta mi trabajo"), _("Abre la página de donaciones de PayPal en el navegador."), "accion_invitar_cafe"),
 		("acerca", _("&Acerca de Ctrl+IA..."), _("Versión y datos del programa."), "accion_acerca_de"),
@@ -184,7 +190,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 ]
 
 
-class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConversacion, MixinPR, wx.Frame):
+class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConversacion, MixinPR, MixinCopias, wx.Frame):
 	"""Ventana principal: sesiones, mensajes y respuesta."""
 
 	def __init__(self, configuracion: Configuracion, instancia: InstanciaUnica | None = None,
@@ -238,6 +244,8 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		self.Bind(wx.EVT_TIMER, lambda _e: self.seguir_sesion_externa(), self._temporizador_seguimiento)
 		self._temporizador_buzon = wx.Timer(self)
 		self.Bind(wx.EVT_TIMER, self._al_revisar_buzon, self._temporizador_buzon)
+		self._temporizador_copias = wx.Timer(self)
+		self.Bind(wx.EVT_TIMER, lambda _e: self.comprobar_copia_programada(), self._temporizador_copias)
 		self.config.suscribir(self._al_cambiar_configuracion)
 
 	# ------------------------------------------------------------------
@@ -451,6 +459,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		wx.CallAfter(self.ir_a_sesiones)
 		self._temporizador_lista.Start(INTERVALO_LISTA_MS)
 		self._temporizador_buzon.Start(INTERVALO_BUZON_MS)
+		self._temporizador_copias.Start(INTERVALO_COPIAS_MS)
 		self.iniciar_vigilancia_pr()
 		wx.CallLater(800, self.al_mostrar_por_primera_vez)
 
@@ -465,6 +474,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		except Exception:  # noqa: BLE001 - las novedades son un extra
 			log.debug("No se pudieron mostrar las novedades", exc_info=True)
 		self.detectar_agentes_al_arrancar()
+		self.comprobar_copia_programada()
 
 	def ocultar_en_bandeja(self) -> bool:
 		if self._bandeja is None:
@@ -559,7 +569,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 					return
 		self._saliendo = True
 		for temporizador in (self._temporizador_lista, self._temporizador_seguimiento, self._temporizador_buzon,
-				self._temporizador_lectura, self._temporizador_palabras):
+				self._temporizador_copias, self._temporizador_lectura, self._temporizador_palabras):
 			temporizador.Stop()
 		self.poner_opcion("general.ultima_sesion", self.sesion_actual or "")
 		self._guardar_geometria()
@@ -706,10 +716,14 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		os.startfile(ruta_registros())  # noqa: S606 - carpeta propia de la aplicación
 
 	def accion_diagnostico(self) -> None:
+		filas, abierta = list(self._todas), self.sesion_actual or ""
+
 		def crear() -> Path:
 			from app.core import diagnostico
+			from app.services import informe_fallo
 
-			return diagnostico.generar_paquete(NOMBRE_APLICACION, APP_VERSION)
+			return diagnostico.generar_paquete(NOMBRE_APLICACION, APP_VERSION,
+				datos=informe_fallo.recoger_entorno(self.gestor, filas, abierta))
 
 		def hecho(ruta: Path) -> None:
 			mostrar_mensaje(self, _(
@@ -720,6 +734,24 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 
 		avisos.anunciar(_("Preparando el paquete de diagnóstico..."))
 		self.en_segundo_plano(crear, al_terminar=hecho)
+
+	def accion_informar_fallo(self) -> None:
+		"""Ayuda, «Informar de un fallo...»: los datos del equipo se recogen en un hilo, con el diálogo ya abierto."""
+		from app.ui.dialogos.informar_fallo import DialogoInformarFallo
+
+		filas, abierta = list(self._todas), self.sesion_actual or ""
+
+		def recoger() -> str:
+			from app.services import informe_fallo
+
+			return informe_fallo.texto_entorno(NOMBRE_APLICACION, APP_VERSION,
+				informe_fallo.recoger_entorno(self.gestor, filas, abierta))
+
+		dialogo = DialogoInformarFallo(self, recoger, self.en_segundo_plano)
+		try:
+			dialogo.ShowModal()
+		finally:
+			dialogo.Destroy()
 
 	def accion_manual(self) -> None:
 		from app.ui.visor_ayuda import abrir_manual

@@ -42,13 +42,15 @@ class MixinConversacion:
 
 	def iniciar_conversacion(self) -> None:
 		self._adjuntos: list[Adjunto] = []
+		#: Sesiones con la pregunta de «seguir con el contexto» abierta: con mensajes en cola fallarían varios a la vez.
+		self._ofreciendo_contexto: set[str] = set()
 		self._anunciado: dict[tuple[str, Any], int] = {}
 		self._turnos: dict[str, dict[str, Any]] = {}
 		self._avisos_uso: set[tuple[str, str, int]] = set()
 		#: Lo último que escribió el agente en cada sesión desde su última acción (para las preguntas).
 		self._texto_reciente: dict[str, str] = {}
-		#: Textos no entregados al agente de sesiones que no están abiertas: vuelven al abrirlas.
-		self._devueltos: dict[str, list[str]] = {}
+		#: Textos no entregados al agente de sesiones que no están abiertas, con el id de su mensaje: vuelven al abrirlas.
+		self._devueltos: dict[str, list[tuple[str, int]]] = {}
 		#: Última lista de tareas conocida de cada sesión (para decir solo las que se acaban de hacer).
 		self._tareas: dict[str, list[Any]] = {}
 		self.respuesta.Bind(wx.EVT_TEXT, lambda e: (self._actualizar_estado_respuesta(), e.Skip()))
@@ -74,7 +76,10 @@ class MixinConversacion:
 		self.respuesta.SetName(nombre)
 		devueltos = self._devueltos.pop(self.sesion_actual, []) if fila is not None else []
 		if devueltos:
-			self._devolver_al_cuadro("\n\n".join(devueltos))
+			self._devolver_al_cuadro("\n\n".join(texto for texto, _id in devueltos))
+			# Antes de leer los mensajes de la sesión (``abrir_sesion``): la lista ya llega sin ellos.
+			for _texto, id_mensaje in devueltos:
+				self.gestor.retirar_no_entregado(id_mensaje)
 
 	def _devolver_al_cuadro(self, texto: str) -> None:
 		"""Pone delante del cuadro de respuesta un texto que no llegó al agente."""
@@ -225,19 +230,44 @@ class MixinConversacion:
 				"el mensaje en cola con sus adjuntos."), interrumpir=True)
 			return
 		try:
-			guardado = self.almacen.anadir_mensaje(fila.clave, "usuario", texto, datos={"anadido_al_turno": True})
-			conversacion.anadir_al_turno(texto)
+			guardado = self.gestor.anadir_al_turno(fila.clave, texto)
 		except Exception as error:  # noqa: BLE001 - se explica y se registra; el texto sigue en el cuadro
 			log.exception("No se pudo añadir el mensaje al turno")
 			mostrar_error(self, _("No se pudo añadir el mensaje al turno: {e}").format(e=error), _("Añadir al turno"))
 			return
 		self.respuesta.Clear()
 		avisos.sonar("enviado")
-		self._refrescar_fila_mensaje(fila.clave, int(guardado) if isinstance(guardado, int) else 0)
+		self._refrescar_fila_mensaje(fila.clave, guardado)
 		if self.opcion("anuncios.mis_mensajes", False):
 			avisos.anunciar(_("Añadiendo al turno de {a}: {t}").format(a=agente, t=texto[:300]), interrumpir=True)
 		else:
 			avisos.anunciar(_("Añadiendo al turno de {a}, sin detenerlo.").format(a=agente), interrumpir=True)
+
+	def ofrecer_seguir_con_contexto(self, clave: str) -> bool:
+		"""Claude Code ya no tiene la conversación de una sesión propia: ofrece seguir contándosela.
+
+		Lo que no llegó al agente vuelve al cuadro de respuesta si está vacío: nunca se reenvía solo.
+		Devuelve si se ha seguido.
+		"""
+		if not self or clave in self._ofreciendo_contexto:
+			return False
+		pregunta = _("¿Quieres seguir con el contexto? El agente empezará una conversación nueva y, con tu próximo mensaje, "
+			"recibirá lo que hay guardado en esta sesión. Es una copia de lo dicho: no recuerda lo demás que hizo.")
+		self._ofreciendo_contexto.add(clave)
+		try:
+			if confirmar(self, pregunta, _("Seguir con el contexto")) != wx.ID_YES:
+				return False
+		finally:
+			self._ofreciendo_contexto.discard(clave)
+		pendiente = self.gestor.seguir_con_contexto(clave)
+		if clave == self.sesion_actual:
+			self.recargar_mensajes()
+			if pendiente and not self.respuesta.GetValue().strip():
+				self.respuesta.SetValue(pendiente)
+				self.respuesta.SetInsertionPointEnd()
+		avisos.anunciar(_("Lista para seguir. Tu mensaje está en el cuadro de respuesta: envíalo cuando quieras.") if pendiente
+			else _("Lista para seguir: escribe tu mensaje."), interrumpir=True)
+		return True
 
 	def _enviar_desde_cuadro(self, ahora: bool) -> None:
 		texto = self.respuesta.GetValue()
@@ -252,15 +282,19 @@ class MixinConversacion:
 			return
 		fila = self.fila_de(self.sesion_actual)
 		if fila is not None and not fila.propia:
-			if fila.importada:
-				# La importada no se toca: se ofrece una sesión nueva de este equipo que le cuenta la conversación al agente.
-				pregunta = _("Esta sesión se importó de otro equipo y es de solo lectura: el agente de este equipo no la "
-					"tiene. ¿Quieres continuarla en una sesión nueva de este equipo? Elegirás el agente y la carpeta; la "
-					"nueva tendrá sus mensajes y tu mensaje le llegará al agente con la conversación anterior delante.")
+			if fila.importada or fila.conservada:
+				# La importada o conservada no se toca: se ofrece una sesión nueva que le cuenta la conversación al agente.
+				if fila.conservada:
+					pregunta = _("Claude Code ya ha borrado esta conversación: lo que ves es la copia que conservó Ctrl+IA, solo "
+						"para leer. ¿Quieres continuarla en una sesión nueva? Elegirás el agente y la carpeta; la nueva tendrá "
+						"sus mensajes y tu mensaje le llegará al agente con la conversación anterior delante.")
+				else:
+					pregunta = _("Esta sesión se importó de otro equipo y es de solo lectura: el agente de este equipo no la "
+						"tiene. ¿Quieres continuarla en una sesión nueva de este equipo? Elegirás el agente y la carpeta; la "
+						"nueva tendrá sus mensajes y tu mensaje le llegará al agente con la conversación anterior delante.")
 				if confirmar(self, pregunta, _("Continuar aquí")) != wx.ID_YES:
 					return
-				if self.continuar_importada(fila, texto) and self.respuesta.GetValue() == texto:
-					self.respuesta.Clear()
+				self.continuar_con_contexto(fila, texto)
 				return
 			if fila.proveedor == "antigravity" or self.seguira_la_original(fila):
 				pregunta = _("Esta sesión es de {a}. ¿Quieres seguirla desde Ctrl+IA? Es la misma conversación, no una "
@@ -283,24 +317,62 @@ class MixinConversacion:
 
 			self.continuar_sesion(fila, "", creada)
 			return
+		if "_conversacion_sesiones" in self.__dict__ and self._enviar_dirigido(texto):
+			return
 		if self.enviar_mensaje(self.sesion_actual, texto, list(self._adjuntos), ahora=ahora):
 			self.respuesta.Clear()
 			self._adjuntos.clear()
 			self.poner_estado("", 1)
 
+	def _enviar_dirigido(self, texto: str) -> bool:
+		"""Mientras dos sesiones hablan: «@Codex ...» o «Codex, ...» va a esa, aparte del relevo."""
+		from app.ui.dialogos import dialogo_agentes
+
+		dirigido = dialogo_agentes.a_quien_va(self, texto)
+		if dirigido is None:
+			return False
+		claves, cuerpo = dirigido
+		if not cuerpo.strip():
+			avisos.anunciar(_("Escribe el mensaje después del nombre."), interrumpir=True)
+			return True
+		adjuntos = list(self._adjuntos)
+		enviados = [clave for clave in claves if self.enviar_mensaje(clave, cuerpo, adjuntos, anunciar=False)]
+		if enviados:
+			self.respuesta.Clear()
+			self._adjuntos.clear()
+			self.poner_estado("", 1)
+			filas = [self.fila_de(clave) for clave in enviados]
+			nombres = _(" y ").join(f"«{fila.titulo}»" for fila in filas if fila is not None)
+			avisos.anunciar(_("Enviado a {n}, aparte: esa contestación no se pasará a la otra sesión.").format(n=nombres),
+				interrumpir=True)
+		return True
+
 	def enviar_mensaje(self, clave: str, texto: str, adjuntos: list[Adjunto] | None = None, ahora: bool = False,
-			anunciar: bool = True) -> bool:
-		"""Envía ``texto`` a la sesión ``clave``. ``anunciar=False``: sin «Enviado» (lo anuncia quien llama)."""
+			anunciar: bool = True, relevo: bool = False) -> bool:
+		"""Envía ``texto`` a la sesión ``clave``.
+
+		:param anunciar: ``False``: sin «Enviado» (lo anuncia quien llama).
+		:param relevo: lo envía la conversación automática entre sesiones. Si no, y esa sesión está en una,
+			el turno que abre se queda fuera del relevo.
+		"""
 		adjuntos = adjuntos or []
 		ocupada = self.gestor.ocupada(clave)
 		if ahora and ocupada and adjuntos:
 			# «Enviar ahora» interrumpe y pasa solo texto: con adjuntos, el mensaje va a la cola.
 			avisos.anunciar(_("Con archivos adjuntos no se puede enviar ahora; el mensaje queda en cola."), interrumpir=True)
 			ahora = False
+		aparte = False
+		if not relevo and "_conversacion_sesiones" in self.__dict__:
+			from app.ui.dialogos import dialogo_agentes
+
+			# Antes de enviar: el fin de turno puede llegar enseguida.
+			aparte = dialogo_agentes.apartar(self, clave, texto)
 		try:
 			self.gestor.enviar(clave, texto, adjuntos, ahora=ahora and ocupada)
 		except Exception as error:  # noqa: BLE001 - el error se explica al usuario y se registra
 			log.exception("No se pudo enviar el mensaje")
+			if aparte:
+				dialogo_agentes.retirar_aparte(self, clave)
 			mostrar_error(self, _("No se pudo enviar el mensaje: {e}").format(e=error), _("Enviar"))
 			return False
 		avisos.sonar("enviado")
@@ -427,7 +499,8 @@ class MixinConversacion:
 			self, fila.titulo, nombre_agente(fila.proveedor), nombre_modo, elegido.ayuda if elegido else "", reglas,
 			fechas=dict((sesion.extra or {}).get("reglas_fechas") or {}), cuando=cuando,
 			trabajando=fila.proveedor != "codex" and self.gestor.ocupada(fila.clave),
-			reglas_agente=self._reglas_del_agente(fila),
+			reglas_agente=self._reglas_del_agente(fila, modo_actual),
+			decisiones=self._decisiones_revision(fila, modo_actual),
 		)
 		try:
 			resultado = dialogo.ShowModal()
@@ -439,8 +512,19 @@ class MixinConversacion:
 		if resultado == ID_CAMBIAR_MODO:
 			self.accion_ajustes_sesion()
 
-	def _reglas_del_agente(self, fila: FilaSesion) -> str:
-		"""Las reglas de la propia configuración del agente para la carpeta de la sesión, para leerlas (AIChat #336)."""
+	def _decisiones_revision(self, fila: FilaSesion, modo: str) -> str:
+		"""Lo que Codex decidió sin preguntar en esta sesión; vacío si nunca ha usado la revisión automática."""
+		if fila.proveedor != "codex":
+			return ""
+		from app.ui.dialogos.permisos_sesion import texto_decisiones
+
+		texto = texto_decisiones(self.gestor.revisiones_automaticas(fila.clave))
+		if not texto and str(modo).endswith("_auto"):
+			return _("Codex todavía no ha decidido nada por su cuenta en esta sesión.")
+		return texto
+
+	def _reglas_del_agente(self, fila: FilaSesion, modo: str = "") -> str:
+		"""Las reglas de la propia configuración del agente para la carpeta de la sesión, para leerlas (AIChat #336, #343)."""
 		try:
 			if fila.proveedor == "claude":
 				if fila.remota:
@@ -450,10 +534,13 @@ class MixinConversacion:
 
 				encontradas, ilegibles = reglas_claude.reglas_de(fila.carpeta)
 				return reglas_claude.describir(encontradas, ilegibles, describir_regla)
-			if fila.proveedor == "codex" and not fila.remota:
+			if fila.proveedor == "codex":
+				if fila.remota:
+					return _("Esta sesión trabaja en otro equipo: sus reglas de Codex están allí y no se leen desde aquí.")
 				from app.services.config_agentes import reglas_codex
 
-				return reglas_codex.describir(reglas_codex.archivos_de_reglas())
+				reglas, ilegibles, otras = reglas_codex.reglas_de(reglas_codex.archivos_de_reglas(fila.carpeta))
+				return reglas_codex.describir(reglas, ilegibles, otras, nunca_pregunta=modo == "sin_preguntas")
 		except Exception:  # noqa: BLE001 - leer reglas ajenas nunca debe impedir abrir el diálogo
 			log.warning("No se pudieron leer las reglas de la configuración del agente", exc_info=True)
 			return _("No se han podido leer las reglas de la configuración del agente.")
@@ -542,6 +629,34 @@ class MixinConversacion:
 				_("Herramientas del agente"))
 
 		self.en_segundo_plano(conversacion.inventario, al_terminar=mostrar, al_fallar=fallo, clave="inventario")
+
+	def accion_servidores_mcp(self) -> None:
+		"""Ctrl+Alt+M: estado de los servidores MCP de la sesión y qué hacer con ellos. Pregunta en segundo plano."""
+		titulo = _("Servidores MCP de la sesión")
+		fila = self.fila_de(self.sesion_actual) if self.sesion_actual else None
+		if fila is None or not fila.propia:
+			mostrar_mensaje(self, _("Abre primero una sesión de Ctrl+IA: las de otros programas no se pueden consultar desde "
+				"aquí."), titulo)
+			return
+		conversacion = self.gestor.conversacion(fila.clave)
+		if conversacion is None:
+			return
+
+		def mostrar(servidores: Any) -> None:
+			from app.ui.dialogos.servidores_mcp import DialogoServidoresMcp
+
+			if servidores is None:
+				mostrar_mensaje(self, _("{a} no deja gestionar sus servidores desde Ctrl+IA. Su estado está en Sesión, «Herramientas "
+					"del agente» (Control+Alt+H).").format(a=nombre_agente(fila.proveedor)), titulo)
+				return
+			dialogo = DialogoServidoresMcp(self, conversacion, servidores, self.en_segundo_plano)
+			dialogo.ShowModal()
+			dialogo.Destroy()
+
+		def fallo(error: BaseException) -> None:
+			mostrar_error(self, _("No se ha podido saber cómo están los servidores: {e}").format(e=error), titulo)
+
+		self.en_segundo_plano(conversacion.servidores_mcp, al_terminar=mostrar, al_fallar=fallo, clave="servidores_mcp")
 
 	def accion_estado_turno(self) -> None:
 		if not self.sesion_actual:
@@ -842,7 +957,14 @@ class MixinConversacion:
 		elif tipo is TipoEvento.AVISO and datos.get("solicitud") is not None:
 			self._avisar_peticion(clave, fila, agente, datos["solicitud"])
 		elif tipo is TipoEvento.AVISO and datos.get("devolver_texto"):
-			self._texto_no_entregado(clave, fila, str(datos["devolver_texto"]), evento.texto)
+			self._texto_no_entregado(clave, fila, str(datos["devolver_texto"]), evento.texto, int(datos.get("id_anadido") or 0))
+		elif tipo is TipoEvento.AVISO and datos.get("sin_confirmar"):
+			self._mensaje_sin_confirmar(clave, fila, evento.texto, int(datos.get("id_anadido") or 0))
+		elif tipo is TipoEvento.AVISO and datos.get("solo_estado"):
+			if clave == self.sesion_actual:
+				self.poner_estado(evento.texto, 0)
+		elif tipo is TipoEvento.AVISO and datos.get("revision_automatica"):
+			self._decision_revision(clave, fila, evento.texto, datos["revision_automatica"])
 		elif tipo is TipoEvento.AVISO and datos.get("herramienta_ctrlia"):
 			self._herramienta_ctrlia(clave, fila, agente, evento)
 		elif tipo is TipoEvento.AVISO:
@@ -858,6 +980,8 @@ class MixinConversacion:
 			avisos.notificar(self._prefijo(clave, fila) + evento.texto, _("Error de {a}").format(a=agente), padre=self)
 			if self.opcion("notificaciones.modo", "te_necesita") != "nunca":
 				avisos.notificacion_sistema(_("Error de {a}").format(a=agente), evento.texto[:200])
+			if datos.get("sin_transcripcion"):
+				wx.CallAfter(self.ofrecer_seguir_con_contexto, clave)
 		elif tipo is TipoEvento.USO:
 			self._comprobar_contexto(clave, fila)
 			if clave == self.sesion_actual:
@@ -910,6 +1034,13 @@ class MixinConversacion:
 					self.actualizar_titulo_ventana()
 					self.actualizar_barra_estado()
 			avisos.anunciar(texto)
+		elif accion in ("ocultar_sesion", "mostrar_sesion"):
+			# Ya está guardado (lo hizo la herramienta): aquí solo se pone al día la lista, sin mover el foco.
+			objetivo = self.fila_de(str(datos.get("sesion") or ""))
+			if objetivo is not None:
+				objetivo.oculta = accion == "ocultar_sesion"
+				self.mostrar_sesiones(False)
+			avisos.anunciar(texto)
 
 	def _terminar_por_agente(self, clave: str) -> None:
 		"""Da la sesión por terminada porque lo pidió su agente (como Control+D)."""
@@ -923,17 +1054,46 @@ class MixinConversacion:
 			fila.no_leidas = 0
 		self.mostrar_sesiones(False)
 
-	def _texto_no_entregado(self, clave: str, fila: FilaSesion | None, texto: str, motivo: str) -> None:
-		"""Un mensaje que no llegó al agente vuelve al cuadro de respuesta (nunca se reenvía solo)."""
+	def _texto_no_entregado(self, clave: str, fila: FilaSesion | None, texto: str, motivo: str, id_mensaje: int = 0) -> None:
+		"""Un mensaje que el agente no recibió vuelve al cuadro de respuesta y sale de la lista (nunca se reenvía solo).
+
+		Con la sesión cerrada, el texto espera en memoria y su mensaje guardado sigue,
+		marcado «No entregado»: si se cierra el programa, es lo que queda de él.
+		"""
 		avisos.sonar("error")
 		if clave == self.sesion_actual:
 			self._devolver_al_cuadro(texto)
+			if self.gestor.retirar_no_entregado(id_mensaje):
+				self.quitar_mensaje_de_la_lista(id_mensaje)
+			else:
+				self._refrescar_fila_mensaje(clave, id_mensaje)
 			avisos.anunciar(motivo, interrumpir=True)
 			return
-		self._devueltos.setdefault(clave, []).append(texto)
+		self._devueltos.setdefault(clave, []).append((texto, id_mensaje))
 		titulo = fila.titulo if fila else ""
 		avisos.notificar(_("En «{t}»: {m} Al abrir la sesión lo encontrarás en el cuadro de respuesta.").format(t=titulo, m=motivo),
 			_("Mensaje no entregado"), padre=self)
+
+	def _mensaje_sin_confirmar(self, clave: str, fila: FilaSesion | None, motivo: str, id_mensaje: int) -> None:
+		"""No se sabe si el agente lo recibió: sigue en la lista, marcado, sin volver al cuadro y sin reenviarse."""
+		avisos.sonar("error")
+		self._refrescar_fila_mensaje(clave, id_mensaje)
+		if clave == self.sesion_actual:
+			avisos.anunciar(motivo, interrumpir=True)
+			return
+		avisos.notificar(_("En «{t}»: {m}").format(t=fila.titulo if fila else "", m=motivo), _("Mensaje sin confirmar"), padre=self)
+
+	def _decision_revision(self, clave: str, fila: FilaSesion | None, texto: str, revision: dict[str, Any]) -> None:
+		"""Codex ha decidido una petición por sí mismo porque así lo eligió la persona: siempre se dice, sea cual sea la sesión.
+
+		Lo que no se permitió, además, se notifica: el agente se queda sin hacer algo que
+		quizá esperabas (se puede cambiar de modo y pedírselo otra vez).
+		"""
+		if str(revision.get("estado") or "") == "approved":
+			avisos.anunciar(self._prefijo(clave, fila) + texto)
+			return
+		avisos.sonar("permiso")
+		avisos.notificar(self._prefijo(clave, fila) + texto, _("Revisión automática de Codex"), padre=self)
 
 	def _peticion_repetida(self, clave: str, solicitud: SolicitudPermiso) -> bool:
 		"""Si esa sesión espera otra petición igual (misma herramienta y título) que ya se avisó."""

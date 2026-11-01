@@ -38,7 +38,7 @@ import wx
 
 from app.services import favoritos
 from app.services.almacen import MensajeFavorito
-from app.services.gestor import MensajeVista, coincide
+from app.services.gestor import FilaSesion, MensajeVista, coincide
 from app.services.reenviar import ROLES_REENVIABLES
 from app.ui import avisos
 from app.ui.accesibilidad.dialogos import confirmar, mostrar_mensaje, pedir_texto
@@ -169,8 +169,11 @@ class MixinMensajes:
 		if fila is not None:
 			self.abrir_sesion(fila.clave)
 
-	def abrir_sesion(self, clave: str, mover_foco: bool = True) -> None:
-		"""Carga los mensajes de una sesión (en segundo plano) y la deja como sesión abierta."""
+	def abrir_sesion(self, clave: str, mover_foco: bool = True, volver_a: MensajeVista | None = None) -> None:
+		"""Carga los mensajes de una sesión (en segundo plano) y la deja como sesión abierta.
+
+		:param volver_a: mensaje donde estaba el foco, si se está recargando la misma sesión.
+		"""
 		self.sesion_actual = clave
 		self.gestor.sesion_abierta = clave
 		fila = self.fila_de(clave)
@@ -199,6 +202,8 @@ class MixinMensajes:
 			mientras = [m for m in self._mensajes if not es_fila_anteriores(m) and (not m.id or m.id not in ids)
 				and (m.rol, m.texto) not in textos]
 			self.mostrar_mensajes(list(mensajes) + mientras)
+			if volver_a is not None:
+				self._volver_a_mensaje(volver_a)
 			if mover_foco:
 				self.ir_a_mensajes()
 				if self._anteriores:
@@ -225,7 +230,14 @@ class MixinMensajes:
 
 	def recargar_mensajes(self) -> None:
 		if self.sesion_actual:
-			self.abrir_sesion(self.sesion_actual, mover_foco=False)
+			self.abrir_sesion(self.sesion_actual, mover_foco=False, volver_a=self.mensaje_actual())
+
+	def _volver_a_mensaje(self, mensaje: MensajeVista) -> None:
+		"""Deja el foco en ese mensaje, si sigue en la lista."""
+		for indice, otro in enumerate(self._mensajes):
+			if (otro.id == mensaje.id) if mensaje.id else ((otro.rol, otro.texto) == (mensaje.rol, mensaje.texto)):
+				self.lista_mensajes.enfocar_fila(indice, anunciar=False)
+				return
 
 	def _configurar_seguimiento(self, clave: str) -> None:
 		"""Las sesiones de Claude de otros programas se releen cada poco (para verlas en vivo)."""
@@ -376,11 +388,23 @@ class MixinMensajes:
 			return
 		self._mensajes.append(mensaje)
 		lista = self.lista_mensajes
-		estaba_al_final = lista.GetFocusedItem() in (-1, lista.GetItemCount() - 1)
 		lista.agregar_fila(self._valores_mensaje(mensaje, self.numero_mensaje(len(self._mensajes) - 1)))
 		self._nombrar_lista_mensajes()
-		if estaba_al_final and wx.Window.FindFocus() is not lista:
+		# Nunca se sigue el final: al volver, se sigue leyendo desde donde se dejó el foco, aunque fuese el último.
+		if lista.GetFocusedItem() < 0:
 			lista.enfocar_fila(lista.GetItemCount() - 1, anunciar=False)
+
+	def quitar_mensaje_de_la_lista(self, id_mensaje: int) -> None:
+		"""Quita un mensaje de la lista sin mover el foco a propósito (si era el enfocado, pasa al vecino)."""
+		indice = next((i for i, m in enumerate(self._mensajes) if m.id == id_mensaje), -1)
+		if indice < 0:
+			self._anteriores = [m for m in self._anteriores if m.id != id_mensaje]
+			return
+		del self._mensajes[indice]
+		self.lista_mensajes.eliminar_fila(indice)
+		self._marcas_al_dia = False
+		self._nombrar_lista_mensajes()
+		self._repintar_mensajes()  # el número de los que venían detrás ha cambiado
 
 	def mensaje_actual(self) -> MensajeVista | None:
 		indice = self.lista_mensajes.GetFocusedItem()
@@ -497,12 +521,15 @@ class MixinMensajes:
 		texto = mensaje.texto
 		if mensaje.detalle:
 			if mensaje.rol == "cambio":
-				from app.services.extraccion import diff_legible
+				from app.services.extraccion import ESTILOS_CON_SIGNOS, diff_legible
 
 				# Las líneas cambiadas, con palabras o con los signos del diff según Preferencias.
 				estilo = str(self.opcion("mensajes.estilo_cambios", "palabras") or "palabras")
 				legible = diff_legible(mensaje.detalle, estilo)
-				texto += "\n\n---\n\n" + ("```diff\n" + legible + "\n```" if estilo == "simbolos" else "```\n" + legible + "\n```")
+				for cambio in mensaje.cambios or []:
+					if isinstance(cambio, dict) and cambio.get("movido_desde"):
+						legible = _("Renombrado desde: {r}").format(r=cambio["movido_desde"]) + "\n" + legible
+				texto += "\n\n---\n\n" + ("```diff\n" if estilo in ESTILOS_CON_SIGNOS else "```\n") + legible + "\n```"
 			else:
 				texto += "\n\n---\n\n```\n" + mensaje.detalle + "\n```"
 		if formato:
@@ -527,7 +554,7 @@ class MixinMensajes:
 			"Control+Alt+N empieza otra sesión a partir de este mensaje. Escape o Alt+C cierran el visor."
 		)
 		self._visor_mensaje = mostrar_documento(self, titulo, texto, forzar_texto=not formato, acciones=acciones,
-			teclas=teclas, ayuda=ayuda)
+			teclas=teclas, ayuda=ayuda, autor=self._quien(mensaje))
 
 	# ------------------------------------------------------------------
 	# Leer y responder a la vez, citar y empezar otra sesión
@@ -584,6 +611,7 @@ class MixinMensajes:
 
 	def reenviar_a_otra_sesion(self, elegido: MensajeVista | None = None) -> None:
 		from app.services import reenviar
+		from app.ui.dialogos import dialogo_agentes
 		from app.ui.dialogos.reenviar import DialogoReenviar
 
 		fila = self.fila_de(self.sesion_actual) if self.sesion_actual else None
@@ -597,28 +625,39 @@ class MixinMensajes:
 		parejas: dict[str, str] = self.__dict__.setdefault("_parejas_reenvio", {})
 		destinos = reenviar.destinos(self._todas, fila.clave, lambda f: self.gestor.proveedor(f.proveedor) is not None,
 			parejas.get(fila.clave))
-		if not destinos:
-			mostrar_mensaje(self, _("No hay otra sesión a la que enviarla. Se puede enviar a las sesiones de Ctrl+IA de "
-				"cualquier agente (no a las de otros programas, ni a las ocultas o archivadas). Crea una con Archivo, "
-				"Nueva sesión."), _("Enviar la respuesta a otra sesión"))
-			return
 		nombres = [_("{t}, {a}, {c}").format(t=d.titulo, a=nombre_agente(d.proveedor), c=d.carpeta or _("sin carpeta"))
 			for d in destinos]
+		# «Nueva sesión...» va la última: la sesión que envió la última respuesta sigue siendo la primera.
+		nombres.append(_("Nueva sesión..."))
 		texto = reenviar.texto_reenviado(mensaje, nombre_agente(fila.proveedor), fila.titulo)
 
 		def comprobar(indice: int, escrito: str) -> str:
+			if indice >= len(destinos):
+				return ""  # el agente se elige después, en «Nueva sesión»
 			destino = destinos[indice]
 			return reenviar.demasiado_largo(destino.proveedor, nombre_agente(destino.proveedor), escrito)
 
-		dialogo = DialogoReenviar(self, fila.titulo, nombres, texto, comprobar, trabajando=self.gestor.ocupada(fila.clave))
+		def problema_conversacion(indice: int) -> reenviar.Problema | None:
+			clave = destinos[indice].clave if indice < len(destinos) else None
+			return dialogo_agentes.problema_para_conversar(self, fila, clave)
+
+		dialogo = DialogoReenviar(self, fila.titulo, nombres, texto, comprobar, trabajando=self.gestor.ocupada(fila.clave),
+			problema_conversacion=problema_conversacion)
 		try:
 			if dialogo.ShowModal() != wx.ID_OK or dialogo.elegido is None:
 				return
 			indice, texto = dialogo.elegido
+			conversar, max_turnos, aprobar = dialogo.conversacion, dialogo.max_turnos, dialogo.aprobar
 		finally:
 			dialogo.Destroy()
+		if indice >= len(destinos):
+			self._reenviar_a_sesion_nueva(fila, mensaje, texto, conversar, max_turnos, aprobar)
+			return
 		destino = destinos[indice]
 		parejas[destino.clave] = fila.clave
+		if conversar:
+			dialogo_agentes.empezar_con_respuesta(self, fila, destino.clave, texto, mensaje.texto, max_turnos, aprobar)
+			return
 		# Se envía antes de abrir la sesión: así su lista ya trae el mensaje al cargarse.
 		enviado = self.enviar_mensaje(destino.clave, texto)
 		self.abrir_sesion(destino.clave, mover_foco=False)
@@ -631,6 +670,43 @@ class MixinMensajes:
 		self.respuesta.SetValue(texto)
 		self.respuesta.SetInsertionPointEnd()
 		self.ir_a_respuesta()
+
+	def _reenviar_a_sesion_nueva(self, fila: FilaSesion, mensaje: MensajeVista, texto: str, conversar: bool, max_turnos: int,
+			aprobar: bool) -> bool:
+		"""Abre «Nueva sesión» con la respuesta como primer mensaje (AIChat #379): agente y carpeta los elige la persona.
+
+		Propone lo mismo que la sesión de origen. Con ``conversar``, la nueva arranca con ella una
+		conversación automática en lugar de recibir un mensaje suelto.
+		"""
+		from app.services import reenviar
+		from app.ui.dialogos import dialogo_agentes
+
+		parejas: dict[str, str] = self.__dict__.setdefault("_parejas_reenvio", {})
+
+		def preparar(clave: str) -> None:
+			parejas[clave] = fila.clave
+
+		def enviar_primero(clave: str, escrito: str, adjuntos: list) -> None:
+			if conversar:
+				dialogo_agentes.empezar_con_respuesta(self, fila, clave, escrito, mensaje.texto, max_turnos, aprobar, adjuntos)
+				return
+			sesion = self.almacen.sesion(clave)
+			proveedor = sesion.proveedor if sesion is not None else ""
+			problema = reenviar.demasiado_largo(proveedor, nombre_agente(proveedor), escrito)
+			if problema:
+				dialogo_agentes.conservar(self, clave, escrito, problema)
+				return
+			self.enviar_mensaje(clave, escrito, adjuntos)
+			self.ir_a_mensajes()
+
+		agente = fila.proveedor if fila.proveedor in self.gestor.proveedores else ""
+		titulo = reenviar.titulo_nueva(fila.titulo)
+		if fila.remota:
+			return self.accion_nueva_sesion(mensaje=texto, agente=agente, titulo=titulo, equipo=fila.equipo,
+				carpeta_remota=fila.carpeta, preparar=preparar, enviar_primero=enviar_primero)
+		carpeta = Path(fila.carpeta) if fila.carpeta and Path(fila.carpeta).is_dir() else None
+		return self.accion_nueva_sesion(carpeta=carpeta, mensaje=texto, agente=agente, titulo=titulo, preparar=preparar,
+			enviar_primero=enviar_primero)
 
 	# Conversación automática entre dos sesiones (AIChat #248, segunda parte): app/ui/dialogos/dialogo_agentes.py.
 
@@ -648,6 +724,16 @@ class MixinMensajes:
 		from app.ui.dialogos import dialogo_agentes
 
 		dialogo_agentes.ver(self)
+
+	def accion_revisar_relevo(self) -> None:
+		from app.ui.dialogos import dialogo_agentes
+
+		dialogo_agentes.revisar_relevo(self)
+
+	def accion_conversaciones_guardadas(self) -> None:
+		from app.ui.dialogos import dialogo_agentes
+
+		dialogo_agentes.guardadas(self)
 
 	def citar_en_respuesta(self, texto: str, clave: str | None = None, entero: bool = False, con_formato: bool = False) -> bool:
 		"""Añade ``texto`` al final del cuadro de respuesta como cita («> »), sin mover el foco.
@@ -747,7 +833,7 @@ class MixinMensajes:
 		anadir(_("Copiar solo el te&xto"), lambda: self.copiar(mensaje.texto))
 		if mensaje.detalle:
 			anadir(_("Copiar solo el &detalle"), lambda: self.copiar(mensaje.detalle))
-		anadir(_("&Leer en voz alta"), lambda: avisos.anunciar(mensaje.texto, interrumpir=True))
+		anadir(_("&Leer en voz alta"), lambda: avisos.anunciar(mensaje.texto, interrumpir=True, siempre=True))
 		anadir(_("C&itar en la respuesta\tCtrl+R"), lambda: self.citar_en_respuesta(mensaje.texto))
 		anadir(_("Nueva &sesión a partir de este mensaje...\tCtrl+Alt+N"), lambda: self.nueva_sesion_desde_mensaje(mensaje))
 		if mensaje.rol in ROLES_REENVIABLES:

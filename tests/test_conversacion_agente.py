@@ -307,10 +307,11 @@ def test_permisos_de_la_sesion_desde_el_menu(ventana, tmp_path, monkeypatch):
 
 	class Falso:
 		def __init__(self, padre, titulo, agente, modo, ayuda, reglas, fechas=None, trabajando=False, cuando="",
-				reglas_agente=""):
+				reglas_agente="", decisiones=""):
 			vistos.append((titulo, agente, modo, list(reglas)))
 			# Las reglas de la propia configuración de Claude Code, para leer (AIChat #336).
 			assert reglas_agente.startswith("De la propia configuración de Claude Code")
+			assert decisiones == ""  # la revisión automática solo existe en Codex
 			self.reglas, self.fechas, self.cambiado = [], {}, True
 
 		def ShowModal(self):  # noqa: N802 - API de wx
@@ -541,7 +542,9 @@ def test_enviar_la_respuesta_a_otra_sesion(ventana, tmp_path, monkeypatch, anunc
 	vistos = {}
 
 	class Falso:
-		def __init__(self, padre, titulo, destinos, texto, comprobar, trabajando=False):
+		conversacion, max_turnos, aprobar = False, 4, False
+
+		def __init__(self, padre, titulo, destinos, texto, comprobar, trabajando=False, problema_conversacion=None):
 			vistos.update(titulo=titulo, destinos=list(destinos), texto=texto)
 			self.elegido = (0, texto + "\n\n¿Qué te parece?")
 

@@ -22,6 +22,10 @@ Características:
 - Braille opcional (mismo texto a la línea braille). Con
   ``braille_sin_voz``, lo que se calla (voz silenciada, canal apagado) sigue
   llegando a la línea braille: nada existe solo como voz.
+- VOZ DE WINDOWS: sin lector en marcha, ``accessible_output2`` acaba en SAPI5,
+  que siempre está activa. Quien ve la pantalla puede apagarla (``voz_windows``);
+  lo que se apaga es esa salida, nunca el lector, y se mira en cada anuncio
+  porque el lector puede arrancar con Ctrl+IA ya abierto.
 
 PLANTILLA del agente «accesibilidad-wx».
 """
@@ -54,6 +58,7 @@ _config = {
 	"retraso_ms": 120,
 	"braille": True,
 	"braille_sin_voz": True,  # si la voz se calla, el texto sigue yendo a braille
+	"voz_windows": True,   # sin lector de pantalla, hablar con SAPI
 	"canales": {NAVEGACION: True, AVISOS: True},
 }
 
@@ -66,6 +71,8 @@ class _Anuncio:
 	texto: str
 	interrumpir: bool
 	solo_braille: bool = False
+	#: Lo ha pedido la persona («Leer en voz alta»): suena también con la voz de Windows apagada.
+	siempre: bool = False
 
 
 # ── Configuración ─────────────────────────────────────────────────────────────
@@ -77,8 +84,11 @@ def configurar(
 	navegacion: bool | None = None,
 	avisos: bool | None = None,
 	braille_sin_voz: bool | None = None,
+	voz_windows: bool | None = None,
 ) -> None:
 	"""Aplica las preferencias de voz (llamar al arrancar y al Aceptar/Aplicar Preferencias)."""
+	if voz_windows is not None:
+		_config["voz_windows"] = bool(voz_windows)
 	if activada is not None:
 		_config["activada"] = bool(activada)
 	if retraso_ms is not None:
@@ -134,13 +144,34 @@ def _obtener_salida():
 		return _salida
 
 
-def _emitir(texto: str, interrumpir: bool, solo_braille: bool = False) -> None:
+def _es_voz_de_windows(salida) -> bool:
+	"""Si lo que sonaría ahora es la voz del sistema: no hay ningún lector en marcha."""
+	try:
+		return bool(salida.is_system_output())
+	except Exception:  # noqa: BLE001 - ante la duda se habla: la voz puede ser lo único que tiene la persona
+		log.debug("No se pudo saber si hay un lector de pantalla en marcha.", exc_info=True)
+		return False
+
+
+def sin_voz_por_no_haber_lector() -> bool:
+	"""Si la voz de Windows está apagada y no hay lector: lo que se diga por voz no lo oirá nadie.
+
+	Lo que no puede perderse (errores, permisos, Ctrl+H) debe mostrarse entonces en la pantalla.
+	"""
+	if _config["voz_windows"]:
+		return False
+	salida = _obtener_salida()
+	return salida is not None and _es_voz_de_windows(salida)
+
+
+def _emitir(texto: str, interrumpir: bool, solo_braille: bool = False, siempre: bool = False) -> None:
 	salida = _obtener_salida()
 	if salida is None:
 		log.debug("[%s] %s", "braille" if solo_braille else "voz", texto)
 		return
 	try:
-		if not solo_braille:
+		callada = not siempre and not _config["voz_windows"] and _es_voz_de_windows(salida)
+		if not solo_braille and not callada:
 			salida.speak(texto, interrupt=interrumpir)
 		if _config["braille"] and hasattr(salida, "braille"):
 			try:
@@ -167,13 +198,13 @@ def _trabajador() -> None:
 			if siguiente is None:
 				return
 			if not siguiente.interrumpir or siguiente.solo_braille != anuncio.solo_braille:
-				_emitir(anuncio.texto, True, anuncio.solo_braille)
+				_emitir(anuncio.texto, True, anuncio.solo_braille, anuncio.siempre)
 				anuncio = siguiente
 				break
 			anuncio = siguiente
 		if anuncio.interrumpir and not anuncio.solo_braille and _config["retraso_ms"] > 0:
 			time.sleep(_config["retraso_ms"] / 1000.0)
-		_emitir(anuncio.texto, anuncio.interrumpir, anuncio.solo_braille)
+		_emitir(anuncio.texto, anuncio.interrumpir, anuncio.solo_braille, anuncio.siempre)
 
 
 def _asegurar_hilo() -> None:
@@ -210,6 +241,7 @@ def hablar(
 	canal: str = AVISOS,
 	sincrono: bool = False,
 	solo_braille: bool = False,
+	siempre: bool = False,
 ) -> None:
 	"""Anuncia ``texto`` por el lector de pantalla activo.
 
@@ -222,6 +254,7 @@ def hablar(
 		aviso de arranque ANTES de las importaciones pesadas (si fuera por la
 		cola, el hilo de voz no conseguiría el GIL hasta el final).
 	:param solo_braille: el texto va solo a la línea braille (sin voz).
+	:param siempre: lo ha pedido la persona: suena aunque la voz de Windows esté apagada.
 
 	Si la voz está callada (desactivada, «No molestar» o canal apagado) y
 	``braille_sin_voz`` está activo, el texto se envía igualmente a braille.
@@ -237,10 +270,10 @@ def hablar(
 	with _candado_historial:
 		_historial.append((time.time(), texto))
 	if sincrono:
-		_emitir(texto, interrumpir, solo_braille)
+		_emitir(texto, interrumpir, solo_braille, siempre)
 		return
 	_asegurar_hilo()
-	_cola.put(_Anuncio(texto, interrumpir, solo_braille))
+	_cola.put(_Anuncio(texto, interrumpir, solo_braille, siempre))
 
 
 def detener() -> None:

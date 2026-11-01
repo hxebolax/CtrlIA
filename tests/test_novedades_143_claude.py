@@ -150,7 +150,7 @@ def test_chrome_y_estilo_van_en_la_orden_y_en_la_firma(tmp_path):
 	orden = con.construir_orden()
 	assert "--chrome" in orden
 	assert json.loads(orden[orden.index("--settings") + 1]) == {"outputStyle": "Concise"}
-	assert con._firma(True, True) != sin._firma(True, True)
+	assert con._firma(True, True, 30) != sin._firma(True, True, 30)
 	# Un estilo con caracteres raros no llega a la orden; en otro equipo, Chrome tampoco.
 	raro = ProveedorClaude(orden_base=["claude"]).crear_conversacion(
 		AjustesSesion(carpeta=tmp_path, extra={"estilo": "x\"; rm"}), lambda e: None)

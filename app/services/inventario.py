@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services import servidores_mcp
+
 #: Estados de los servidores MCP, en español.
 ESTADOS_MCP = {
 	"connected": "conectado",
@@ -55,12 +57,19 @@ def _estado(valor: Any) -> str:
 	return ESTADOS_MCP.get(texto, texto)
 
 
-def desde_init_claude(datos: dict[str, Any]) -> Inventario:
-	"""El inventario de Claude Code a partir de su ``system/init``."""
+def desde_init_claude(datos: dict[str, Any], estado_mcp: list[dict[str, Any]] | None = None) -> Inventario:
+	"""El inventario de Claude Code a partir de su ``system/init``.
+
+	:param estado_mcp: las filas de ``mcp_status``, si Claude Code está abierto: son
+		de ahora (el ``system/init`` es de cuando empezó el turno) y traen el motivo.
+	"""
 	inventario = Inventario("Claude Code")
-	for servidor in datos.get("mcp_servers") or []:
-		if isinstance(servidor, dict) and servidor.get("name"):
-			inventario.servidores_mcp.append((_texto(servidor["name"]), _estado(servidor.get("status"))))
+	if estado_mcp is not None:
+		inventario.servidores_mcp = [(s.nombre, servidores_mcp.detalle(s)) for s in servidores_mcp.lista_desde_claude(estado_mcp)]
+	else:
+		for servidor in datos.get("mcp_servers") or []:
+			if isinstance(servidor, dict) and servidor.get("name"):
+				inventario.servidores_mcp.append((_texto(servidor["name"]), _estado(servidor.get("status"))))
 	for complemento in datos.get("plugins") or []:
 		if isinstance(complemento, dict) and complemento.get("name"):
 			version = _texto(complemento.get("version"))

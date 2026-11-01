@@ -21,7 +21,7 @@ Los agentes pueden trabajar en este equipo o en un Mac o un Linux al que entras 
 
 ### Requisitos
 
-- Windows 10 u 11. Un lector de pantalla si lo usas (pensado para NVDA y JAWS); sin él, Ctrl+IA habla con su propia voz.
+- Windows 10 u 11. Un lector de pantalla si lo usas (pensado para NVDA y JAWS); sin él, Ctrl+IA habla con la voz de Windows. Si ves la pantalla y lo prefieres en silencio, apágala en Preferencias, Anuncios, «Hablar con la voz de Windows cuando no hay lector de pantalla».
 - Al menos un agente instalado con sesión iniciada (Ctrl+IA ayuda a instalarlos) e Internet (salvo con Ollama).
 - Para algunas funciones: **Git para Windows** (deshacer cambios y copia aislada), **gh**, la herramienta de GitHub, con `gh auth login` hecho una vez (clonar y PR), **Node.js** (instalar Codex o Gemini CLI y los adaptadores ACP) y el **cliente OpenSSH** de Windows, que ya viene instalado (equipos por SSH).
 
@@ -94,8 +94,8 @@ Alt o F10 llevan a la barra de menús. Cada orden dice su atajo.
 - **Sesión:** enviar, enviar ahora, añadir al turno, detener, responder al agente, comandos, adjuntar, plantillas, enviar la respuesta a otra sesión, la conversación automática entre sesiones, citar, deshacer y rehacer cambios de archivos, opciones y permisos de la sesión, estado del turno, uso y límites, propiedades, «PR y comprobaciones», herramientas del agente y lo que el agente sabe de ti.
 - **Ver:** ir a cada zona, leer la barra de estado, distribución, vistas («Mostrar»), «Ordenar por», columnas, filtrar o buscar, buscar en todas las sesiones, cargar mensajes, favoritos, listas de la sesión, tareas del agente, copiar el último bloque de código, mostrar las herramientas, actualizar, repetir el último aviso, historial de avisos y silenciar la voz.
 - **Organizar:** renombrar, favorita, ocultar y volver a mostrar, borrar, dar por terminada, leída o no leída, grupos.
-- **Herramientas:** agentes instalados, configuración de los agentes, reglas de Antigravity, agentes ACP personalizados, gestor de skills, equipos por SSH, límites de uso, informe de sesiones, preferencias, sonidos, sonidos activados (F9), carpetas de datos y de registros, y paquete de diagnóstico.
-- **Ayuda:** manual (F1), lista de teclas (Ctrl+F1), novedades de la versión, ayuda del control (Ctrl+H), buscar actualizaciones, «Invítame a un café si te gusta mi trabajo» (abre la página de donaciones del autor) y «Acerca de Ctrl+IA» (versión, autor, versiones de Python y wxPython, sistema y carpeta de datos, en un texto que se copia).
+- **Herramientas:** agentes instalados, configuración de los agentes, reglas de Antigravity, agentes ACP personalizados, gestor de skills, equipos por SSH, límites de uso, informe de sesiones, copias de seguridad, preferencias, sonidos, sonidos activados (F9), carpetas de datos y de registros, y paquete de diagnóstico.
+- **Ayuda:** manual (F1), lista de teclas (Ctrl+F1), novedades de la versión, ayuda del control (Ctrl+H), informar de un fallo, buscar actualizaciones, «Invítame a un café si te gusta mi trabajo» (abre la página de donaciones del autor) y «Acerca de Ctrl+IA» (versión, autor, versiones de Python y wxPython, sistema y carpeta de datos, en un texto que se copia).
 
 **A qué sesión se aplica cada orden.** Las de organizar, exportar, abrir o propiedades actúan sobre la sesión seleccionada si estás en la lista de sesiones, y sobre la abierta en las demás zonas. Uso, permisos de la sesión y lo que el agente sabe de ti usan la abierta o, si no hay, la seleccionada. Enviar, detener, opciones de la sesión, comandos, citar, reenviar, estado del turno y herramientas del agente necesitan una sesión abierta.
 
@@ -199,10 +199,11 @@ Ctrl+Mayús+N crea una sesión nueva en Ctrl+IA que continúa otra: el agente re
 - Con las de Antigravity CLI no se hace copia: la sesión de Ctrl+IA sigue la misma conversación. Las de la app de Antigravity no se pueden seguir: Ctrl+O las abre en la app.
 - Con «Al continuar una sesión de otro programa, seguir la original sin copiarla» (Preferencias, Historial), las de Claude Code y Codex tampoco se copian: lo que hables aquí aparece después en la terminal, la app o tu Mac. Por seguridad, solo si la original no está abierta en otro programa ni se ha usado en los dos últimos minutos; si no, te ofrece una copia. Cierra antes la sesión en la terminal o en la app y no la uses en los dos sitios a la vez: las conversaciones se mezclarían.
 - La carpeta original tiene que existir y la sesión tiene que tener algún mensaje. Si trabaja en otro equipo por SSH, la continuación sigue allí.
+- Si Claude Code ya borró la original, la sesión es una copia conservada: se continúa como una importada (ver «Continuar una sesión importada»).
 
 ### Continuar una sesión importada
 
-Con una sesión importada de otro equipo, Ctrl+Mayús+N (o escribir en su cuadro y aceptar) abre «Nueva sesión» con el mismo agente si está en este equipo, la carpeta original si existe aquí y el título «(continuación)». La sesión nueva trae sus mensajes, y tu primer mensaje le llega al agente con la conversación anterior delante (solo lo que dijisteis tú y el agente; recortada si es muy larga, conservando el principio y lo más reciente, y se le dice). La importada no cambia.
+Vale también para las restauradas de una copia de seguridad y para los chats conservados cuyo original ya no existe. Con una sesión importada de otro equipo, Ctrl+Mayús+N (o escribir en su cuadro y aceptar) abre «Nueva sesión» con el mismo agente si está en este equipo, la carpeta original si existe aquí y el título «(continuación)». La sesión nueva trae sus mensajes, y tu primer mensaje le llega al agente con la conversación anterior delante (solo lo que dijisteis tú y el agente; recortada si es muy larga, conservando el principio y lo más reciente, y se le dice). La importada no cambia.
 
 ## Conversar
 
@@ -211,9 +212,11 @@ Con una sesión importada de otro equipo, Ctrl+Mayús+N (o escribir en su cuadro
 - **Enviar:** Ctrl+Intro desde el cuadro de respuesta. Ctrl+IA dice «Enviado» y suena (con «Leer mis propios mensajes al enviarlos», Preferencias, Anuncios, repite lo enviado). Lo escrito y los adjuntos se quedan en el cuadro aunque cambies de sesión. Sin sesión abierta, te ofrece crear una con tu texto; en una de otro programa, continuarla aquí; en una importada, continuarla en una sesión nueva.
 - **La cola:** si envías mientras el agente trabaja, el mensaje espera y sale cuando termine («En cola. Se enviará cuando el agente termine»). Puedes dejar varios (con Codex, hasta 20).
 - **Enviar ahora** (Ctrl+Mayús+Intro): interrumpe al agente y le pasa tu mensaje en ese momento («para, ese no es el archivo»). Si no trabaja, es un envío normal. Con adjuntos no se puede interrumpir: queda en cola.
-- **Añadir al turno en marcha** (Ctrl+Alt+Intro), con Claude Code y Codex: mete un matiz en lo que el agente está haciendo, sin detenerlo («actualiza también el README»); lo tiene en cuenta en el mismo turno. Sin adjuntos. Con otros agentes, o si no trabaja, te dice qué usar y tu texto se queda en el cuadro.
+- **Añadir al turno en marcha** (Ctrl+Alt+Intro), con Claude Code y Codex: mete un matiz en lo que el agente está haciendo, sin detenerlo («actualiza también el README»); lo tiene en cuenta en el mismo turno. Sin adjuntos. Con otros agentes, o si no trabaja, te dice qué usar y tu texto se queda en el cuadro. Te avisa cuando el agente lo tiene: «Claude ha recogido tu mensaje» o «Codex ha recibido tu mensaje». Si Claude ya había acabado cuando llegó, te dice que ahora responde a tu mensaje.
 - **Detener** (Ctrl+.): para al agente. Los mensajes en cola vuelven al cuadro de respuesta y te lo dice.
-- **Si un mensaje no llega al agente** (por ejemplo, se cerró), nunca se pierde: vuelve al cuadro de respuesta, y si la sesión no estaba abierta te avisa de que lo encontrarás allí al abrirla. Si un turno falla, tu mensaje sigue en la conversación: «Volver a enviar...», en su menú contextual, lo repite.
+- **Si un mensaje no llega al agente** (el turno ya había terminado, o lo rechazó), nunca se pierde: vuelve al cuadro de respuesta y sale de la lista de mensajes, y si la sesión no estaba abierta te avisa de que lo encontrarás allí al abrirla; mientras tanto se queda en la lista con el indicador «No entregado».
+- **Si no se sabe si un mensaje añadido al turno llegó** (el agente se cerró o no contestó), se queda en la lista con el indicador «Sin confirmar» y te avisa. Puede que el agente lo tenga, así que no vuelve al cuadro ni se reenvía solo: mira lo que responda y, si hace falta, usa «Volver a enviar...» en su menú contextual.
+- Si un turno falla, tu mensaje sigue en la conversación: «Volver a enviar...», en su menú contextual, lo repite.
 
 ### Adjuntar archivos e imágenes
 
@@ -269,7 +272,8 @@ Ctrl+Mayús+M muestra lo que el agente puede hacer sin preguntarte en la sesión
 
 - «Modo de permisos de «sesión»» (Alt+P), explicado; «Cambiar el modo...» (Alt+M) abre «Opciones de la sesión». «Cuándo se aplica» explica desde cuándo valen los cambios.
 - «Permitido en esta sesión» (Alt+E): cada regla con su explicación y su fecha («Ejecutar «git push» con cualquier argumento… Permitido el 17/10/2026»), y con Claude Code las carpetas que se guardaron con el permiso. «Quitar» (Alt+Q o Suprimir) y «Quitar todas» (Alt+T), tras preguntarte.
-- «Reglas de la configuración de…» (Alt+R), solo para leer: con Claude Code, lo que su propia configuración permite, pregunta o prohíbe en esa carpeta, con el archivo de cada regla (también lo de «Permitir siempre en esta carpeta», y si alguna espera a que la carpeta sea de confianza); con Codex, sus archivos de reglas. Se cambian en «Configuración de los agentes» o en el agente (por SSH no se leen).
+- «Reglas de la configuración de…» (Alt+R), solo para leer: con Claude Code, lo que su propia configuración permite, pregunta o prohíbe en esa carpeta, con el archivo de cada regla (también lo de «Permitir siempre en esta carpeta», y si alguna espera a que la carpeta sea de confianza); con Codex, sus reglas guardadas, una por línea y con su archivo: «Permitido sin preguntar», «Pregunta siempre» o «Nunca se permite», las órdenes que empiezan por esas palabras. Ctrl+IA las lee sin ejecutar nada; si un archivo no se puede leer, te lo dice. Se cambian en «Configuración de los agentes» o en el agente (por SSH no se leen).
+- «Decisiones de la revisión automática» (Alt+D), solo para leer y solo si la sesión de Codex la ha usado: lo que Codex ha permitido o denegado por sí mismo, con la fecha, la acción, el riesgo y el motivo que dio, la más reciente primero.
 
 Lo que quites vale desde el próximo mensaje (con Codex, desde la siguiente petición). Las reglas de la sesión solo las guarda Ctrl+IA, y una continuación empieza sin ninguna. «Cerrar» (Alt+C).
 
@@ -282,15 +286,15 @@ Cada fila es un mensaje, del más antiguo al más reciente, con estas columnas:
 - **Quién:** «Tú», el agente, «Herramienta» (una acción, como leer o editar), «Aviso», «Error», «Cambio» (un archivo modificado), «Plan» o «Razonamiento».
 - **Mensaje:** el texto completo (se lee entero aunque no se vea).
 - **Hora:** la hora si es de hoy; si no, la fecha.
-- **Indicadores:** lo que trae, por ejemplo «Pregunta por responder, 2 bloques de código, 3 enlaces». También «Permiso concedido», «Plan aprobado», «Con error», «Detenido», adjuntos, archivos cambiados, «Largo» y «Favorito» con su nota. Cada indicador se puede quitar en Preferencias, Lectura de listas.
+- **Indicadores:** lo que trae, por ejemplo «Pregunta por responder, 2 bloques de código, 3 enlaces». También «Permiso concedido», «Plan aprobado», «Con error», «Detenido», adjuntos, archivos cambiados, «Sin confirmar», «No entregado», «Largo» y «Favorito» con su nota. Cada indicador se puede quitar en Preferencias, Lectura de listas.
 
-Puedes añadir la columna «Número» en Preferencias, Lectura de listas. Inicio va al primero y Fin al último; los nuevos se añaden al final sin mover tu foco. Ctrl+T (o Preferencias, Mensajes) muestra u oculta las acciones del agente («Herramienta», con su resultado en el detalle). El razonamiento solo se ve con «Guardar y mostrar el razonamiento» (Preferencias, Mensajes) y las acciones visibles.
+Puedes añadir la columna «Número» en Preferencias, Lectura de listas. Inicio va al primero y Fin al último. Los nuevos se añaden al final sin mover tu foco, aunque lo dejaras en el último: al volver con Alt+2 sigues bajando desde donde estabas. Ctrl+T (o Preferencias, Mensajes) muestra u oculta las acciones del agente («Herramienta», con su resultado en el detalle). El razonamiento solo se ve con «Guardar y mostrar el razonamiento» (Preferencias, Mensajes) y las acciones visibles.
 
 **Sesiones largas:** solo se cargan los últimos 100 mensajes (se cambia en Preferencias, Mensajes); Ctrl+IA lo dice al abrir, por ejemplo «Últimos 100 de 520 mensajes». La primera fila, «Cargar 100 mensajes anteriores», los carga con Intro; Alt+Inicio lo hace sin mover el foco y Ver, «Cargar todos los mensajes de la sesión», los carga todos. Buscar, las listas y exportar usan siempre la conversación entera.
 
 ### El visor de mensajes
 
-Intro abre el mensaje en un visor que no bloquea la ventana: con formato (encabezados, listas y tablas reales para tu lector) o como texto para leer línea a línea. Intro abre la forma elegida en Preferencias, Mensajes (de fábrica, con formato) y Mayús+Intro la otra. El detalle (por ejemplo, la salida de una orden) va al final. Ctrl+F busca y F3 sigue; Escape o Alt+C lo cierran; Ctrl+H dice sus teclas.
+Intro abre el mensaje en un visor que no bloquea la ventana: con formato (encabezados, listas y tablas reales para tu lector; el primer encabezado dice siempre quién lo escribió, y los del mensaje van debajo) o como texto para leer línea a línea. Intro abre la forma elegida en Preferencias, Mensajes (de fábrica, con formato) y Mayús+Intro la otra. El detalle (por ejemplo, la salida de una orden) va al final. Ctrl+F busca y F3 sigue; Escape o Alt+C lo cierran; Ctrl+H dice sus teclas.
 
 ### Leer y responder a la vez: citar
 
@@ -321,7 +325,7 @@ Ctrl+C copia el texto y su detalle. La tecla Aplicaciones ofrece además: ver co
 
 **Alt+Intro** muestra todos los datos de la sesión en el visor: título, agente, estado, origen, equipo, carpeta (y si es un repositorio de git, su rama y si es normal, una copia aislada o un submódulo), modelo, fechas, grupos, favorita, oculta o terminada, sin leer, identificadores, contexto usado y, en las de Ctrl+IA, el esfuerzo, el modo, lo permitido y de cuál continúa. También la lista de tareas del agente y la PR, si las hay. Si el visor de propiedades (o el de uso) ya estaba abierto, solo vuelve al frente: ciérralo y vuelve a pulsarlo para verlo al día.
 
-**Ctrl+E** guarda la conversación entera como «Markdown», «Página web» o «Texto», con el agente, la carpeta y el origen.
+**Ctrl+E** guarda la conversación entera como «Markdown», «Página web» o «Texto», con el agente, la carpeta y el origen. Para guardar muchas sesiones de una vez, cada una en su archivo, ver «Exportar muchas sesiones a archivos sueltos».
 
 ## Buscar
 
@@ -366,7 +370,7 @@ Las sesiones de Codex también llenan errores, commits y archivos leídos a part
 - En archivos, rutas y hallazgos: Ctrl+L lee el archivo tal como está ahora (de texto, hasta 2 MB); Ctrl+O lo abre con su programa; Ctrl+E en tu editor de código (en un hallazgo, en su línea); Ctrl+Mayús+E lo muestra en el Explorador. Por seguridad, nunca se abren con su programa ejecutables, scripts ni accesos directos, y nada de aquí modifica tus archivos.
 - Ctrl+R en un hallazgo prepara un mensaje para que el agente lo corrija, y en «Tus mensajes» cita el mensaje; cierra las listas y lo deja en el cuadro de respuesta sin enviarlo (en sesiones de otros programas, lo copia al portapapeles).
 
-Los cambios de un archivo se leen con palabras («Línea 12, añadida: …»); se cambia en Preferencias, Mensajes.
+Los cambios de un archivo se leen con palabras («Línea 12, añadida: …»); se cambia en Preferencias, Mensajes. Si el agente renombró el archivo, lo primero que se lee es «Renombrado desde:» con su nombre anterior, y la lista lo dice en su fila.
 
 ## Trabajar con varios agentes
 
@@ -374,21 +378,26 @@ Los cambios de un archivo se leen con palabras («Línea 12, añadida: …»); s
 
 Para que un agente revise o conteste el trabajo de otro (por ejemplo, que Codex revise lo de Claude): elige la respuesta o el plan en la lista de mensajes (o, desde otro sitio, se usa la última respuesta del agente) y pulsa **Ctrl+Alt+R**.
 
-1. «Enviar a» (Alt+A): tus sesiones de Ctrl+IA, de cualquier agente, menos esta, las ocultas y las archivadas. La sesión de la que vino lo último que recibiste sale la primera (mientras Ctrl+IA siga abierto), así que Ctrl+Alt+R e Intro devuelven la respuesta.
-2. «Mensaje» (Alt+M): la respuesta, con una primera línea que dice qué agente la escribió y en qué sesión, para que el otro sepa que no son órdenes tuyas. Cámbiala si quieres.
-3. Ctrl+Intro, Intro en la lista o «Enviar» (Alt+E). Se envía como si lo escribieras allí (si trabaja, a la cola) y Ctrl+IA te lleva a esa sesión para oír su respuesta.
+1. «Enviar a» (Alt+A): tus sesiones de Ctrl+IA, de cualquier agente, menos esta, las ocultas y las archivadas. La sesión de la que vino lo último que recibiste sale la primera (mientras Ctrl+IA siga abierto), así que Ctrl+Alt+R e Intro devuelven la respuesta. La última de la lista es **«Nueva sesión...»**: abre ese cuadro con la respuesta como primer mensaje, para elegir el agente, la carpeta y el modo. Propone el agente y la carpeta de esta sesión.
+2. «Empezar también una conversación automática entre las dos sesiones» (Alt+C): además de enviar la respuesta, las dos siguen hablando solas, y contesta primero la que la recibe. Al marcarla se activan «Turnos como máximo» (Alt+U) y «Aprobar cada relevo a mano» (Alt+P); lo explica el apartado siguiente. Si no se puede con la sesión elegida (por ejemplo, porque sigue trabajando), la propia casilla dice por qué.
+3. «Mensaje» (Alt+M): la respuesta, con una primera línea que dice qué agente la escribió y en qué sesión, para que el otro sepa que no son órdenes tuyas. Cámbiala si quieres. Con la conversación automática, lo que añadas detrás de la respuesta le llega como palabras tuyas, no como parte de lo que dijo el otro agente.
+4. Ctrl+Intro, Intro en la lista o «Enviar» (Alt+E). Se envía como si lo escribieras allí (si trabaja, a la cola) y Ctrl+IA te lleva a esa sesión para oír su respuesta. Con «Nueva sesión...», se abre ese cuadro y el mensaje sale al crearla.
 
 Un mensaje reenviado nunca contesta preguntas ni da permisos por ti. A Codex se le pueden enviar hasta 32.000 caracteres. Si el título del cuadro dice que la sesión sigue trabajando, lo que envías puede ser un paso intermedio. Si el envío falla, el texto queda en el cuadro de respuesta de la otra sesión.
 
 ### Conversación automática entre sesiones
 
-Para que dos sesiones se hablen solas unos turnos (por ejemplo, Claude escribe y Codex revisa), con cualquier agente: abre la que debe empezar y pulsa **Ctrl+Alt+Mayús+R**.
+Para que dos sesiones se hablen solas unos turnos (por ejemplo, Claude escribe y Codex revisa), con cualquier agente: abre la que debe empezar y pulsa **Ctrl+Alt+Mayús+R**. También puedes arrancarla con una respuesta ya escrita, desde Ctrl+Alt+R (apartado anterior).
 
-- «Primera sesión» (Alt+P, solo lectura), «Segunda sesión» (Alt+S, donde empieza el foco), «Tarea para la primera sesión» (Alt+T; Intro es línea nueva), «Turnos como máximo» (Alt+U; de 2 a 20, 4 de fábrica, contando las respuestas de las dos) e instrucciones opcionales para la primera (Alt+R) y la segunda (Alt+N), como «revisa y señala fallos, sin cambiar archivos». Ctrl+Intro o «Empezar» (Alt+E). Las dos tienen que estar paradas, y solo puede haber una conversación a la vez.
-- Ctrl+IA envía la tarea a la primera; cuando termina, pasa su respuesta a la segunda (con una línea que dice de quién viene), y así sucesivamente. Cada turno se anuncia («Turno 3 de 8: Codex responde a Claude») y cada mensaje queda en su sesión.
+- «Primera sesión» (Alt+P, solo lectura), «Segunda sesión» (Alt+S, donde empieza el foco), «Plantilla» (Alt+A), «Tarea para la primera sesión» (Alt+T; Intro es línea nueva), «Turnos como máximo» (Alt+U; de 2 a 20, 4 de fábrica, contando las respuestas de las dos), instrucciones opcionales para la primera (Alt+R) y la segunda (Alt+N), como «revisa y señala fallos, sin cambiar archivos», y «Aprobar cada relevo a mano» (Alt+O). Ctrl+Intro o «Empezar» (Alt+E). Las dos tienen que estar paradas, y solo puede haber una conversación a la vez.
+- **Plantillas:** rellenan las instrucciones de las dos sesiones, que puedes cambiar después. Son constructor y revisor (una construye y la otra revisa sin tocar archivos), segunda opinión, debate y plan y ejecución (una planifica y la otra lo lleva a cabo). Solo escriben instrucciones: no cambian lo que cada sesión tiene permitido, así que revisa antes su modo de permisos si necesitas que una no pueda tocar nada.
+- **Límites de uso:** antes de empezar, Ctrl+IA pregunta los límites de las cuentas de los dos agentes (sin enviar mensajes ni gastar cuota) y, si alguno llega al porcentaje del aviso de límites de Preferencias, te lo dice y te pregunta si quieres empezar igualmente. Si dices que no, lo escrito se queda en el cuadro de respuesta. Con ese aviso a 0, no se pregunta nada.
+- Ctrl+IA envía la tarea a la primera; cuando termina, pasa su respuesta a la segunda (con una línea que dice de quién viene y la lista de archivos que cambió en ese turno, para que sepa qué mirar), y así sucesivamente. Cada turno se anuncia («Turno 3 de 8: Codex responde a Claude») y cada mensaje queda en su sesión.
+- **Aprobar cada relevo a mano:** con esta opción, cuando un agente acaba, Ctrl+IA te avisa y su respuesta espera. Pulsa **Ctrl+Alt+Mayús+E** («Revisar el relevo de la conversación», en el menú Sesión) para verla: «Seguir» (Alt+S o Ctrl+Intro) la pasa tal como esté en el cuadro, así que puedes cambiarla o añadir lo tuyo; «Parar la conversación» (Alt+P) la termina, y «Más tarde» (Alt+T o Escape) cierra el cuadro y el relevo sigue esperando.
 - **Ctrl+IA nunca responde por ti:** si un agente pide permiso o pregunta, la conversación se pausa y te avisa; responde con Ctrl+Mayús+A y sigue cuando ese agente acabe.
-- **Termina** cuando un agente escribe [FIN] (se les pide que lo hagan al acabar), al llegar al máximo, si un turno falla, no aporta nada nuevo o no cabe en Codex, o si la detienes: Sesión, «Detener la conversación entre sesiones» (el agente acaba su turno, pero ya no se pasa), o Ctrl+. en cualquiera de las dos (lo para en el acto).
-- **Ctrl+Alt+Mayús+C** («Ver la conversación entre sesiones») muestra todo lo que se han dicho, intercalado, mientras Ctrl+IA siga abierto.
+- **Escribir mientras hablan:** con una de las dos sesiones abierta, lo que envías va a esa sesión. Para dirigirte a la otra sin cambiar de sesión, empieza con @ y su nombre («@Codex mira también los tests», o por el título de la sesión), con «@ambos» a las dos, o con su nombre y una coma («Codex, ¿qué falla?»). Si las dos son del mismo agente, usa el título. Lo que les escribas es aparte: esa sesión te contesta a ti, su contestación no se pasa a la otra y no cuenta como turno. El relevo sigue después.
+- **Termina** cuando un agente escribe [FIN] (se les pide que lo hagan al acabar), al llegar al máximo, si un turno falla, no aporta nada nuevo o no cabe en Codex, si las respuestas se repiten, si los dos seguidos solo se dan las gracias, o si la detienes: Sesión, «Detener la conversación entre sesiones» (el agente acaba su turno, pero ya no se pasa), o Ctrl+. en cualquiera de las dos (lo para en el acto). Ctrl+IA siempre dice por qué ha terminado.
+- **Ctrl+Alt+Mayús+C** («Ver la conversación entre sesiones») muestra todo lo que se han dicho, intercalado: la que está en marcha o la última, también después de cerrar Ctrl+IA. En Sesión, «Conversaciones entre sesiones guardadas» las reúne todas: Intro muestra la elegida y Suprimir la borra (los mensajes de cada sesión no se tocan). Si borras para siempre una de las dos sesiones, se borra también su conversación guardada.
 
 Consejo: que una escriba y la otra solo revise; si las dos cambian archivos en la misma carpeta, una puede deshacer lo de la otra.
 
@@ -416,15 +425,41 @@ Cuando un agente sube su trabajo a GitHub suele abrir una PR (una propuesta de c
 
 **Sesión, «Herramientas del agente...» (Ctrl+Alt+H)** dice qué tiene cargado el agente de la sesión, en un texto que se copia: servidores MCP y conectores con su estado («conectado», «no ha podido arrancar», «necesita que inicies sesión»), complementos y habilidades (también las skills del catálogo) y, con Claude Code, sus subagentes y cuántas herramientas tiene. Completo con Claude Code (después de su primer mensaje) y Codex; con Antigravity y los ACP, solo las de Ctrl+IA.
 
+### Servidores MCP de la sesión
+
+**Sesión, «Servidores MCP de la sesión...» (Ctrl+Alt+M)**, con Claude Code, dice cómo están ahora mismo los servidores MCP y conectores de la sesión y te deja arreglarlos sin salir de Ctrl+IA.
+
+- **La ventana:** «Servidores» (Alt+S), una lista con el servidor, su estado, cuántas herramientas tiene, de dónde viene y el motivo si falla; «Detalle» (Alt+D), con la orden o dirección y el motivo completo; y «Cerrar» (Alt+C).
+- **Intro** hace lo que el servidor necesita: lo reconecta o, si pide iniciar sesión, abre la consola para hacerlo.
+- **Ctrl+R** reconecta el elegido y **Ctrl+Mayús+R**, todos los que fallan. Hazlo con Claude parado: mientras reconecta no atiende nada más, así que Ctrl+IA no te deja hacerlo a mitad de una respuesta.
+- **Ctrl+D** lo desactiva o lo vuelve a activar. **Ctrl+L** inicia sesión: abre una consola con `claude mcp login` y el nombre del servidor y, al cerrarla, lo reconecta. Los conectores de claude.ai se conectan en claude.ai, en Ajustes, Conectores.
+- **F5** vuelve a preguntar el estado. La tecla Aplicaciones abre el menú con todo.
+
+Si Claude Code está cerrado (se cierra solo tras un rato sin mensajes), ves lo que dijo la última vez, y se vuelve a conectar todo con tu próximo mensaje.
+
+**Cuando Claude Code arranca**, Ctrl+IA espera a que se conecten tus servidores, hasta el tiempo que elijas en Preferencias, Agentes (30 segundos de fábrica, por servidor), y te avisa si tarda más de unos segundos. Si uno no se conecta, te lo dice en la conversación, una sola vez y con el motivo, y lo reintenta solo cuando Claude termina de responder; si entonces conecta, también te lo dice.
+
 ### Herramientas de Ctrl+IA para los agentes
 
-Ctrl+IA da a los agentes tres herramientas propias, que solo afectan a su sesión y salen como «ctrlia»:
+Ctrl+IA da a los agentes tres herramientas propias, que solo afectan a su sesión y salen como «ctrlia»; Claude Code tiene además las de «Comandos de sesión de Claude Code», justo después:
 
 - **Avisarte** de algo (hasta 300 caracteres, como mucho uno cada 10 segundos): te lo dice con voz y braille y lo deja en la conversación; si es urgente, como aviso importante; si estás en otro programa, con sonido y notificación.
 - **Dar la sesión por terminada,** como Ctrl+D (si está trabajando, al acabar; si vuelves a escribirle, se reactiva).
 - **Renombrar la sesión** (hasta 80 caracteres).
 
 Pídeselo con naturalidad: «avísame cuando acaben las pruebas», «cuando termines, da la sesión por terminada». Cada uso deja un mensaje de Ctrl+IA en la conversación. Valen con Claude Code (también por SSH), Codex, Antigravity, Gemini y los agentes ACP de este equipo; con Antigravity, Ctrl+IA añade a sus ajustes la regla que las permite (se ve en «Reglas de permisos de Antigravity»). Se desactivan en Preferencias, Agentes, y el cambio vale cuando el agente de cada sesión vuelve a arrancar.
+
+### Comandos de sesión de Claude Code
+
+Hay comandos y habilidades de Claude Code pensados para su app de escritorio (como /wrap, si lo tienes) que necesitan ver y ordenar tus sesiones. En tus sesiones de Claude Code en Ctrl+IA funcionan igual, porque Ctrl+IA le da esas herramientas; salen como «ccd_session_mgmt» en «Herramientas del agente». Estos son sus límites:
+
+- **Sin pedirte permiso** solo ve la lista de sesiones, también las de otros programas, con sus datos: título, agente, carpeta y estado. No ve sus mensajes.
+- **Pidiéndote permiso** puede buscar un texto en los mensajes de otra sesión y leer sus últimos mensajes. Piénsalo antes de permitirlo: lo que lea va a Anthropic como el resto de tu conversación, aunque sea una sesión de Codex o de otro programa. Se trata como datos, con las contraseñas y claves que se reconocen tapadas.
+- **Pidiéndote permiso** puede archivar una sesión de Ctrl+IA, que es lo mismo que Organizar, «Ocultar»: no se borra nada. Te avisa y deja un mensaje en la conversación; la sesión pasa a Ver, Mostrar, Ocultas y Organizar, «Volver a mostrar» la devuelve (también se lo puedes pedir a Claude).
+- **No puede** tocar las sesiones de otros programas ni las importadas, que son de solo lectura; ni ocultar la propia sesión, una que esté trabajando, la que tienes abierta o una favorita.
+- **No tiene** nada para borrar sesiones, escribir en otra sesión, detenerla o cambiar sus opciones.
+
+Como mucho hace 60 consultas, 10 búsquedas y 10 cambios por minuto en cada sesión. Si un comando pide algo que no está, Claude te lo dice o sigue sin ello. Van con la misma opción de Preferencias, Agentes, que las herramientas de Ctrl+IA: si la desactivas, tampoco las tiene.
 
 ## Skills
 
@@ -491,7 +526,9 @@ Ctrl+IA muestra también, solo para leer, las conversaciones que ya tienes (colu
 - **App de Ollama:** sus chats, que se pueden continuar.
 - **Tus equipos por SSH:** sus sesiones de Claude Code y sus hilos de Codex (ver «Sesiones que ya tiene el otro equipo»).
 
-En Preferencias, Historial, eliges cuáles se muestran. Ctrl+IA nunca cambia esos archivos. Si la conversación ya no existe (Claude Code borra las antiguas, 30 días de fábrica), la fila dice «conversación no disponible».
+En Preferencias, Historial, eliges cuáles se muestran. Ctrl+IA nunca cambia esos archivos. Si la conversación ya no existe y no hay copia, la fila dice «conversación no disponible».
+
+**Chats conservados.** Claude Code borra las conversaciones antiguas (30 días de fábrica). Para que no las pierdas, Ctrl+IA copia en su carpeta de datos (data\conservadas) las de la terminal, la app de Claude y Cowork que aparecen en la lista, poco a poco y sin frenar nada. Si el original desaparece, la sesión sigue en su sitio: el estado dice «el original ya no está», el origen dice «copia conservada» y al abrirla un aviso lo explica. Se lee, se busca y se exporta como siempre, solo para leer. Claude Code ya no la recuerda, así que para seguirla Ctrl+IA crea una sesión nueva que se la cuenta (ver «Continuar una sesión importada»); Ctrl+O no puede abrirla en la app. Mayús+Suprimir borra la copia para siempre. Las copias no caducan y no van cifradas. Se desactiva en Preferencias, Historial, donde también dice cuánto guarda cada agente.
 
 - **Leerlas:** como cualquier otra (buscar, copiar, exportar, listas). Si escribes, Ctrl+IA te ofrece continuarla aquí.
 - **Seguir en vivo:** si abres una sesión de Claude Code que está usando otro programa, sus mensajes nuevos aparecen solos y se leen (se desactiva en Preferencias, Historial).
@@ -502,10 +539,35 @@ En Preferencias, Historial, eliges cuáles se muestran. Ctrl+IA nunca cambia eso
 
 Para reunir en una sola lista las sesiones de varios equipos (o como copia de seguridad), tú llevas el archivo:
 
-- **Exportar:** Archivo, «Exportar varias sesiones a un archivo...». «Qué sesiones» (Alt+Q): la elegida, las que se ven, todas o las de un grupo; «Sesiones que se exportarán» (Alt+S), con casillas, «Marcar todas» (Alt+T) y «Desmarcar todas» (Alt+D); «Incluir lo que hicieron las herramientas» (Alt+H, marcada; desmárcala para un archivo más pequeño y con menos datos privados). «Exportar...» (Alt+X) crea un .zip con una copia en Markdown de cada sesión que se lee sin Ctrl+IA. Trátalo como privado: puede llevar contraseñas que salieron en una orden.
+- **Exportar:** Archivo, «Exportar varias sesiones...», con «Formato» (Alt+F) en «Un archivo .zip para llevarlas a otro equipo», que es lo que viene puesto. «Qué sesiones» (Alt+Q): la elegida, las que se ven, todas o las de un grupo; «Sesiones que se exportarán» (Alt+S), con casillas, «Marcar todas» (Alt+T) y «Desmarcar todas» (Alt+D); «Incluir lo que hicieron las herramientas» (Alt+H, marcada; desmárcala para un archivo más pequeño y con menos datos privados). «Exportar...» (Alt+X) crea un .zip con una copia en Markdown de cada sesión que se lee sin Ctrl+IA. Trátalo como privado: puede llevar contraseñas que salieron en una orden.
 - **Importar:** en el otro equipo, Archivo, «Importar sesiones...». Ctrl+IA dice cuántas son nuevas, actualizadas, sin cambios u omitidas (las exportadas desde este mismo equipo). Salen con el origen «Importada de» y en la vista «Importadas de otro equipo». Conservan la marca de favorita y los grupos. Se leen, se buscan, se agrupan, se exportan y se renombran; se siguen con «Continuar aquí» (ver «Continuar una sesión importada»). Importar otra vez no duplica. Archivo, «Borrar las sesiones importadas...» las quita todas y Mayús+Suprimir una.
 
 Para llevarte todo Ctrl+IA a otro equipo, copia la carpeta del programa entera, con data.
+
+### Exportar muchas sesiones a archivos sueltos
+
+Para leer tus sesiones sin Ctrl+IA, guardarlas junto a un proyecto o pasárselas a otro programa, cada una en su propio archivo:
+
+1. Archivo, «Exportar varias sesiones...». Elige las sesiones como en el apartado anterior.
+2. En «Formato» (Alt+F), elige «Un archivo Markdown por sesión», «Una página web por sesión» o «Un archivo de texto por sesión».
+3. En «Carpeta de destino» (Alt+A), escribe la carpeta completa o búscala con «Elegir carpeta...» (Alt+E). Si no existe, se crea.
+4. «Exportar...» (Alt+X).
+
+Se hace en segundo plano: puedes seguir trabajando, Ctrl+IA te dice por dónde va cada pocos segundos y al acabar te da un resumen con cuántas ha guardado y cuáles no ha podido, con el motivo. Una sesión que falla, o que no tiene mensajes, no detiene las demás.
+
+Cada archivo se llama como la sesión. **Nunca se sustituye nada:** si ya hay un archivo con ese nombre, el nuevo lleva un número, como «Mi sesión (2).md», así que exportar dos veces a la misma carpeta no pisa lo anterior. Estos archivos no se pueden importar en otro Ctrl+IA; para eso está el .zip. Trátalos como privados, igual que el .zip.
+
+## Copias de seguridad
+
+Si pierdes o cambias de equipo, lo que los agentes guardan en él se pierde: iniciar sesión en otro equipo no lo trae. Herramientas, «Copias de seguridad» guarda en un solo archivo .zip el historial, la memoria y los ajustes de Claude Code, Codex, Gemini CLI y Antigravity (lo que tengas) y tus datos de Ctrl+IA: sesiones, grupos, ajustes, skills, chats conservados y sonidos propios.
+
+**Nunca lleva inicios de sesión ni claves de los agentes.** En un equipo nuevo vuelves a iniciar sesión. Sí puede llevar lo que saliera en una conversación, como una contraseña en una orden, o una clave escrita a mano en un archivo de ajustes: trata la copia como privada.
+
+- **Hacer una copia ahora (Ctrl+Alt+B):** «Carpeta donde se guarda la copia» (Alt+C) y «Examinar...» (Alt+X); mejor otro disco, un lápiz USB o una carpeta en la nube, porque en el mismo disco no sobrevive a perder el equipo. No puede estar dentro de lo que se copia, como la carpeta data. «Cifrar la copia con una frase» (Alt+I), «Frase» (Alt+F) y «Repite la frase» (Alt+R). «Hacer la copia» (Alt+H) la empieza en segundo plano: puedes seguir trabajando, la barra de estado y la voz dicen cómo va (25, 50 y 75 %) y al acabar te dice qué se ha copiado. «Detener la copia en curso» la detiene sin dejar nada a medias. La copia se relee entera antes de darla por buena: hasta entonces el archivo se llama .parcial. Si algo no se pudo copiar, te lo dice y su manifiesto dice qué.
+- **Cifrar:** con AES-256, también los nombres de los archivos. Ctrl+IA la abre con la frase, y 7-Zip también si la frase no lleva ñ ni tildes (es lo comprobado; dentro va otro .zip con todo). La frase debe tener 8 caracteres o más; cuanto más larga, más segura. **No se guarda en la copia: si la olvidas, la copia no se puede abrir.**
+- **Programar copias...:** «Frecuencia» (Alt+F): no hacerlas, cada día o cada semana. «Cuántas copias conservar» (Alt+C; 5 de fábrica). «Carpeta de las copias» (Alt+P). «Cifrar las copias con una frase guardada en este equipo» (Alt+I), «Nueva frase» (Alt+N) y «Repite la frase» (Alt+T): la frase la protege Windows para tu cuenta, fuera de los ajustes de Ctrl+IA, y si ya hay una, deja los campos vacíos para seguir usándola. Apúntala aparte: en otro equipo tendrás que escribirla. «Estado» (Alt+E) dice cuándo fue la última y si falló la última programada. Ctrl+IA lo mira al abrirse y cada diez minutos; si toca, la hace en segundo plano y sin hablar, con el avance solo en la barra de estado. Una copia hecha a mano también cuenta. Si falla (un disco desconectado), te lo dice como mucho una vez al día y reintenta cada hora. Solo tras una copia completa se borran las más antiguas de este equipo: las de otros equipos y lo que no pueda identificar no se tocan. Si la frase ya no está, la copia falla y te avisa: nunca se hace sin cifrar.
+- **Comprobar una copia...:** eliges el archivo y relee todo comparándolo con su manifiesto (pide la frase si va cifrada). Dice si está entera, de qué equipo es y de cuándo, o qué archivos fallan.
+- **Restaurar desde una copia...:** eliges el archivo, Ctrl+IA lo lee en segundo plano y abre el diálogo. «Sobre esta copia» (Alt+C) dice de qué equipo es. En «Sesiones de la copia» (Alt+S), con una casilla cada una, la columna «En este equipo» dice si sigue aquí, si ya se restauró o si no está; salen marcadas todas menos las que siguen aquí. Espacio, Ctrl+A y Ctrl+Mayús+A cambian las marcas; el menú contextual tiene además «Marcar solo las que no están en este equipo». «Restaurar» (Alt+R) las trae como sesiones importadas, solo para leer: están en Ver, Mostrar, Importadas de otro equipo, con sus grupos, su título y su marca de oculta o favorita, y se pueden seguir con «Continuar aquí». Restaurar otra vez actualiza las que hayan crecido y no duplica; si ya estaba, manda lo que hayas cambiado aquí. **Nunca sobrescribe los archivos de los agentes.** Vuelven las de Ctrl+IA, Claude Code, Codex y Gemini CLI; las de Antigravity van en la copia, pero sus mensajes no se pueden traer porque Ctrl+IA no sabe leer su formato.
 
 ## Los agentes
 
@@ -553,11 +615,12 @@ El agente de Anthropic, el más completo en Ctrl+IA.
 El agente de OpenAI, con tu cuenta de ChatGPT. Se instala con la app Codex para Windows (Ctrl+IA encuentra su programa) o, con Node.js, desde «Agentes instalados».
 
 - **Modelos:** «Predeterminado de Codex» y su lista real. **Esfuerzo:** «Predeterminado del modelo», «Bajo», «Medio», «Alto» y «Muy alto».
-- **Modos:** «Solo lectura», «Trabajar en la carpeta del proyecto» (de fábrica; pregunta antes de salir de ella o usar Internet), «Carpeta del proyecto sin preguntar» (lo que no puede, no lo hace) y «Acceso total al equipo (peligroso)».
+- **Modos:** «Solo lectura», «Trabajar en la carpeta del proyecto» (de fábrica; pregunta antes de salir de ella o usar Internet), «Carpeta del proyecto sin preguntar» (lo que no puede, no lo hace), «Acceso total al equipo (peligroso)», «Solo lectura, con revisión automática» y «Carpeta del proyecto, con revisión automática».
+- **Revisión automática:** en esos dos modos, lo que Codex te preguntaría lo decide él, con un subagente que valora el riesgo: puede permitirlo o denegarlo. Solo se aplica si eliges el modo para esa sesión (en «Nueva sesión» o en Opciones de la sesión, Ctrl+Mayús+O); «Continuar aquí» con una sesión de otro programa empieza preguntándote a ti, aunque tu configuración de Codex diga otra cosa. No da acceso sin límites. Cada decisión queda en la conversación y se anuncia; lo que no permite, además, te lo notifica; y todas se leen en Permisos de la sesión (Ctrl+Mayús+M). Si Codex no la acepta en esa sesión, te avisa y te pregunta a ti.
 - **Permisos:** «Codex quiere ejecutar una orden» o «… modificar archivos» («Permitir una vez», «Permitir durante esta sesión» solo en los archivos, «Denegar» y «Denegar y detener el turno») y «Codex pide permisos adicionales» («Permitir en este turno», «Permitir durante esta sesión» y «Denegar»). El «Permitir durante esta sesión» de archivos y permisos adicionales lo recuerda Codex hasta cerrar la sesión: no sale en Permisos de la sesión ni se quita al cambiar de modo.
 - **«Permitir «git commit» con cualquier argumento durante esta sesión»:** sale con una orden sencilla. Esa regla la guarda Ctrl+IA y contesta por ti a las siguientes iguales, solo en la carpeta raíz de la sesión y nunca con órdenes encadenadas, redirigidas, con variables o con intérpretes; con git sigue preguntando si fuerza, borra o va a otra carpeta o repositorio (un git push normal sí entra). Ojo: si Codex pedía salir de su aislamiento, esas órdenes se ejecutarán con acceso a todos tus archivos e Internet sin preguntarte.
 - **Herramientas externas:** «Permitir una vez», «Permitir durante esta sesión», «Permitir siempre» (lo guarda Codex en su configuración), «Denegar» y «Cancelar». Si una no arranca o necesita iniciar sesión, te lo dice una vez con la orden que lo arregla (por ejemplo `codex mcp login github`). Si pide algo que Ctrl+IA no sabe rellenar, solo ofrece «Rechazar» o «Cancelar».
-- Si el modelo de una conversación ya no existe, el error te pide elegir otro en Opciones de la sesión; al continuarla aquí, Ctrl+IA usa uno de la lista de Codex, te lo dice y lo recuerda. Si Codex trabaja con menos permisos de los pedidos (por ejemplo, porque el aislamiento de Windows no está preparado), te avisa una vez. Si no se sabe si recibió un mensaje, no lo reenvía, para no repetir una orden.
+- Si el modelo de una conversación ya no existe, el error te pide elegir otro en Opciones de la sesión; al continuarla aquí, Ctrl+IA usa uno de la lista de Codex, te lo dice y lo recuerda. Si Codex trabaja con menos permisos de los pedidos (por ejemplo, porque el aislamiento de Windows no está preparado), te avisa una vez. Si no se sabe si recibió un mensaje añadido al turno, se queda marcado «Sin confirmar» y no lo reenvía, para no repetir una orden.
 
 ### Antigravity
 
@@ -673,7 +736,7 @@ Gemini CLI tiene una cuota diaria que solo se ve dentro de Gemini (/stats), y Ol
 Los agentes leen al empezar unos archivos con tus instrucciones (cómo trabajar, normas del proyecto) y algunos guardan su propia memoria. **Ctrl+Mayús+K** los muestra, primero los del agente de la sesión (sin sesión, los del predeterminado), también los que aún no existen:
 
 - **Claude:** CLAUDE.md general, su configuración, agentes, habilidades y comandos; en el proyecto, CLAUDE.md, CLAUDE.local.md y la carpeta .claude; y su memoria automática.
-- **Codex:** AGENTS.md general, su configuración, sus habilidades, sus comandos guardados y los AGENTS.override.md; en el proyecto, AGENTS.md y las habilidades de .agents.
+- **Codex:** AGENTS.md general, su configuración, sus habilidades, sus comandos guardados, los AGENTS.override.md y su memoria (la carpeta memories, sin los resúmenes de conversaciones pasadas); en el proyecto, AGENTS.md y las habilidades de .agents.
 - **Antigravity y Gemini:** GEMINI.md general y la configuración de Antigravity CLI; en el proyecto, GEMINI.md, AGENTS.md y las habilidades de .agents.
 
 En «Archivos de instrucciones y memoria» (Alt+I), con archivo, agente, ámbito («Global» o «Proyecto»), si existe, cuándo se modificó y ruta: «Ver» (Alt+V o Intro), «Editar» (Alt+E, en tu editor), «Abrir la carpeta» (Alt+C), «Crear» (Alt+R, para un archivo de instrucciones que aún no existe; la memoria la crea el agente) y «Cerrar» (Alt+A). El menú contextual añade «Copiar la ruta» y «Ordenar por» (por agente, más recientes, más antiguos o por nombre), que se recuerda. Ctrl+IA solo escribe en ellos al crear uno.
@@ -687,7 +750,7 @@ Cada agente guarda sus opciones (modelo inicial, permisos, su modo para lector d
 - **En la lista:** Intro cambia la opción en un cuadro con su explicación; Espacio activa o desactiva las de sí o no; Suprimir quita el valor; Ctrl+H abre la explicación; Ctrl+S guarda. Botones «Cambiar...» (Alt+C), «Quitar el valor» (Alt+Q), «Guardar» (Alt+G), «Abrir en el editor» (Alt+E, con el programa asociado de Windows), «Documentación» (Alt+D) y «Cerrar» (Alt+R o Escape). En las listas y variables de entorno: Insertar o «Nuevo...» añade, F2 cambia, Suprimir quita y, en las listas, Alt+Flecha arriba y abajo mueven. Las variables se escriben NOMBRE=valor.
 - **Sin miedo:** nada se escribe hasta «Guardar» (lo cambiado dice «sin guardar», y Ctrl+IA pregunta al cerrar o al cambiar de agente, ámbito o carpeta); lo arriesgado se confirma («No» de fábrica); se conserva todo lo que no tocas, incluidos los comentarios de Codex (sus proyectos de confianza, servidores MCP, complementos y proveedores no se listan: se cambian en el editor); antes de escribir se guarda una copia en data\backups\agentes (las 20 últimas por nombre de archivo); y si el archivo tiene un error, no lo toca y te dice cuál.
 
-**El modo de permisos inicial.** «Nueva sesión» propone el modo que diga la configuración del agente para esa carpeta: con Claude Code, «Modo de permisos inicial» (manda «Proyecto, solo tú», luego el compartido y luego tu usuario; «Automático» y «Saltarse los permisos» solo valen desde tu usuario); con Codex, «Sandbox» y «Cuándo pide permiso» («Solo lectura», «Acceso total» o «Nunca» proponen sus modos; si no dicen nada, «Trabajar en la carpeta del proyecto»); con Gemini, el modo con que abrió tu última conversación; con Antigravity, «Ejecución de órdenes y herramientas». Lo que elijas en «Nueva sesión» manda solo en esa sesión.
+**El modo de permisos inicial.** «Nueva sesión» propone el modo que diga la configuración del agente para esa carpeta: con Claude Code, «Modo de permisos inicial» (manda «Proyecto, solo tú», luego el compartido y luego tu usuario; «Automático» y «Saltarse los permisos» solo valen desde tu usuario); con Codex, «Sandbox», «Cuándo pide permiso» y «Quién revisa las aprobaciones» («Solo lectura», «Acceso total» o «Nunca» proponen sus modos, con revisión automática los que la admiten; si no dicen nada, «Trabajar en la carpeta del proyecto»); con Gemini, el modo con que abrió tu última conversación; con Antigravity, «Ejecución de órdenes y herramientas». Lo que elijas en «Nueva sesión» manda solo en esa sesión.
 
 **Para usar los agentes en una terminal con tu lector** (en Ctrl+IA no cambian nada): en Claude Code, «Modo lector de pantalla en la terminal» y «Reducir las animaciones»; en Gemini, «Modo lector de pantalla» y «Frases mientras piensa» desactivadas; en Codex, «Animaciones» desactivada y «Salida en bruto» activada; en Antigravity CLI, «Animación de progreso» desactivada.
 
@@ -697,6 +760,7 @@ Ctrl+IA habla por tu lector de pantalla o, sin él, con su propia voz, esperando
 
 - **Qué se lee de las respuestas** (Preferencias, Anuncios): «Completo» (la respuesta al llegar, de fábrica), «Resumen» (solo «Claude ha respondido en «Mi proyecto»») o «Silencio» (solo los avisos importantes y lo que pides tú). De las sesiones que no tienes abiertas solo se dice que han respondido, salvo con «Leer las respuestas de todas las sesiones».
 - **Ctrl+Mayús+V** calla la voz propia de Ctrl+IA (también Flecha derecha, Ctrl+H y Alt+4); tu lector sigue funcionando y los avisos siguen en braille.
+- **Usar Ctrl+IA en silencio, sin lector de pantalla:** si ves la pantalla, desmarca «Hablar con la voz de Windows cuando no hay lector de pantalla» (Alt+W) en Preferencias, Anuncios. Se recuerda y vale al momento, también al arrancar. Las respuestas y los avisos quedan en pantalla; los avisos importantes y la ayuda de Ctrl+H salen en un cuadro. Si un día arrancas un lector, Ctrl+IA habla por él, y «Leer en voz alta» sigue sonando porque lo pides tú.
 - **Sonidos:** sesión nueva, mensaje enviado, el agente usa una herramienta o cambia un archivo (estos dos, apagados de fábrica), termina de responder, termina otra sesión (más suave), te necesita, error, detenido, compactación y límite de uso. Un sonido nunca sustituye al texto. **F9** los activa o desactiva todos. Herramientas, «Sonidos...»: la lista «Sonidos» (Alt+S), donde Espacio activa o desactiva cada uno e Intro (o «Reproducir», Alt+R) lo prueba aunque esté apagado; Ctrl+A y Ctrl+Mayús+A, todos o ninguno; cada uno dice si suena «de Ctrl+IA», «propio» o «sin archivo». Se guarda al aceptar.
 - **Tus propios sonidos:** «Abrir la carpeta de sonidos propios» (Alt+P), copia allí archivos WAV llamados nueva, enviado, herramienta, archivo, respuesta, segundo_plano, permiso, error, detenido, compactado o limite (.wav) y elige el esquema «Propio» en Preferencias, Sonidos. Los que falten suenan como siempre. El volumen de Ctrl+IA se aplica a los WAV de 16 bits.
 - **Notificaciones de Windows,** cuando Ctrl+IA no es la ventana activa: «Al terminar y cuando un agente te necesita», «Solo cuando un agente te necesita» (de fábrica) o «Nunca». Salvo con «Nunca», también los errores y los cambios de las PR. Los avisos que te manda un agente con la herramienta de Ctrl+IA se notifican siempre.
@@ -720,26 +784,29 @@ Ctrl+, o Herramientas, «Preferencias...». Nueve páginas, que se cambian con C
 - «Guardar puntos de restauración antes de cada mensaje» (Alt+S), activada: ver «Deshacer los cambios de archivos».
 - «Mostrar Ollama (modelos locales, solo chat)» (Alt+O), activada, al reiniciar. «Dirección del servidor de Ollama» (Alt+V): vacía usa OLLAMA_HOST o tu equipo; un equipo por SSH con Ollama marcado manda sobre ella.
 - «Dejar que Claude lleve una lista de tareas» (Alt+L), activada: con todos los modelos (Claude Code 2.1.233 o posterior).
-- «Esperar a que se conecten las herramientas MCP de Claude antes de cada mensaje» (Alt+H), activada: así no dice que se han desconectado, aunque cada respuesta tarde algo más en empezar.
+- «Esperar a que se conecten las herramientas MCP de Claude antes de cada mensaje» (Alt+H), activada: así no dice que se han desconectado o que no las tiene, aunque tarde algo más en empezar cuando arranca.
+- «Tiempo máximo para conectar cada herramienta MCP de Claude» (Alt+X): 10 o 30 segundos (de fábrica), 1, 2 o 5 minutos. Súbelo si un servidor que usa npx, uvx o Docker tarda en arrancar; un servidor colgado retrasa el arranque hasta ese tiempo.
 - «Dejar que Claude use Chrome (Claude en Chrome)» (Alt+U), activada: ver «Claude Code».
 - «Mantener Claude Code abierto entre mensajes» (Alt+M): «No: arrancarlo en cada mensaje», 5, 15 (de fábrica) o 30 minutos o 1 hora. Responde antes porque no vuelve a arrancar; cada sesión abierta ocupa algo de memoria. Se reinicia solo, sin perder la conversación, si cambias el modelo, el esfuerzo, el estilo, las skills del catálogo o estas opciones, o si quitas permisos.
 - «Permitir que Claude use una clave de API (puede costar dinero)», desactivada. Al reiniciar.
-- «Dar a los agentes las herramientas de Ctrl+IA (avisarte, dar la sesión por terminada, renombrarla)» (Alt+I), activada; vale cuando el agente de cada sesión vuelve a arrancar.
+- «Dar a los agentes las herramientas de Ctrl+IA (avisarte, dar la sesión por terminada, renombrarla)» (Alt+I), activada; también da a Claude Code los comandos de sesión; vale cuando el agente de cada sesión vuelve a arrancar.
 
 ### Historial
 
 Activadas: «Mostrar las sesiones de Claude Code de otros programas» (Alt+L), «Mostrar las conversaciones de Codex» (Alt+O), «… de Antigravity (app y CLI)» (Alt+N), «Mostrar los chats de la app de Ollama» (Alt+M) y «Seguir en vivo las sesiones de otros programas» (Alt+V). Desactivadas: «Al continuar una sesión de otro programa, seguir la original sin copiarla» (Alt+S; ver «Continuar aquí»), «Mostrar también las sesiones ocultas» (Alt+U) y «… archivadas» (Alt+H).
 
+«Guardar en Ctrl+IA una copia de las conversaciones de Claude Code» (Alt+G), activada (ver «Sesiones de otros programas»); desactivada, no se copia nada más y lo ya conservado sigue ahí. «Cuánto guarda cada agente» (Alt+E) es un texto de solo lectura: los días que guarda Claude Code según sus ajustes y lo que hace cada agente, y cuántas conversaciones ha conservado Ctrl+IA y cuánto ocupan.
+
 ### Mensajes
 
-«Mostrar las acciones del agente (herramientas)» (Alt+H), activada, como Ctrl+T. «Guardar y mostrar el razonamiento» (Alt+Z), desactivada. «Abrir los mensajes con formato» (Alt+F), activada. «Mensajes que se cargan al abrir una sesión» (Alt+M): los últimos 50, 100 (de fábrica), 250 o 500, o todos. «Cómo se leen las líneas cambiadas de un archivo» (Alt+L): «Con palabras» («Línea 12, añadida: …», de fábrica), «Con palabras cortas» («Más 12») o «Con los signos + y −», como en Git (solo se oyen si tu lector lee esa puntuación).
+«Mostrar las acciones del agente (herramientas)» (Alt+H), activada, como Ctrl+T. «Guardar y mostrar el razonamiento» (Alt+Z), desactivada. «Abrir los mensajes con formato» (Alt+F), activada. «Mensajes que se cargan al abrir una sesión» (Alt+M): los últimos 50, 100 (de fábrica), 250 o 500, o todos. «Cómo se leen las líneas cambiadas de un archivo» (Alt+L): «Con palabras» («Línea 12, añadida: …», de fábrica), «Con palabras cortas» («Más 12») «Con los signos + y −», como en Git, o «Con los signos y cada línea junto a su sustituta»: igual, pero la línea quitada va seguida de la que la sustituye, marcadas con !- y !+, y las que no tienen pareja conservan su signo (los signos solo se oyen si tu lector lee esa puntuación).
 
 ### Lectura de listas
 
 - Al ir a izquierda y derecha, «decir el número de fila» (Alt+N), «decir el nombre de la columna» (Alt+L) y «decir el contenido de la celda» (Alt+T), activadas.
 - Qué columnas se leen al subir y bajar, en cuatro botones que abren un cuadro de casillas (Espacio; Alt+Flecha arriba y abajo para ordenar; «Restablecer»; «Ejemplo de lo que se leerá», Alt+E): lista de sesiones (Alt+S), mensajes (Alt+M; también «Número»), grupos (Alt+G; nombre, sesiones, descripción, agente y carpeta) y sesiones de un grupo (Alt+U).
 - «Decir «Favorita» delante del título» (Alt+F) y «Añadir «respuesta nueva» al estado» (Alt+E), activadas. «Formato de las fechas» (Alt+H): «Relativas» (de fábrica) o «Completas, con día y hora».
-- «Mostrar los indicadores de cada mensaje» (Alt+I) y uno por uno, todos activados: preguntas, permisos y planes, «Con error», «Detenido», adjuntos, bloques de código (Alt+D), enlaces, archivos cambiados, «Largo» (más de 1500 caracteres) y «Favorito».
+- «Mostrar los indicadores de cada mensaje» (Alt+I) y uno por uno, todos activados: preguntas, permisos y planes, «Con error», «Detenido», «Sin confirmar» (también dice «No entregado»), adjuntos, bloques de código (Alt+D), enlaces, archivos cambiados, «Largo» (más de 1500 caracteres) y «Favorito».
 - «Avisar cuando una vista o un grupo está vacío» (Alt+V), activada.
 
 ### Anuncios
@@ -747,6 +814,7 @@ Activadas: «Mostrar las sesiones de Claude Code de otros programas» (Alt+L), �
 - «¿Qué se lee de las respuestas?» (Alt+D): «Completo». «Leer las respuestas de todas las sesiones» (Alt+T), desactivada.
 - «Anunciar cada acción del agente (herramientas)» (Alt+H), «Anunciar el progreso de la lista de tareas del agente» (Alt+G) y «Leer mis propios mensajes al enviarlos» (Alt+V, hasta 300 caracteres), desactivadas.
 - «Avisos importantes» (Alt+M): «Por voz» (de fábrica), «En un cuadro de mensaje» o «Las dos cosas».
+- «Hablar con la voz de Windows cuando no hay lector de pantalla» (Alt+W), activada. Desmárcala para usar Ctrl+IA sin voz si ves la pantalla; no afecta a tu lector.
 - «Enviar los avisos también a la línea braille» (Alt+B), «Mostrar en braille los avisos aunque la voz esté silenciada» (Alt+S) y «Escribir el último aviso en la barra de estado» (Alt+E), activadas.
 - «Palabras curiosas en la barra de estado mientras el agente escribe» (Alt+Z), desactivada.
 - «Retardo de los anuncios (milisegundos)» (Alt+L): de 0 a 600; 120.
@@ -778,6 +846,22 @@ El manual, las teclas, las novedades, los mensajes y las propiedades se abren en
 
 En las dos: «Buscar...» (Alt+B o Ctrl+F; da la vuelta al llegar al final), «Buscar siguiente» (Alt+I o F3) y «Cerrar» (Alt+C o Escape).
 
+### Informar de un fallo
+
+Ayuda, «Informar de un fallo...» prepara un informe para el autor. El cuadro se abre al momento y los datos del programa llegan en unos segundos; te avisa cuando están.
+
+- **Resumen del fallo** (Alt+R): una frase; es el título de la incidencia.
+- **Qué ha pasado** (Alt+Q): con el texto exacto del error, si lo hay.
+- **Qué esperabas que pasara** (Alt+S) y **Pasos para que vuelva a pasar** (Alt+P): opcionales, pero ayudan mucho.
+- **Lo que se incluirá** (Alt+I): el informe tal como saldrá, de solo lectura, que cambia mientras escribes. Léelo antes de enviarlo.
+- **Copiar** (Alt+C): deja el informe entero en el portapapeles.
+- **Abrir una incidencia en GitHub** (Alt+A): lo copia y abre en el navegador la página de una incidencia nueva con el informe puesto. **No se publica nada hasta que lo envías tú allí,** y necesitas una cuenta de GitHub. Si el informe es muy largo no cabe entero y sale recortado, y la propia página lo dice: pega encima el que tienes copiado.
+- **Cerrar** (Alt+E o Escape): cierra sin enviar nada.
+
+**Qué lleva:** la versión de Ctrl+IA, de Windows, de Python y de wxPython, el lector de pantalla que tienes abierto; de cada agente, su versión, si la sesión está iniciada y cómo está instalado; cuántas sesiones hay de cada agente y origen; y, si tienes una sesión abierta, el nombre, el estado y el motivo de fallo de sus servidores MCP.
+
+**Qué no lleva nunca:** tu cuenta de ningún agente, tus rutas, los títulos de tus sesiones, tus mensajes, ni la orden o la dirección de los servidores MCP, porque pueden llevar claves. Los agentes ACP personalizados salen sin su nombre. A lo que escribes se le quita el nombre de tu cuenta de Windows de las rutas y las contraseñas que se reconocen, pero las incidencias de GitHub son públicas: no escribas nada privado.
+
 ## Privacidad y datos
 
 Ctrl+IA no tiene servidores para tus datos. Tus mensajes los envía el agente a su empresa (Anthropic, OpenAI, Google o la del agente ACP), igual que desde su programa; con Ollama no salen de tu equipo (salvo con un modelo en su nube o un Ollama de otro equipo), y por SSH viajan cifrados hasta el otro equipo. Ctrl+IA solo contacta con su servidor de actualizaciones y con GitHub para saber si hay versión nueva (se puede desactivar) y no guarda contraseñas ni credenciales: cada agente gestiona su inicio de sesión y SSH usa tu clave. Al escribir los registros, quita las claves y datos sensibles que reconoce.
@@ -788,11 +872,12 @@ Todo está en la carpeta data, junto a CtrlIA.exe (Herramientas, «Abrir la carp
 - **db:** tus sesiones, mensajes, plantillas, grupos, favoritos, catálogo de skills, importadas y marcas.
 - **cache:** los puntos para deshacer cambios, las sesiones leídas de los equipos por SSH y lo que Ctrl+IA prepara para los agentes. Borrarla pierde los puntos.
 - **skills:** las skills que creas en el gestor.
+- **conservadas:** las copias de las conversaciones de Claude Code (ver «Sesiones de otros programas»).
 - **backups:** una copia de la base de datos antes de cada actualización que cambia su formato (las 10 últimas) y las copias de los archivos de configuración de los agentes.
 - **logs:** los registros. **diagnostico:** los paquetes de diagnóstico. **ollama:** las conversaciones con Ollama. **temp:** temporales, como las imágenes pegadas. **sounds:** los sonidos (y **sounds\propios**, los tuyos).
 - **docs, bin, locales, icons, skills_ejemplo y plugins** son del programa.
 
-Si la configuración se daña, Ctrl+IA vuelve a su copia anterior; si se daña la base de datos, a su última copia, que puede ser antigua o no existir. Copia de vez en cuando la carpeta data. Las sesiones de otros programas no se guardan en Ctrl+IA: se leen cada vez sin modificarlas.
+Si la configuración se daña, Ctrl+IA vuelve a su copia anterior; si se daña la base de datos, a su última copia, que puede ser antigua o no existir. Haz copias de seguridad (ver «Copias de seguridad») o copia de vez en cuando la carpeta data. Las sesiones de otros programas se leen cada vez sin modificarlas; de las de Claude Code, Ctrl+IA guarda además una copia (ver «Sesiones de otros programas»).
 
 ## Solución de problemas
 
@@ -801,16 +886,19 @@ Si la configuración se daña, Ctrl+IA vuelve a su copia anterior; si se daña l
 - **Versión antigua** del agente (te lo dice, o falla al arrancar): actualízalo (Claude Code, `claude update`; los demás, «Instalar» otra vez o su actualizador) y F5.
 - **Antigravity deniega acciones:** es lo normal desde Ctrl+IA. Ctrl+Mayús+A y «Permitir y reintentar», o añade reglas en «Reglas de permisos de Antigravity», o cambia su modo.
 - **Codex no modifica archivos:** comprueba con Ctrl+Mayús+O que el modo no es «Solo lectura». Si falla su entorno aislado, actualiza Codex; como último recurso, «Acceso total al equipo», solo con copia de seguridad.
+- **Claude dice que no tiene una herramienta MCP o que se ha desconectado, y con Codex va bien:** pulsa Ctrl+Alt+M y mira su estado y su motivo. «Conectándose» o «no ha contestado a tiempo»: arranca despacio; sube «Tiempo máximo para conectar cada herramienta MCP de Claude» en Preferencias, Agentes. «Su programa se cierra al arrancar»: prueba la orden del «Detalle» en una consola, porque suele faltar una variable, una clave o el programa. «Necesita que inicies sesión»: Ctrl+L. Cada agente tiene su propia lista de servidores, así que tener uno en Codex no lo da a Claude: compruébalo con `claude mcp list` en una consola, en la misma carpeta.
 - **Claude se detiene por una clave de API:** tu equipo tiene una clave de Anthropic. Inicia sesión con tu suscripción o permite el pago por uso en Preferencias, Agentes.
 - **Gemini CLI no funciona con tu cuenta de Google:** necesita licencia de empresa o clave de API de pago; con suscripción personal, usa Antigravity.
 - **Ollama no responde:** «No se puede conectar con Ollama»: ábrelo (o `ollama serve`), o revisa su dirección o el equipo por SSH. «No hay ningún modelo instalado»: `ollama pull` y el nombre, y F5. Si tarda en empezar, está cargando el modelo.
 - **Un agente en otro equipo no funciona:** «Equipos por SSH», elige el equipo y F5 (ver «Seguridad y problemas por SSH»).
 - **No oigo la voz o los sonidos:** comprueba que no has silenciado la voz (Ctrl+Mayús+V), que «Qué se lee de las respuestas» no está en «Silencio», que tu lector no está en suspensión, F9, el volumen de Ctrl+IA y de Windows y la casilla de cada sonido. Si la voz pisa al lector, sube el retardo.
+- **«Claude Code ya no tiene la conversación de esta sesión»:** una sesión de Ctrl+IA lleva tanto tiempo sin usarse que Claude Code borró su conversación, así que no puede retomarla. Tus mensajes siguen aquí. Ctrl+IA te pregunta si quieres seguir con el contexto: el agente empieza una conversación nueva, tu próximo mensaje le lleva lo guardado en la sesión (recortado si es muy largo) y lo que no llegó vuelve al cuadro de respuesta. Revísalo y envíalo; nunca se envía solo. Si no quieres que vuelva a pasar, sube «Días que se guardan las conversaciones» en «Configuración de los agentes».
+- **Una copia de seguridad falla:** si la carpeta no existe, conecta el disco o elige otra en «Programar copias...». «La copia está incompleta»: un archivo estaba bloqueado o se borró mientras se copiaba; el manifiesto de la copia dice cuál. «La frase no es correcta»: no hay manera de recuperarla.
 - **Una sesión no se puede escribir:** «sesión de solo lectura» es de otro programa o importada (al enviar te ofrece continuarla); «abre o crea una sesión primero»: Intro sobre una o Ctrl+N.
 - **La lista no muestra lo que esperas:** mira la vista activa (el nombre de la lista la dice) y elige «Todas», quita el filtro con Escape, mira en «Terminadas», revisa Preferencias, Historial y pulsa F5.
 - **El programa no arranca:** extrae el ZIP completo (no lo ejecutes desde dentro) y comprueba que la carpeta data se puede escribir; el motivo está en data\logs\arranque_fallido.log. Si volviste a una versión anterior, la base de datos de una más nueva no le deja arrancar.
 - **«Error inesperado»:** el cuadro explica qué ha pasado en «Qué ha pasado» (Alt+Q), con «Copiar detalles» (Alt+C), «Abrir la carpeta de registros» (Alt+R) y «Aceptar» (Alt+A). El programa sigue funcionando.
-- **Para pedir ayuda:** Herramientas, «Crear un paquete de diagnóstico...» prepara un ZIP con los registros de las tres últimas sesiones y datos del sistema (sin tus mensajes, sesiones, configuración ni claves) y abre su carpeta. Adjúntalo a tu mensaje de soporte.
+- **Para pedir ayuda:** Ayuda, «Informar de un fallo...» (ver «Informar de un fallo»). Si te piden más datos, Herramientas, «Crear un paquete de diagnóstico...» prepara un ZIP con los registros de las tres últimas sesiones y datos del sistema, de tus agentes y de cuántas sesiones tienes (sin tus mensajes, sesiones, configuración ni claves) y abre su carpeta. Adjúntalo a tu mensaje de soporte.
 - **Los registros** están en data\logs (Herramientas, «Abrir la carpeta de registros»): incidencias.log (solo avisos y errores, el primero que conviene mirar), uno por cada vez que abriste Ctrl+IA (las 10 últimas), arranque_fallido.log, fallo_nativo.log, actualizacion.log y la carpeta no_controladas (fallos graves; esta no va en el paquete de diagnóstico).
 
 ## Glosario

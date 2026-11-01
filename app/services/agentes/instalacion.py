@@ -31,6 +31,35 @@ AVISO_CLAUDE_NPM = (
 )
 
 
+#: Trozos de una ruta (en minúsculas y con ``/``) que dicen cómo se instaló un programa.
+_INSTALADORES = (
+	("node_modules", "con npm"),
+	("/appdata/roaming/npm/", "con npm"),
+	("/windowsapps/", "de la Microsoft Store"),
+	("/winget/", "con WinGet"),
+	("/scoop/", "con Scoop"),
+	("/chocolatey/", "con Chocolatey"),
+	("/.local/bin/", "con su instalador oficial"),
+)
+
+
+def como_instalado(ruta: str, disponible: bool) -> str:
+	"""Cómo está instalado un agente, sin decir la ruta: «con npm», «binario nativo»...
+
+	Para informes públicos: la ruta tiene el nombre de la cuenta y ``ruta`` puede ser
+	también la dirección de un servidor (Ollama). Nunca ejecuta nada.
+	"""
+	if not disponible:
+		return ""
+	ruta_normalizada = (ruta or "").replace("\\", "/").lower()
+	if "://" in ruta_normalizada:
+		return "servidor"
+	for trozo, forma in _INSTALADORES:
+		if trozo in ruta_normalizada:
+			return forma
+	return "binario nativo" if ruta_normalizada else "desconocida"
+
+
 def _carpetas_busqueda() -> list[Path]:
 	"""Carpetas del PATH y la carpeta global de npm (``%APPDATA%\\npm``), sin repetir."""
 	carpetas: list[Path] = []

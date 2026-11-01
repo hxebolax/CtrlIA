@@ -414,6 +414,8 @@ def _texto_cambios(cambio: extraccion.Cambio) -> str:
 	else:
 		anadidas, quitadas = extraccion.contar_lineas_diff(cambio.diff)
 		texto = "+{a}/−{q}".format(a=anadidas, q=quitadas) if anadidas or quitadas else _("sin líneas cambiadas")
+	if cambio.movido_desde:
+		texto = _("{cambios}, renombrado desde {ruta}").format(cambios=texto, ruta=cambio.movido_desde)
 	if cambio.subagente:
 		texto = _("{cambios}, de un subagente").format(cambios=texto)
 	return texto
@@ -1214,13 +1216,13 @@ class DialogoListas(wx.Dialog):
 				return
 			self._abrir_web(elemento.url)
 		elif clave == "archivos":
-			if not elemento.diff.strip():
+			if not elemento.diff.strip() and not elemento.movido_desde:
 				voz.hablar(_("No se guardó el detalle de los cambios de este archivo. Control+L lee el archivo entero."))
 				return
 			# Con palabras («Línea 12, añadida: …»), cortas o con los signos del diff, según Preferencias.
-			simbolos = self.estilo_cambios == "simbolos"
+			simbolos = self.estilo_cambios in extraccion.ESTILOS_CON_SIGNOS
 			mostrar_documento(self, _("Cambios en {ruta}").format(ruta=elemento.ruta),
-				_en_bloque(extraccion.diff_legible(elemento.diff, self.estilo_cambios), "diff" if simbolos else ""),
+				_en_bloque(extraccion.texto_cambio(elemento, self.estilo_cambios), "diff" if simbolos else ""),
 				forzar_texto=True)
 		elif clave == "ordenes":
 			texto = _en_bloque(elemento.orden)

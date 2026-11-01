@@ -44,6 +44,7 @@ from typing import Any
 from app.core.version import APP_VERSION
 from app.services.agentes import elicitacion, remoto
 from app.services.agentes.base import (
+	NOTA_SIN_CONFIRMAR,
 	Adjunto,
 	AjustesSesion,
 	Capacidades,
@@ -98,6 +99,10 @@ PREFIJOS_PROHIBIDOS = ("OPENAI_", "AZURE_OPENAI_")
 #: Código JSON-RPC «método no encontrado»: lo que respondemos a lo que no sabemos tratar.
 ERROR_NO_ADMITIDO = -32601
 TEXTO_NO_ADMITIDO = "Ctrl+IA no admite esta petición"
+#: «Petición no válida»: el único error que dice que Codex NO tomó un ``turn/steer``. Comprobado con
+#: codex-cli 0.163: lo devuelve sin turno activo y con un hilo que no existe; un turno equivocado o
+#: terminado, según AIChat #402. Cualquier otro error, o ninguna respuesta, deja la duda.
+ERROR_PETICION_INVALIDA = -32600
 #: Peticiones del servidor que no son para la persona: se rechazan sin avisar.
 PETICIONES_SIN_PERSONA = frozenset({"item/tool/call", "account/chatgptAuthTokens/refresh", "attestation/generate"})
 
@@ -107,14 +112,18 @@ class ErrorCodex(Exception):
 
 	:param muerto: el proceso no está vivo (la conversación lo anuncia aparte).
 	:param tiempo_agotado: no hubo respuesta a tiempo; la petición queda en duda.
+	:param sin_enviar: la petición no llegó a escribirse: seguro que Codex no la tiene.
+		Sin esto, un proceso muerto puede haber leído la petición antes de morir.
 	"""
 
-	def __init__(self, mensaje: str, codigo: int | None = None, *, muerto: bool = False, tiempo_agotado: bool = False) -> None:
+	def __init__(self, mensaje: str, codigo: int | None = None, *, muerto: bool = False, tiempo_agotado: bool = False,
+			sin_enviar: bool = False) -> None:
 		super().__init__(mensaje)
 		self.mensaje = mensaje
 		self.codigo = codigo
 		self.muerto = muerto
 		self.tiempo_agotado = tiempo_agotado
+		self.sin_enviar = sin_enviar
 
 
 # --------------------------------------------------------------------------
@@ -130,7 +139,16 @@ class _Modo:
 	sandbox: str
 	aprobacion: str
 	politica: dict[str, Any]
+	#: Quién revisa las peticiones: la persona (``user``) o el propio Codex (``auto_review``).
+	revisor: str = "user"
 
+
+#: Lo que cuentan los modos con revisión automática. La persona los elige expresamente para cada sesión;
+#: nunca son los de fábrica (AIChat #358).
+_AYUDA_REVISION = (
+	"Las peticiones que te haría las decide Codex, con un subagente que valora el riesgo: puede permitirlas o "
+	"denegarlas. No da acceso sin límites, y cada decisión se anuncia y queda en «Permisos de la sesión»."
+)
 
 _MODOS: tuple[_Modo, ...] = (
 	_Modo(
@@ -164,6 +182,24 @@ _MODOS: tuple[_Modo, ...] = (
 		"danger-full-access",
 		"on-request",
 		{"type": "dangerFullAccess"},
+	),
+	_Modo(
+		"solo_lectura_auto",
+		"Solo lectura, con revisión automática",
+		"Codex puede leer tus archivos. " + _AYUDA_REVISION,
+		"read-only",
+		"on-request",
+		{"type": "readOnly"},
+		"auto_review",
+	),
+	_Modo(
+		"espacio_trabajo_auto",
+		"Carpeta del proyecto, con revisión automática",
+		"Codex puede leer y modificar archivos dentro de la carpeta del proyecto. " + _AYUDA_REVISION,
+		"workspace-write",
+		"on-request",
+		{"type": "workspaceWrite"},
+		"auto_review",
 	),
 )
 MODO_PREDETERMINADO = "espacio_trabajo"
@@ -244,8 +280,22 @@ _NOMBRE_SANDBOX = {
 	"dangerFullAccess": "acceso total",
 }
 
+#: En qué quedó una revisión automática (``GuardianApprovalReviewStatus``, sin ``inProgress``).
+_DECISIONES_REVISION = {
+	"approved": "ha permitido esta acción",
+	"denied": "ha denegado esta acción",
+	"timedOut": "no ha terminado a tiempo: no se ha aprobado nada",
+	"aborted": "se ha detenido: no se ha aprobado nada",
+}
+_RIESGOS_REVISION = {"low": "bajo", "medium": "medio", "high": "alto", "critical": "crítico"}
+
 _ESTADOS_PLAN = {"pending": "pendiente", "inProgress": "en curso", "completed": "hecho"}
 _TIPOS_CAMBIO = {"add": "nuevo", "delete": "borrado", "update": "modificado"}
+#: Lo que se dice de un ``fileChange`` que no se aplicó, según su ``status``.
+_CAMBIOS_SIN_APLICAR = {
+	"declined": "No se han aplicado los cambios en archivos: se denegaron.",
+	"failed": "Codex no ha podido aplicar los cambios en archivos.",
+}
 
 _MENSAJES_ERROR = {
 	"contextWindowExceeded": "La conversación ya no cabe en el contexto del modelo. Empieza una nueva o pide a Codex que la resuma.",
@@ -449,7 +499,7 @@ class _ServidorCodex:
 		espera = _Espera()
 		with self._candado:
 			if self.muerto:
-				raise ErrorCodex("Codex no está en marcha", muerto=True)
+				raise ErrorCodex("Codex no está en marcha", muerto=True, sin_enviar=True)
 			identificador = next(self._ids)
 			self._esperas[identificador] = espera
 		mensaje = {"id": identificador, "method": metodo, "params": params if params is not None else {}}
@@ -604,6 +654,8 @@ class ConversacionCodex(Conversacion):
 		self._sandbox_efectivo = ""
 		#: Ya se avisó de que Codex aplica un sandbox más restrictivo que el pedido (una vez por sesión, AIChat #297).
 		self._aviso_sandbox_dado = False
+		#: Ya se avisó de que el revisor del hilo no es el del modo elegido (una vez por sesión).
+		self._aviso_revisor_dado = False
 
 	# -- API pública ----------------------------------------------------------
 
@@ -688,7 +740,8 @@ class ConversacionCodex(Conversacion):
 		"""Mete el mensaje en el turno en marcha (``turn/steer``) sin detenerlo.
 
 		Si el turno ya terminó o Codex lo rechaza, el texto vuelve a la interfaz
-		(``devolver_texto``): nunca se convierte por su cuenta en un turno nuevo.
+		(``devolver_texto``); si no se sabe, queda sin confirmar (``_anadir_al_turno``).
+		Nunca se convierte por su cuenta en un turno nuevo.
 		"""
 		with self._candado:
 			turno = self._turno_id if self._turno_activo and not self._cerrada else None
@@ -784,7 +837,7 @@ class ConversacionCodex(Conversacion):
 			"cwd": remoto.carpeta_remota(ajustes.extra) or str(ajustes.carpeta),
 			"approvalPolicy": modo.aprobacion,
 			"sandbox": modo.sandbox,
-			"approvalsReviewer": "user",
+			"approvalsReviewer": modo.revisor,
 		}
 		if ajustes.bifurcar_de and not ajustes.id_externo:
 			metodo = "thread/fork"
@@ -847,6 +900,7 @@ class ConversacionCodex(Conversacion):
 		if aviso_modelo:
 			self._emitir(TipoEvento.AVISO, aviso_modelo, modelo_sustituido=modelo)
 		self._comprobar_sandbox(respuesta.get("sandbox") if isinstance(respuesta, dict) else None, modo, srv)
+		self._comprobar_revisor(respuesta.get("approvalsReviewer") if isinstance(respuesta, dict) else None, modo)
 		if metodo == "thread/start" and ajustes.titulo:
 			try:
 				srv.peticion("thread/name/set", {"threadId": id_hilo, "name": ajustes.titulo})
@@ -913,6 +967,31 @@ class ConversacionCodex(Conversacion):
 		log.warning("Codex aplica el sandbox %s aunque se pidió %s (preparación de Windows: %s)", tipo, pedido, listo)
 		self._emitir(TipoEvento.AVISO, texto, sandbox_efectivo=tipo, sandbox_pedido=pedido, aislamiento_windows=listo or "")
 
+	def _comprobar_revisor(self, efectivo: Any, modo: _Modo) -> None:
+		"""Avisa (una vez por sesión) si quien revisa las peticiones no es quien eligió la persona.
+
+		Un hilo que Codex ya tiene cargado ignora lo que se le pide al retomarlo, y su
+		configuración puede no admitir la revisión automática (AIChat #374). Cada
+		``turn/start`` fija el revisor del modo, pero Codex puede no hacer caso. Lo que
+		nunca se hace es callar: en un sentido deja a Codex decidiendo sin que lo sepas.
+		"""
+		if not isinstance(efectivo, str) or not efectivo:
+			return
+		revisor = "auto_review" if efectivo == "guardian_subagent" else efectivo
+		with self._candado:
+			avisar = revisor != modo.revisor and not self._aviso_revisor_dado
+			if avisar:
+				self._aviso_revisor_dado = True
+		if not avisar:
+			return
+		if modo.revisor == "auto_review":
+			texto = "Codex no ha aceptado la revisión automática en esta sesión: te preguntará a ti, como siempre."
+		else:
+			texto = ("Esta conversación de Codex tenía la revisión automática de aprobaciones. Ctrl+IA le pide en cada "
+				"mensaje que te pregunte a ti, como dice el modo de la sesión.")
+		log.warning("Codex revisa con %s aunque el modo pide %s", efectivo, modo.revisor)
+		self._emitir(TipoEvento.AVISO, texto, revisor_efectivo=efectivo)
+
 	def _arrancar_turno(self, texto: str, adjuntos: tuple[Adjunto, ...]) -> None:
 		try:
 			srv = self._asegurar_hilo()
@@ -934,6 +1013,8 @@ class ConversacionCodex(Conversacion):
 			if self.ajustes.esfuerzo:
 				params["effort"] = self.ajustes.esfuerzo
 			modo = _modo(self.ajustes.modo_permiso)
+			# En cada turno: quien revisa las peticiones nunca se deja a lo que recuerde el hilo.
+			params["approvalsReviewer"] = modo.revisor
 			if modo.id != self._modo_aplicado:
 				params["sandboxPolicy"] = modo.politica
 				params["approvalPolicy"] = modo.aprobacion
@@ -964,35 +1045,45 @@ class ConversacionCodex(Conversacion):
 			self._interrumpir(id_turno)
 
 	def _anadir_al_turno(self, texto: str, turno: str) -> None:
+		"""Envía el ``turn/steer``. Solo «no enviado» si no salió de aquí o Codex lo rechazó con -32600 (AIChat #402)."""
 		with self._candado:
 			srv = self._srv
 			hilo = self._hilo_id
 		try:
 			if srv is None or not hilo:
-				raise ErrorCodex("Codex no está en marcha", muerto=True)
+				raise ErrorCodex("Codex no está en marcha", muerto=True, sin_enviar=True)
 			srv.peticion("turn/steer", {"threadId": hilo, "input": _entrada(texto, ()), "expectedTurnId": turno})
 		except ErrorCodex as error:
-			if error.tiempo_agotado:
-				motivo = "Codex no ha confirmado si recibió tu mensaje; revisa su respuesta antes de enviarlo otra vez."
-			elif error.muerto:
-				log.debug("Codex cayó al añadir un mensaje al turno", exc_info=True)
-				motivo = "Codex se ha cerrado y no ha recibido tu mensaje."
-			else:
+			if error.sin_enviar:
+				self._devolver_texto(texto, "Codex no está en marcha; tu mensaje no se ha enviado.")
+			elif error.codigo == ERROR_PETICION_INVALIDA:
 				log.info("turn/steer rechazado: %s", error.mensaje)
 				with self._candado:
 					termino = turno in self._turnos_terminados or self._turno_id != turno
-				motivo = ("El turno de Codex ya había terminado; tu mensaje no se ha enviado." if termino
+				self._devolver_texto(texto, "El turno de Codex ya había terminado; tu mensaje no se ha enviado." if termino
 					else "Codex no ha aceptado el mensaje en el turno en marcha. " + _explicar(error))
-			self._devolver_texto(texto, motivo)
+			else:
+				log.info("turn/steer sin confirmar: %s", error.mensaje)
+				self._sin_confirmar(texto, error)
 			return
 		finally:
 			with self._candado:
 				self._anadidos_pendientes = max(0, self._anadidos_pendientes - 1)
-		self._emitir(TipoEvento.AVISO, "Codex ha recibido tu mensaje en el turno en marcha.", anadido=True)
+		self._emitir(TipoEvento.AVISO, "Codex ha recibido tu mensaje en el turno en marcha.", anadido=True, texto_anadido=texto)
 
 	def _devolver_texto(self, texto: str, motivo: str) -> None:
 		"""Avisa de que un mensaje no se entregó y pide a la interfaz que lo devuelva al cuadro."""
 		self._emitir(TipoEvento.AVISO, motivo + " El texto vuelve al cuadro de respuesta.", devolver_texto=texto)
+
+	def _sin_confirmar(self, texto: str, error: ErrorCodex) -> None:
+		"""Codex puede tener el mensaje: se dice así, y ni vuelve al cuadro ni se reenvía."""
+		if error.muerto:
+			motivo = "Codex se ha cerrado sin confirmar si recibió tu mensaje."
+		elif error.tiempo_agotado:
+			motivo = "Codex no ha confirmado a tiempo si recibió tu mensaje."
+		else:
+			motivo = "Codex no ha confirmado si recibió tu mensaje. " + _explicar(error)
+		self._emitir(TipoEvento.AVISO, motivo + " " + NOTA_SIN_CONFIRMAR, sin_confirmar=texto)
 
 	def _interrumpir(self, turno: str) -> None:
 		with self._candado:
@@ -1119,6 +1210,18 @@ class ConversacionCodex(Conversacion):
 			if isinstance(ajustes_hilo, dict):
 				# Hilo lector: sin preguntar nada a Codex (no puede esperar respuestas).
 				self._comprobar_sandbox(ajustes_hilo.get("sandboxPolicy"), _modo(self.ajustes.modo_permiso), None, preguntar=False)
+				with self._candado:
+					aplicado = self._modo_aplicado
+				if aplicado:
+					self._comprobar_revisor(ajustes_hilo.get("approvalsReviewer"), _modo(aplicado))
+		elif metodo == "item/autoApprovalReview/started":
+			self._revision_empezada(p)
+		elif metodo == "item/autoApprovalReview/completed":
+			self._revision_terminada(p)
+		elif metodo == "guardianWarning":
+			mensaje = str(p.get("message") or "").strip()
+			if mensaje:
+				self._emitir(TipoEvento.AVISO, "Aviso de la revisión automática de Codex: " + _recortar_linea(mensaje, 500))
 		elif metodo == "error":
 			self._error(p)
 		elif metodo == "warning":
@@ -1151,6 +1254,34 @@ class ConversacionCodex(Conversacion):
 			return
 		else:
 			log.debug("Notificación de Codex no tratada: %s", metodo)
+
+	def _revision_empezada(self, p: dict[str, Any]) -> None:
+		"""Codex revisa una petición por su cuenta: solo a la barra de estado, sin voz ni mensaje guardado."""
+		self._emitir(TipoEvento.AVISO, "Codex está revisando: " + _describir_accion_revision(p.get("action")), solo_estado=True)
+
+	def _revision_terminada(self, p: dict[str, Any]) -> None:
+		"""Codex ha decidido una petición (``item/autoApprovalReview/completed``, esquema de codex-cli 0.163).
+
+		Es información y nada más: Ctrl+IA no contesta nada. Quien aprueba es Codex
+		porque la persona lo eligió para esta sesión, y por eso se dice cada decisión.
+		El protocolo la marca como inestable: lo que no se entiende se ignora.
+		"""
+		revision = p.get("review")
+		estado = revision.get("status") if isinstance(revision, dict) else None
+		if not isinstance(estado, str) or estado not in _DECISIONES_REVISION:
+			log.debug("Revisión automática de Codex sin decisión conocida: %s", estado)
+			return
+		accion = _describir_accion_revision(p.get("action"))
+		riesgo = revision.get("riskLevel")
+		riesgo = _RIESGOS_REVISION.get(riesgo, "") if isinstance(riesgo, str) else ""
+		motivo = _recortar_linea(str(revision.get("rationale") or ""), 500)
+		texto = "La revisión automática de Codex %s. %s." % (_DECISIONES_REVISION[estado], accion)
+		if riesgo:
+			texto += " Riesgo: %s." % riesgo
+		if motivo:
+			texto += " Motivo: %s" % motivo
+		self._emitir(TipoEvento.AVISO, texto, revision_automatica={"id": str(p.get("reviewId") or ""), "estado": estado,
+			"accion": accion, "riesgo": riesgo, "motivo": motivo})
 
 	def _estado_mcp(self, p: dict[str, Any]) -> None:
 		"""Arranque de un servidor MCP: solo se avisa si falla (una vez); «iniciando» y «listo» serían ruido."""
@@ -1311,11 +1442,8 @@ class ConversacionCodex(Conversacion):
 
 	def _cambios_completados(self, item: dict[str, Any]) -> None:
 		estado = item.get("status")
-		if estado == "declined":
-			self._emitir(TipoEvento.AVISO, "No se han aplicado los cambios en archivos: se denegaron.")
-			return
-		if estado == "failed":
-			self._emitir(TipoEvento.AVISO, "Codex no ha podido aplicar los cambios en archivos.")
+		if estado in _CAMBIOS_SIN_APLICAR:
+			self._emitir(TipoEvento.AVISO, _CAMBIOS_SIN_APLICAR[estado])
 			return
 		for cambio in item.get("changes") or []:
 			if not isinstance(cambio, dict):
@@ -1626,6 +1754,34 @@ class ConversacionCodex(Conversacion):
 # --------------------------------------------------------------------------
 # Construcción de solicitudes y respuestas (funciones puras)
 # --------------------------------------------------------------------------
+
+
+def _describir_accion_revision(accion: Any) -> str:
+	"""Qué se revisa (``GuardianApprovalReviewAction``), en una línea."""
+	if not isinstance(accion, dict):
+		return "Una acción de Codex"
+	tipo = accion.get("type")
+	if tipo == "command":
+		texto = "Orden: %s" % accion.get("command", "")
+	elif tipo == "execve":
+		argumentos = accion.get("argv")
+		palabras = argumentos if isinstance(argumentos, list) and argumentos else [accion.get("program", "")]
+		texto = "Orden: %s" % " ".join(str(palabra) for palabra in palabras)
+	elif tipo == "writeStdin":
+		texto = "Escribir en una orden en marcha: %s" % accion.get("stdin", "")
+	elif tipo == "applyPatch":
+		archivos = accion.get("files")
+		texto = "Cambiar archivos: %s" % ", ".join(str(a) for a in archivos if a) if isinstance(archivos, list) else "Cambiar archivos"
+	elif tipo == "networkAccess":
+		puerto = accion.get("port")
+		texto = "Acceso a la red: %s" % accion.get("host", "") + (":%s" % puerto if puerto else "")
+	elif tipo == "mcpToolCall":
+		texto = "Herramienta %s del servidor %s" % (accion.get("toolTitle") or accion.get("toolName", ""), accion.get("server", ""))
+	elif tipo == "requestPermissions":
+		texto = "Pedir permisos: %s" % accion.get("reason", "") if accion.get("reason") else "Pedir permisos"
+	else:
+		texto = "Acción de Codex (%s)" % tipo
+	return _recortar_linea(texto, 300)
 
 
 def _explicar(error: ErrorCodex) -> str:
@@ -2132,13 +2288,18 @@ def item_a_mensaje(item: dict[str, Any], fecha: float | None = None) -> dict[str
 			detalle += "\n\n%s:\n%s" % ("Error" if fallo else "Resultado", _recortar(salida))
 		return {"rol": "herramienta", "texto": texto, "fecha": fecha, "herramienta": "Ejecutar", "detalle": detalle}
 	if tipo == "fileChange":
+		if item.get("status") in _CAMBIOS_SIN_APLICAR:
+			# Como en vivo (``_cambios_completados``): lo que se rechazó o falló nunca cuenta como archivo cambiado.
+			rutas = [str(c.get("path", "")) for c in item.get("changes") or [] if isinstance(c, dict)]
+			return {"rol": "sistema", "texto": _CAMBIOS_SIN_APLICAR[item["status"]], "fecha": fecha, "detalle": "\n".join(rutas)}
 		lineas = []
 		diffs = []
 		for cambio in item.get("changes") or []:
 			if isinstance(cambio, dict):
 				clase = cambio.get("kind") or {}
 				nombre = _TIPOS_CAMBIO.get(clase.get("type", "") if isinstance(clase, dict) else "", "modificado")
-				linea = "Archivo %s: %s" % (nombre, cambio.get("path", ""))
+				destino = clase.get("move_path") if isinstance(clase, dict) else None
+				linea = "Archivo %s: %s" % (nombre, cambio.get("path", "")) + (" (movido a %s)" % destino if destino else "")
 				lineas.append(linea)
 				diffs.append(linea + "\n" + str(cambio.get("diff") or "").strip("\n"))
 		if not lineas:
@@ -2486,6 +2647,10 @@ class ProveedorCodex(Proveedor):
 		from app.services.config_agentes import modo_inicial
 
 		return modo_inicial.elegir(modo_inicial.modo_codex(carpeta), self.modos_permiso(), self.modo_de_serie())
+
+	def modo_sin_dialogo(self, carpeta: Path | None = None) -> str:
+		"""El mismo modo, pero preguntándote a ti: la revisión automática solo vale elegida para la sesión (AIChat #358)."""
+		return self.modo_predeterminado(carpeta).removesuffix("_auto")
 
 	def modos_permiso(self) -> list[OpcionLista]:
 		return [OpcionLista(modo.id, modo.etiqueta, modo.ayuda) for modo in _MODOS]

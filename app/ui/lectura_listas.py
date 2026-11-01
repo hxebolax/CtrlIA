@@ -45,7 +45,7 @@ COLUMNAS_GRUPOS: dict[str, tuple[str, int]] = {
 GRUPOS_PREDETERMINADAS = ["nombre", "sesiones", "descripcion"]
 
 #: Indicadores que pueden acompañar a un mensaje (cada uno es ``lectura.indicador_<id>``).
-INDICADORES = ("favorito", "pregunta", "permiso", "error", "detenido", "adjuntos", "codigo", "enlaces", "archivos", "largo")
+INDICADORES = ("favorito", "pregunta", "permiso", "error", "detenido", "entrega", "adjuntos", "codigo", "enlaces", "archivos", "largo")
 
 #: Clases de respuesta que dicen «sí» (permitir, aprobar el plan, responder la pregunta).
 _CLASES_SI = frozenset({"permitir", "permitir_sesion", "permitir_siempre"})
@@ -153,8 +153,8 @@ def indicadores_mensaje(texto: str, rol: str, cambios: int, opcion: Opcion, dato
 	Nada se adivina por el texto: las preguntas, los permisos y los planes
 	salen de las peticiones reales del agente que el gestor guarda en
 	``datos["solicitudes"]`` (un «?» al final no es una pregunta que se pueda
-	contestar con Control+Mayúsculas+A); «Detenido» y los adjuntos, de
-	``datos``; «Con error», de la salida de la acción; «Favorito», de los mensajes
+	contestar con Control+Mayúsculas+A); «Detenido», «Sin confirmar», «No entregado»
+	y los adjuntos, de ``datos``; «Con error», de la salida de la acción; «Favorito», de los mensajes
 	que marcaste con Control+Alt+F (va el primero, con su nota si la tiene).
 	"""
 	if not opcion("lectura.indicadores", True):
@@ -170,6 +170,12 @@ def indicadores_mensaje(texto: str, rol: str, cambios: int, opcion: Opcion, dato
 		partes.append(_("Con error"))
 	if opcion("lectura.indicador_detenido", True) and datos.get("detenido"):
 		partes.append(_("Detenido"))
+	if opcion("lectura.indicador_entrega", True):
+		# Un mensaje añadido al turno: no llegó, o no se sabe si llegó.
+		if datos.get("no_entregado"):
+			partes.append(_("No entregado"))
+		elif datos.get("sin_confirmar"):
+			partes.append(_("Sin confirmar"))
 	adjuntos = datos.get("adjuntos")
 	if opcion("lectura.indicador_adjuntos", True) and isinstance(adjuntos, list) and adjuntos:
 		partes.append(_plural(len(adjuntos), _("{n} adjunto"), _("{n} adjuntos")))

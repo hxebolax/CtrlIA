@@ -75,10 +75,9 @@ def test_claude_espera_a_los_servidores_mcp(monkeypatch):
 	assert claude.variables_anadidas(esperar_mcp=True)[claude.VARIABLE_MCP_SIN_ESPERA] == "0"
 	assert claude.VARIABLE_MCP_SIN_ESPERA not in claude.variables_anadidas(esperar_mcp=False)
 	assert claude.entorno_claude(esperar_mcp=True)[claude.VARIABLE_MCP_SIN_ESPERA] == "0"
-	# Si la persona la tiene puesta por su cuenta, manda la suya.
-	monkeypatch.setenv(claude.VARIABLE_MCP_SIN_ESPERA, "1")
-	assert claude.VARIABLE_MCP_SIN_ESPERA not in claude.variables_anadidas(esperar_mcp=True)
-	assert claude.entorno_claude(esperar_mcp=True)[claude.VARIABLE_MCP_SIN_ESPERA] == "1"
+	# Lo que se abre desde la app de escritorio de Claude hereda su «true»: con la opción activada manda Ctrl+IA.
+	monkeypatch.setenv(claude.VARIABLE_MCP_SIN_ESPERA, "true")
+	assert claude.entorno_claude(esperar_mcp=True)[claude.VARIABLE_MCP_SIN_ESPERA] == "0"
 	opcion = [True]
 	proveedor = claude.ProveedorClaude(orden_base=["claude"], esperar_mcp=lambda: opcion[0])
 	assert proveedor.esperar_mcp()
