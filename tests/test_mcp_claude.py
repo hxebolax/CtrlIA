@@ -266,11 +266,15 @@ class ConversacionFalsa:
 			raise RuntimeError("Connection closed")
 		self.reconectados.append(nombre)
 
-	def activar_mcp(self, nombre, activo):
+	def activar_mcp(self, nombre, activo, solo_sesion=False):
 		self.activados.append((nombre, activo))
+		self.solo_sesion = solo_sesion
 
 	def orden_inicio_sesion_mcp(self, nombre):
 		return self.orden
+
+	def url_inicio_sesion_mcp(self, nombre):
+		return None
 
 
 @pytest.fixture

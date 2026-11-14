@@ -153,6 +153,9 @@ class MixinMensajes:
 		self._mensajes: list[MensajeVista] = []
 		#: Mensajes más antiguos que todavía no están en la lista (del más antiguo al más reciente).
 		self._anteriores: list[MensajeVista] = []
+		#: Vista de la lista (``vp_avanzado.VISTAS``) y la conversación entera, se vea o no.
+		self.vista_mensajes = "todo"
+		self._todos_mensajes: list[MensajeVista] = []
 		self._busqueda = ""
 		self._generacion_carga = 0
 		#: Favoritos de la sesión abierta (se recalculan al pintar la lista y al marcar o quitar uno).
@@ -190,6 +193,7 @@ class MixinMensajes:
 		# enseguida, una respuesta) se conserva al llegar la carga.
 		self._mensajes = []
 		self._anteriores = []
+		self._todos_mensajes = []
 		self.lista_mensajes.limpiar()
 		if mover_foco:
 			avisos.anunciar(_("Cargando la sesión..."))
@@ -223,6 +227,7 @@ class MixinMensajes:
 		self.gestor.sesion_abierta = ""
 		self._mensajes = []
 		self._anteriores = []
+		self._todos_mensajes = []
 		self.lista_mensajes.limpiar()
 		self._temporizador_seguimiento.Stop()
 		self.actualizar_titulo_ventana()
@@ -313,9 +318,22 @@ class MixinMensajes:
 		except (TypeError, ValueError):
 			return 0
 
+	def en_vista(self, mensaje: MensajeVista) -> bool:
+		"""Si el mensaje se ve con la vista elegida (Ver, «Vista de los mensajes»)."""
+		from app.ui.vp_avanzado import VISTAS
+
+		roles = VISTAS.get(self.vista_mensajes, ("", None))[1]
+		return roles is None or mensaje.rol in roles
+
+	def mensajes_completos_visibles(self) -> list[MensajeVista]:
+		"""La conversación entera que deja ver la vista elegida."""
+		return [m for m in self._todos_mensajes if self.en_vista(m)]
+
 	def mostrar_mensajes(self, mensajes: list[MensajeVista]) -> None:
 		"""Pone en la lista una conversación entera; si es larga, solo sus últimos mensajes."""
 		mensajes = [m for m in mensajes if not es_fila_anteriores(m)]
+		self._todos_mensajes = list(mensajes)
+		mensajes = [m for m in mensajes if self.en_vista(m)]
 		limite = self.limite_recientes()
 		if limite and len(mensajes) > limite:
 			self._anteriores, visibles = mensajes[:-limite], mensajes[-limite:]
@@ -364,7 +382,9 @@ class MixinMensajes:
 		return len(self._anteriores) + self.mensajes_cargados()
 
 	def mensajes_completos(self) -> list[MensajeVista]:
-		"""La conversación entera, también lo que aún no está en la lista."""
+		"""La conversación entera, también lo que aún no está en la lista (y lo que la vista elegida no deja ver)."""
+		if self.vista_mensajes != "todo":
+			return list(self._todos_mensajes)
 		return self._anteriores + [m for m in self._mensajes if not es_fila_anteriores(m)]
 
 	def _repintar_mensajes(self) -> None:
@@ -376,6 +396,13 @@ class MixinMensajes:
 
 	def anadir_o_actualizar_mensaje(self, mensaje: MensajeVista) -> None:
 		"""Pone un mensaje en la lista sin mover el foco (si ya estaba, lo actualiza)."""
+		guardado = next((i for i, m in enumerate(self._todos_mensajes) if mensaje.id and m.id == mensaje.id), -1)
+		if guardado >= 0:
+			self._todos_mensajes[guardado] = mensaje
+		else:
+			self._todos_mensajes.append(mensaje)
+		if not self.en_vista(mensaje):
+			return  # la vista elegida no lo deja ver; está en la conversación entera
 		indice = next((i for i, m in enumerate(self._mensajes) if mensaje.id and m.id == mensaje.id), -1)
 		if indice >= 0:
 			self._mensajes[indice] = mensaje
@@ -396,6 +423,7 @@ class MixinMensajes:
 
 	def quitar_mensaje_de_la_lista(self, id_mensaje: int) -> None:
 		"""Quita un mensaje de la lista sin mover el foco a propósito (si era el enfocado, pasa al vecino)."""
+		self._todos_mensajes = [m for m in self._todos_mensajes if m.id != id_mensaje]
 		indice = next((i for i, m in enumerate(self._mensajes) if m.id == id_mensaje), -1)
 		if indice < 0:
 			self._anteriores = [m for m in self._anteriores if m.id != id_mensaje]
@@ -497,6 +525,9 @@ class MixinMensajes:
 		if tecla == wx.WXK_BACK and mods == wx.MOD_NONE:
 			self.ir_a_sesiones()
 			return
+		if tecla in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE) and mods == wx.MOD_NONE:
+			self.retirar_mensaje_en_cola(self.mensaje_actual())
+			return
 		if self._tecla_favoritos(tecla, mods, desde_lectura=False):
 			return
 		evento.Skip()
@@ -532,6 +563,9 @@ class MixinMensajes:
 				texto += "\n\n---\n\n" + ("```diff\n" if estilo in ESTILOS_CON_SIGNOS else "```\n") + legible + "\n```"
 			else:
 				texto += "\n\n---\n\n```\n" + mensaje.detalle + "\n```"
+		if mensaje.datos.get("detalle_tecnico"):
+			# Lo que dijo el agente tal cual (FastChat): para entender un error o pasarlo en un informe.
+			texto += "\n\n---\n\n" + _("Detalle técnico:") + "\n\n```\n" + str(mensaje.datos["detalle_tecnico"]) + "\n```"
 		if formato:
 			texto = markdown_seguro(texto)
 		clave = self.sesion_actual
@@ -836,6 +870,12 @@ class MixinMensajes:
 		anadir(_("&Leer en voz alta"), lambda: avisos.anunciar(mensaje.texto, interrumpir=True, siempre=True))
 		anadir(_("C&itar en la respuesta\tCtrl+R"), lambda: self.citar_en_respuesta(mensaje.texto))
 		anadir(_("Nueva &sesión a partir de este mensaje...\tCtrl+Alt+N"), lambda: self.nueva_sesion_desde_mensaje(mensaje))
+		fila_abierta = self.fila_de(self.sesion_actual) if self.sesion_actual else None
+		capacidades = self._capacidades_de(fila_abierta) if fila_abierta is not None else None
+		if capacidades is not None and capacidades.bifurcar_en_mensaje:
+			anadir(_("Bif&urcar desde aquí..."), self.accion_bifurcar_desde_mensaje)
+			if mensaje.rol == "usuario":
+				anadir(_("Reintentar desde a&quí..."), self.accion_reintentar_desde_mensaje)
 		if mensaje.rol in ROLES_REENVIABLES:
 			anadir(_("Enviar la respuesta a otra sesi&ón...\tCtrl+Alt+R"), lambda: self.reenviar_a_otra_sesion(mensaje))
 		menu.AppendSeparator()
@@ -857,6 +897,9 @@ class MixinMensajes:
 			menu.AppendSeparator()
 			fila = self.fila_de(self.sesion_actual) if self.sesion_actual else None
 			if fila is not None and fila.propia:
+				if self.gestor.ocupada(fila.clave):
+					# Sin letra subrayada: las de estas palabras ya están usadas en este menú.
+					anadir(_("Retirar de la cola\tSupr"), lambda: self.retirar_mensaje_en_cola(mensaje))
 				anadir(_("Volver a e&nviar..."), lambda: self.volver_a_enviar(mensaje))
 				anadir(_("Des&hacer los cambios de archivos desde este mensaje...\tCtrl+Alt+Z"),
 					lambda: self.deshacer_archivos_desde(mensaje))
@@ -865,6 +908,19 @@ class MixinMensajes:
 					anadir(_("Rehacer los cambios de archivos deshechos...\tCtrl+Alt+Mayús+Z"), self.accion_rehacer_archivos)
 			anadir(_("Copiar al cuadro de &respuesta"), lambda: self._poner_en_respuesta(mensaje.texto))
 		return menu
+
+	def retirar_mensaje_en_cola(self, mensaje: MensajeVista | None) -> bool:
+		"""Suprimir en un mensaje tuyo que espera en la cola: no sale y vuelve al cuadro de respuesta (FastChat)."""
+		if mensaje is None or mensaje.rol != "usuario" or not self.sesion_actual.startswith("ctrlia:"):
+			avisos.anunciar(_("Suprimir solo retira de la cola un mensaje tuyo que aún no ha salido."), interrumpir=True)
+			return False
+		if not isinstance(mensaje.id, int) or not self.gestor.retirar_de_cola(self.sesion_actual, mensaje.id, mensaje.texto):
+			avisos.anunciar(_("Ese mensaje ya ha llegado al agente: no se puede retirar."), interrumpir=True)
+			return False
+		self.quitar_mensaje_de_la_lista(mensaje.id)
+		self._devolver_al_cuadro(mensaje.texto)
+		avisos.anunciar(_("Retirado de la cola. Está en el cuadro de respuesta."), interrumpir=True)
+		return True
 
 	def _poner_en_respuesta(self, texto: str) -> None:
 		self.respuesta.SetValue(texto)

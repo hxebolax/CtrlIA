@@ -39,6 +39,7 @@ NOMBRES_AGENTE = {
 	"qwen": "Qwen Code",
 	"kilo": "Kilo Code",
 	"cline": "Cline",
+	"command-code": "Command Code",
 }
 
 #: Texto visible de cada estado de sesión.

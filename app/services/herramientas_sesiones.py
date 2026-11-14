@@ -30,6 +30,11 @@ Invariantes
   tiene sentido: borrar, enviar mensajes a otra sesión, detenerla o cambiar su
   modelo o sus permisos.
 
+Codex los recibe también (AIChat #557), por el servidor HTTP local de
+:mod:`app.services.herramientas_propias` en ``/mcp/ccd_session_mgmt`` y con el
+mismo token de su sesión; lo que no está en :data:`SIN_PREGUNTAR` lo pregunta
+Codex antes de usarlo (``approval_mode``). Las reglas son las mismas.
+
 Sin wx: lo atiende el hilo de la herramienta y ``GestorSesiones`` es seguro entre hilos.
 """
 
@@ -283,7 +288,7 @@ def _json_con_tope(filas: list[dict[str, Any]], delante: str = "") -> str:
 
 
 class HerramientasSesiones:
-	"""Las herramientas de sesión de UNA conversación de Claude Code.
+	"""Las herramientas de sesión de UNA conversación de Claude Code o de Codex.
 
 	:param gestor: el ``GestorSesiones``: de ahí salen todas las respuestas.
 	:param clave: la sesión a la que pertenece («self»).

@@ -9,7 +9,7 @@ import pytest
 from app.services.agentes import ORDEN, acp, acp_conocidos, crear_proveedores
 from app.ui.comun import NOMBRES_AGENTE
 
-IDS = ["opencode", "goose", "copilot", "qwen", "kilo", "cline"]
+IDS = ["opencode", "goose", "copilot", "qwen", "kilo", "cline", "command-code"]
 
 
 def test_fichas_completas() -> None:
@@ -78,4 +78,4 @@ def test_no_instalado(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_excluir() -> None:
-	assert [p.id for p in acp_conocidos.proveedores_conocidos(excluir=["goose", "cline"])] == ["opencode", "copilot", "qwen", "kilo"]
+	assert [p.id for p in acp_conocidos.proveedores_conocidos(excluir=["goose", "cline"])] == ["opencode", "copilot", "qwen", "kilo", "command-code"]

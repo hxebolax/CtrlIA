@@ -27,6 +27,23 @@ Este módulo ofrece:
 - ``etiquetar_selector``: nombre para el campo interno de ``DirPickerCtrl`` /
   ``FilePickerCtrl`` y botón «Seleccionar...» en español.
 - ``nombre_limpio``: quita ``&`` y los dos puntos finales de una etiqueta.
+- ``habilitar``: activa o desactiva un control y quita el ``&`` de su etiqueta
+  mientras está desactivado (AIChat #515: si no, Alt+letra salta al control
+  siguiente).
+
+Dos arreglos para NVDA (AIChat #616), que se aplican solos en
+``asignar_nombre_accesible``:
+
+- Al abrir un diálogo, NVDA lee de golpe todos sus textos estáticos salvo los
+  que dicen lo mismo que el control siguiente (los toma por su etiqueta). Si
+  un control recibe un nombre más largo que su etiqueta («Archivos (3):» y
+  «Archivos, 3 de 12»), su etiqueta se leería suelta: la etiqueta anterior
+  recibe un ``wx.Accessible`` cuyo nombre es el del control, solo si la
+  etiqueta (sin ``&`` ni «:») es el principio de ese nombre
+  (``atar_etiqueta``). Lo que se ve no cambia.
+- Una ``wx.ListBox`` se leía dos veces al llegar con Tab (Windows anuncia el
+  foco en la lista y después en su fila): mientras tiene el foco, su
+  accesible responde en ``GetFocus`` que lo tiene la propia lista.
 
 PLANTILLA del agente «accesibilidad-wx».
 """
@@ -34,12 +51,16 @@ PLANTILLA del agente «accesibilidad-wx».
 from __future__ import annotations
 
 import builtins
+import logging
+import re
 from collections.abc import Callable
 from typing import TypeVar
 
 import wx
 
 C = TypeVar("C", bound=wx.Window)
+
+log = logging.getLogger(__name__)
 
 
 def _(texto: str) -> str:
@@ -53,6 +74,23 @@ def nombre_limpio(etiqueta: str) -> str:
 	return etiqueta.replace("&&", "\0").replace("&", "").replace("\0", "&").strip().rstrip(":").strip()
 
 
+def foco_en_la_lista(accesible: wx.Accessible):
+	"""Respuesta de ``GetFocus`` que evita que NVDA lea dos veces una ``wx.ListBox`` al llegar con Tab.
+
+	Windows avisa del foco en la lista y después en su fila; NVDA, en el primero, pregunta a la lista qué
+	tiene el foco y lee la fila, y la vuelve a leer con el segundo. Mientras la lista tiene el foco se
+	responde «la propia lista» (``CHILDID_SELF`` con el accesible), y la fila se lee una vez. Sin el foco,
+	como Windows. wxPython llama a ``GetFocus`` sin argumentos y espera ``(estado, hijo, accesible)``.
+	"""
+	try:
+		ventana = accesible.GetWindow()
+		if ventana and wx.Window.FindFocus() is ventana:
+			return (wx.ACC_OK, 0, accesible)
+	except RuntimeError:
+		log.debug("La lista ya no existe", exc_info=True)
+	return (wx.ACC_NOT_IMPLEMENTED, 0, None)
+
+
 class _AccesibleConNombre(wx.Accessible):
 	"""Objeto MSAA que expone un nombre (y opcionalmente una descripción) fijos."""
 
@@ -60,6 +98,7 @@ class _AccesibleConNombre(wx.Accessible):
 		super().__init__(ventana)
 		self._nombre = nombre
 		self._descripcion = descripcion
+		self._es_lista = isinstance(ventana, wx.ListBox)
 
 	def GetName(self, childId: int):  # noqa: N802,N803 - API de wx
 		if childId == 0:
@@ -70,6 +109,81 @@ class _AccesibleConNombre(wx.Accessible):
 		if childId == 0 and self._descripcion:
 			return (wx.ACC_OK, self._descripcion)
 		return (wx.ACC_NOT_IMPLEMENTED, "")
+
+	def GetFocus(self):  # noqa: N802 - API de wx
+		if self._es_lista:
+			return foco_en_la_lista(self)
+		return (wx.ACC_NOT_IMPLEMENTED, 0, None)
+
+
+def _palabras(texto: str) -> str:
+	return re.sub(r"[\W_]+", "", (texto or "").casefold())
+
+
+def es_etiqueta_de(etiqueta: str, nombre: str) -> bool:
+	"""Si la etiqueta visible («&Volumen:», «Archivos (3):») dice lo mismo que el nombre del control o su principio.
+
+	No lo es una etiqueta que dice MÁS que el nombre («Rol, por ejemplo Arreglar:» para «Rol»): atada, se
+	perderían sus palabras de más.
+	"""
+	corta, completo = _palabras(etiqueta.replace("&", "")), _palabras(nombre)
+	return bool(corta) and completo.startswith(corta)
+
+
+def nombre_accesible_de(control: wx.Window) -> str:
+	"""El nombre que expone ``control`` a los lectores (el de ``asignar_nombre_accesible`` o su ``GetName``)."""
+	accesible = control.GetAccessible() if hasattr(control, "GetAccessible") else None
+	if isinstance(accesible, _AccesibleConNombre):
+		return accesible._nombre  # noqa: SLF001 - mismo módulo
+	return control.GetName()
+
+
+class _AccesibleEtiqueta(wx.Accessible):
+	"""Una etiqueta visible cuyo nombre MSAA es el de su control (se pregunta cada vez: sigue sus cambios)."""
+
+	def __init__(self, etiqueta: wx.Window, control: wx.Window) -> None:
+		super().__init__(etiqueta)
+		self.control = control
+
+	def GetName(self, childId: int):  # noqa: N802,N803 - API de wx
+		try:
+			nombre = nombre_accesible_de(self.control) if childId == 0 and self.control else ""
+		except RuntimeError:
+			nombre = ""
+		if nombre:
+			return (wx.ACC_OK, nombre)
+		return (wx.ACC_NOT_IMPLEMENTED, "")
+
+
+def atar_etiqueta(etiqueta: wx.StaticText, control: wx.Window) -> None:
+	"""Hace que NVDA no lea ``etiqueta`` suelta al abrir el diálogo: su nombre MSAA será el de ``control``.
+
+	La etiqueta debe estar creada justo antes que el control. Solo en Windows.
+	"""
+	if wx.Platform != "__WXMSW__":
+		return
+	existente = getattr(etiqueta, "_accesible_etiqueta", None)
+	if isinstance(existente, _AccesibleEtiqueta):
+		existente.control = control
+		return
+	try:
+		accesible = _AccesibleEtiqueta(etiqueta, control)
+		etiqueta.SetAccessible(accesible)
+		etiqueta._accesible_etiqueta = accesible  # que no lo recoja el recolector de basura
+	except (NotImplementedError, AttributeError):
+		log.debug("No se pudo atar la etiqueta", exc_info=True)
+
+
+def atar_etiqueta_anterior(control: wx.Window, nombre: str) -> bool:
+	"""``atar_etiqueta`` con el texto estático justo anterior a ``control``, si es su etiqueta. ``True`` si se ató."""
+	try:
+		anterior = control.GetPrevSibling()
+	except (AttributeError, RuntimeError):
+		return False
+	if isinstance(anterior, wx.StaticText) and es_etiqueta_de(anterior.GetLabel(), nombre):
+		atar_etiqueta(anterior, control)
+		return True
+	return False
 
 
 def asignar_nombre_accesible(
@@ -91,6 +205,47 @@ def asignar_nombre_accesible(
 		destino._referencias_accesibles = referencias
 	referencias.append(accesible)
 	control.SetAccessible(accesible)
+	atar_etiqueta_anterior(control, nombre)
+
+
+# ── Etiquetas de controles desactivados (AIChat #515) ─────────────────────────
+
+def sin_acelerador(texto: str) -> str:
+	"""«&Modelo:» → «Modelo:» (un «&&», que es un «&» escrito, se conserva)."""
+	return texto.replace("&&", "\0").replace("&", "").replace("\0", "&&")
+
+
+def etiqueta_de(control: wx.Window) -> wx.StaticText | None:
+	"""La etiqueta de un control: la que guardó ``crear_campo`` o el texto estático justo anterior."""
+	guardada = getattr(control, "_etiqueta_campo", None)
+	if isinstance(guardada, wx.StaticText) and guardada:
+		return guardada
+	try:
+		anterior = control.GetPrevSibling()
+	except (AttributeError, RuntimeError):
+		return None
+	return anterior if isinstance(anterior, wx.StaticText) else None
+
+
+def habilitar(control: wx.Window, activo: bool = True, etiqueta: wx.StaticText | None = None) -> None:
+	"""Activa o desactiva ``control`` y, mientras está desactivado, quita el ``&`` de su etiqueta.
+
+	Con la etiqueta «&Modelo:» y su desplegable desactivado, Alt+M llevaría al control SIGUIENTE (Windows
+	salta los desactivados): sin acelerador, Alt+M no hace nada. Al activarlo, la etiqueta recupera el suyo.
+	"""
+	control.Enable(activo)
+	etiqueta = etiqueta or etiqueta_de(control)
+	if etiqueta is None:
+		return
+	original = getattr(etiqueta, "_etiqueta_con_acelerador", None)
+	actual = etiqueta.GetLabel()
+	if original is None or actual not in (original, sin_acelerador(original)):
+		# La etiqueta se cambió desde fuera (con su «&» o sin él): esa es la nueva original.
+		original = actual
+		etiqueta._etiqueta_con_acelerador = original
+	nuevo = original if activo else sin_acelerador(original)
+	if actual != nuevo:
+		etiqueta.SetLabel(nuevo)
 
 
 def crear_campo(
@@ -120,6 +275,7 @@ def crear_campo(
 	texto_etiqueta = wx.StaticText(padre, label=etiqueta)
 	kwargs.setdefault("name", nombre_limpio(etiqueta))
 	control = fabrica(padre, *args, **kwargs)
+	control._etiqueta_campo = texto_etiqueta  # para ``habilitar``
 	if ayuda:
 		control.SetHelpText(ayuda)
 	if sizer is not None:

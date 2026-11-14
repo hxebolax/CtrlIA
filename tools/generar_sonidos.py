@@ -17,6 +17,10 @@ reconozca sin mirar:
 - ``compactado``: tres notas suaves que bajan, como algo que se pliega (el agente
   ha resumido la conversación para liberar memoria).
 - ``limite``: dos pulsos graves (te acercas al límite de uso de tu cuenta).
+- ``trabajando``: un latido muy suave y grave (el agente sigue trabajando).
+- ``servicio``: dos notas que vacilan (el servicio del agente tiene problemas y reintenta).
+- ``tarea_inicio``: dos toques que suben (empieza un subagente o una orden en segundo plano).
+- ``tarea_fin``: dos toques que bajan (termina un subagente o una orden en segundo plano).
 
 Si tienes tus propios sonidos, no hace falta tocar este archivo: ponlos en
 ``data/sounds/propios`` y elige el esquema «Propio» en Preferencias.
@@ -74,6 +78,10 @@ def main() -> None:
 	_escribir("detenido", _nota(587.33, 0.09, 0.3) + _nota(440, 0.16, 0.3))
 	_escribir("compactado", _nota(987.77, 0.06, 0.18) + _nota(783.99, 0.06, 0.18) + _nota(587.33, 0.12, 0.18))
 	_escribir("limite", _nota(293.66, 0.12, 0.35) + _silencio(0.08) + _nota(293.66, 0.18, 0.35))
+	_escribir("trabajando", _nota(220, 0.05, 0.12) + _silencio(0.06) + _nota(196, 0.06, 0.1))
+	_escribir("servicio", _nota(466.16, 0.09, 0.25) + _nota(440, 0.09, 0.25) + _nota(466.16, 0.09, 0.25) + _nota(415.3, 0.16, 0.25))
+	_escribir("tarea_inicio", _nota(659.25, 0.045, 0.18) + _silencio(0.02) + _nota(987.77, 0.06, 0.18))
+	_escribir("tarea_fin", _nota(987.77, 0.045, 0.18) + _silencio(0.02) + _nota(659.25, 0.07, 0.18))
 	print(f"Sonidos generados en {CARPETA}")
 
 

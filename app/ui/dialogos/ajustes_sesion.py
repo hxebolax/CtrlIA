@@ -1,4 +1,9 @@
-"""Diálogo «Opciones de la sesión»: título, modelo, esfuerzo, modo de permisos y, en Claude Code, estilo de las respuestas."""
+"""Diálogo «Opciones de la sesión»: título, modelo, esfuerzo, modo de permisos y, en Claude Code, estilo de las respuestas.
+
+Con los agentes que tienen ``Capacidades.instrucciones_sesion`` (1.6.0), también las instrucciones de la sesión y
+más carpetas de trabajo (``extra["instrucciones"]`` y ``extra["carpetas_adicionales"]``), que valen desde el
+mensaje siguiente. En ``cambios`` solo va lo que cambió.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +15,7 @@ import wx
 
 from app.services.agentes.base import OpcionLista
 from app.ui.accesibilidad.dialogos import crear_botonera, preparar_dialogo
-from app.ui.accesibilidad.nombres import crear_campo
+from app.ui.accesibilidad.nombres import crear_campo, habilitar
 from app.ui.comun import _
 
 log = logging.getLogger(__name__)
@@ -53,7 +58,7 @@ class DialogoAjustesSesion(wx.Dialog):
 		for control, opciones, actual in ((self.modelo, self._modelos, sesion.modelo), (self.esfuerzo, self._esfuerzos, sesion.esfuerzo),
 				(self.modo, self._modos, sesion.modo_permiso)):
 			control.SetSelection(next((i for i, o in enumerate(opciones) if o.id == actual), 0))
-			control.Enable(len(opciones) > 1)
+			habilitar(control, len(opciones) > 1)
 		self.modo.Bind(wx.EVT_CHOICE, lambda _e: self._ayuda_modo())
 		self._ayuda_modo()
 		from app.ui.dialogos.elegir_skills import PanelSkills
@@ -63,6 +68,20 @@ class DialogoAjustesSesion(wx.Dialog):
 			etiqueta_filtro=_("Categoría &de skills:"), etiqueta=_("&Skills de la sesión:"),
 			etiqueta_boton=_("&Ver y gestionar el catálogo de skills..."))
 		raiz.Add(self.panel_skills, 0, wx.EXPAND)
+		extra = getattr(sesion, "extra", None) or {}
+		self._instrucciones_antes = str(extra.get("instrucciones") or "")
+		carpetas = extra.get("carpetas_adicionales")
+		self._carpetas_antes = [str(c) for c in carpetas] if isinstance(carpetas, list) else []
+		self.panel_instrucciones = None
+		capacidades = getattr(proveedor, "capacidades", None)
+		if getattr(capacidades, "instrucciones_sesion", False):
+			from app.services.agentes import remoto
+			from app.ui.dialogos.nueva_sesion import PanelInstrucciones
+
+			self.panel_instrucciones = PanelInstrucciones(self, self._instrucciones_antes, self._carpetas_antes)
+			# Las carpetas de una sesión en otro equipo no se eligen desde Windows: se conservan como están.
+			self.panel_instrucciones.activar(True, carpetas=not remoto.es_remota(extra))
+			raiz.Add(self.panel_instrucciones, 0, wx.EXPAND)
 		raiz.Add(crear_botonera(self, wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 6)
 		self.SetSizerAndFit(raiz)
 		self.Bind(wx.EVT_BUTTON, lambda _e: self._aceptar(), id=wx.ID_OK)
@@ -98,7 +117,7 @@ class DialogoAjustesSesion(wx.Dialog):
 		self._modelos = modelos
 		self.modelo.Set([m.etiqueta for m in modelos])
 		self.modelo.SetSelection(next(i for i, m in enumerate(modelos) if m.id == actual.id))
-		self.modelo.Enable(len(modelos) > 1)
+		habilitar(self.modelo, len(modelos) > 1)
 
 	def _ayuda_modo(self) -> None:
 		indice = self.modo.GetSelection()
@@ -113,6 +132,13 @@ class DialogoAjustesSesion(wx.Dialog):
 			self.estilo.SetHelpText(self._estilos[indice].ayuda)
 
 	def _aceptar(self) -> None:
+		if self.panel_instrucciones is not None:
+			problema = self.panel_instrucciones.comprobar()
+			if problema:
+				from app.ui.accesibilidad.dialogos import mostrar_error
+
+				mostrar_error(self, problema, _("Opciones de la sesión"))
+				return
 		nuevos = {
 			"titulo": self.titulo.GetValue().strip() or self.sesion.titulo,
 			"modelo": self._modelos[self.modelo.GetSelection()].id,
@@ -127,4 +153,12 @@ class DialogoAjustesSesion(wx.Dialog):
 			estilo = self._estilos[self.estilo.GetSelection()].id
 			if estilo != str((getattr(self.sesion, "extra", None) or {}).get("estilo") or ""):
 				self.cambios["estilo"] = estilo
+		if self.panel_instrucciones is not None:
+			instrucciones, carpetas = self.panel_instrucciones.valores()
+			if not self.panel_instrucciones._carpetas_activas:  # noqa: SLF001 - sesión en otro equipo: no se tocan
+				carpetas = list(self._carpetas_antes)
+			if instrucciones != self._instrucciones_antes.strip():
+				self.cambios["instrucciones"] = instrucciones
+			if carpetas != self._carpetas_antes:
+				self.cambios["carpetas_adicionales"] = carpetas
 		self.EndModal(wx.ID_OK)

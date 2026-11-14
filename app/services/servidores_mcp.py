@@ -78,6 +78,8 @@ class ServidorMcp:
 	origen: str = ""
 	#: Qué se ejecuta o a qué dirección se conecta.
 	destino: str = ""
+	#: Desactivado solo para esta sesión de Ctrl+IA (``activar_mcp(..., solo_sesion=True)``).
+	solo_sesion: bool = False
 
 	@property
 	def estado_legible(self) -> str:
@@ -126,6 +128,26 @@ def lista_desde_claude(filas: Any) -> list[ServidorMcp]:
 	"""Todas las filas válidas de ``mcp_status``, en el orden en que llegan."""
 	servidores = [desde_claude(fila) for fila in filas or [] if isinstance(fila, dict)]
 	return [servidor for servidor in servidores if servidor is not None]
+
+
+#: Motivo de un servidor desactivado solo para una sesión de Ctrl+IA (``deniedMcpServers`` por ``--settings``).
+MOTIVO_SOLO_SESION = "desactivado solo en esta sesión de Ctrl+IA; tu configuración de Claude Code no ha cambiado"
+
+
+def con_denegados_de_sesion(servidores: list[ServidorMcp], denegados: Any) -> list[ServidorMcp]:
+	"""Los servidores con los desactivados solo para esta sesión marcados (y añadidos si Claude Code no los lista)."""
+	nombres = [n for n in denegados or [] if isinstance(n, str) and n]
+	if not nombres:
+		return servidores
+	resultado = []
+	for servidor in servidores:
+		if servidor.nombre in nombres:
+			servidor = ServidorMcp(servidor.nombre, "disabled", MOTIVO_SOLO_SESION, servidor.herramientas, servidor.origen,
+				servidor.destino, solo_sesion=True)
+		resultado.append(servidor)
+	listados = {s.nombre for s in resultado}
+	resultado += [ServidorMcp(n, "disabled", MOTIVO_SOLO_SESION, solo_sesion=True) for n in nombres if n not in listados]
+	return resultado
 
 
 def detalle(servidor: ServidorMcp) -> str:

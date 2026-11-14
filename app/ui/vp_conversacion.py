@@ -37,6 +37,31 @@ log = logging.getLogger(__name__)
 MAX_ANUNCIO = 4000
 
 
+def _insertado(antes: str, despues: str) -> str:
+	"""Lo que se ha metido en ``despues`` respecto a ``antes`` (el trozo entre lo común del principio y del final)."""
+	inicio = 0
+	limite = min(len(antes), len(despues))
+	while inicio < limite and antes[inicio] == despues[inicio]:
+		inicio += 1
+	fin = 0
+	while fin < limite - inicio and antes[len(antes) - 1 - fin] == despues[len(despues) - 1 - fin]:
+		fin += 1
+	return despues[inicio:len(despues) - fin]
+
+
+class SoltarArchivos(wx.FileDropTarget):
+	"""Archivos arrastrados del Explorador a la ventana: se adjuntan al próximo mensaje (FastChat)."""
+
+	def __init__(self, ventana: Any) -> None:
+		super().__init__()
+		self._ventana = ventana
+
+	def OnDropFiles(self, x: int, y: int, nombres: list[str]) -> bool:  # noqa: N802 - API de wx
+		del x, y
+		wx.CallAfter(self._ventana.adjuntar_rutas, [Path(n) for n in nombres])
+		return True
+
+
 class MixinConversacion:
 	"""Envío de mensajes, permisos y eventos de los agentes."""
 
@@ -60,6 +85,25 @@ class MixinConversacion:
 		self._agente_curioso = ""
 		self._temporizador_palabras = wx.Timer(self)
 		self.Bind(wx.EVT_TIMER, lambda _e: self._cambiar_palabra_curiosa(), self._temporizador_palabras)
+		#: Lectura por frases de cada respuesta que llega: (sesión, id del mensaje) → ``frases.LectorFrases``.
+		self._lectores_frases: dict[tuple[str, Any], Any] = {}
+		#: Sonido «trabajando» (BlindPilot): se mira cada segundo; suena cada «sonidos.segundos_trabajando».
+		self._ultimo_latido = 0.0
+		self._temporizador_trabajando = wx.Timer(self)
+		self.Bind(wx.EVT_TIMER, lambda _e: self._latido_trabajando(), self._temporizador_trabajando)
+		# Arranca en ``mostrar`` (como los demás temporizadores): una ventana que nunca se muestra no late.
+		#: Lo dictado o insertado de golpe en el cuadro de respuesta se lee al dejar de dictar (BlindPilot).
+		self._valor_respuesta = ""
+		self._dictado = ""
+		self._temporizador_dictado = wx.Timer(self)
+		self.Bind(wx.EVT_TIMER, lambda _e: self._leer_dictado(), self._temporizador_dictado)
+		self._pegando = False
+		# Una ventana destruida sin pasar por su cierre (las pruebas) no puede dejar temporizadores latiendo.
+		self.Bind(wx.EVT_WINDOW_DESTROY, self._parar_temporizadores_conversacion)
+		self.respuesta.Bind(wx.EVT_TEXT, self._al_cambiar_respuesta)
+		self.respuesta.Bind(wx.EVT_KEY_DOWN, self._al_tecla_respuesta)
+		for zona in (self.panel, self.respuesta, self.lista_mensajes):
+			zona.SetDropTarget(SoltarArchivos(self))
 
 	# ------------------------------------------------------------------
 	# Cuadro de respuesta
@@ -80,6 +124,47 @@ class MixinConversacion:
 			# Antes de leer los mensajes de la sesión (``abrir_sesion``): la lista ya llega sin ellos.
 			for _texto, id_mensaje in devueltos:
 				self.gestor.retirar_no_entregado(id_mensaje)
+
+	# ------------------------------------------------------------------
+	# Dictado (Windows+H) y lo insertado de golpe en el cuadro de respuesta
+	# ------------------------------------------------------------------
+
+	def _parar_temporizadores_conversacion(self, evento: wx.WindowDestroyEvent) -> None:
+		if evento.GetEventObject() is self:
+			for temporizador in (self._temporizador_trabajando, self._temporizador_dictado, self._temporizador_palabras):
+				temporizador.Stop()
+		evento.Skip()
+
+	def _al_tecla_respuesta(self, evento: wx.KeyEvent) -> None:
+		# Lo que pegas tú no se relee: el lector ya sabe qué has pegado.
+		if evento.GetModifiers() == wx.MOD_CONTROL and evento.GetKeyCode() == ord("V"):
+			self._pegando = True
+			wx.CallLater(300, setattr, self, "_pegando", False)
+		evento.Skip()
+
+	def _al_cambiar_respuesta(self, evento: wx.CommandEvent) -> None:
+		"""Un cambio de más de un carácter que no viene del teclado (el dictado de Windows) se acumula y se lee luego."""
+		evento.Skip()
+		valor = self.respuesta.GetValue()
+		antes, self._valor_respuesta = self._valor_respuesta, valor
+		# El dictado escribe donde está el foco: lo que pone el propio programa con el foco en otro sitio no se lee.
+		if not self.opcion("anuncios.releer_dictado", True) or self._pegando or wx.Window.FindFocus() is not self.respuesta:
+			self._dictado = ""
+			return
+		if len(valor) - len(antes) <= 1:
+			# Tecleo normal (o borrado): el lector ya lo dice; lo que esperaba leerse se olvida.
+			self._dictado = ""
+			self._temporizador_dictado.Stop()
+			return
+		insertado = _insertado(antes, valor)
+		if insertado.strip():
+			self._dictado += insertado
+			self._temporizador_dictado.StartOnce(1500)
+
+	def _leer_dictado(self) -> None:
+		texto, self._dictado = self._dictado.strip(), ""
+		if texto and self and not getattr(self, "_saliendo", False):
+			avisos.anunciar(texto[:1000])
 
 	def _devolver_al_cuadro(self, texto: str) -> None:
 		"""Pone delante del cuadro de respuesta un texto que no llegó al agente."""
@@ -130,10 +215,13 @@ class MixinConversacion:
 		if self._adjuntos:
 			eleccion = elegir_opcion(self, _("Hay {n} archivos adjuntos: {lista}").format(
 				n=len(self._adjuntos), lista=", ".join(a.ruta.name for a in self._adjuntos)),
-				_("Adjuntos"), [_("Añadir más"), _("Quitar todos")])
+				_("Adjuntos"), [_("Añadir más"), _("Quitar uno..."), _("Quitar todos")])
 			if eleccion is None:
 				return
 			if eleccion == 1:
+				self._quitar_un_adjunto()
+				return
+			if eleccion == 2:
 				self._adjuntos.clear()
 				avisos.anunciar(_("Adjuntos quitados."), interrumpir=True)
 				self.poner_estado("", 1)
@@ -142,12 +230,43 @@ class MixinConversacion:
 			if dialogo.ShowModal() != wx.ID_OK:
 				return
 			rutas = [Path(r) for r in dialogo.GetPaths()]
+		self.adjuntar_rutas(rutas)
+		self.ir_a_respuesta()
+
+	def adjuntar_rutas(self, rutas: list[Path]) -> int:
+		"""Prepara esos archivos para el próximo mensaje (sin repetir los ya adjuntos). Devuelve cuántos ha añadido."""
+		ya = {str(a.ruta).casefold() for a in self._adjuntos}
+		nuevos = 0
 		for ruta in rutas:
+			if not ruta.is_file() or str(ruta).casefold() in ya:
+				continue
 			tipo = mimetypes.guess_type(ruta.name)[0] or "application/octet-stream"
 			self._adjuntos.append(Adjunto(ruta, tipo))
-		avisos.anunciar(_("{n} adjuntos preparados. Se enviarán con tu próximo mensaje.").format(n=len(self._adjuntos)), interrumpir=True)
+			ya.add(str(ruta).casefold())
+			nuevos += 1
+		if nuevos == 1:
+			texto = _("Adjuntado {a}.").format(a=self._adjuntos[-1].ruta.name)
+		elif nuevos:
+			texto = _("{n} archivos adjuntados.").format(n=nuevos)
+		else:
+			texto = _("No se ha adjuntado nada: son carpetas o ya estaban adjuntos.")
+		avisos.anunciar(texto + " " + _("Hay {n} adjuntos; se enviarán con tu próximo mensaje.").format(n=len(self._adjuntos)),
+			interrumpir=True)
 		self._actualizar_estado_respuesta()
-		self.ir_a_respuesta()
+		return nuevos
+
+	def _quitar_un_adjunto(self) -> None:
+		nombres = [a.ruta.name for a in self._adjuntos]
+		eleccion = elegir_opcion(self, _("¿Qué adjunto quitas?"), _("Quitar un adjunto"), nombres)
+		if eleccion is None or not 0 <= eleccion < len(self._adjuntos):
+			return
+		quitado = self._adjuntos.pop(eleccion)
+		avisos.anunciar(_("Quitado {a}. Quedan {n} adjuntos.").format(a=quitado.ruta.name, n=len(self._adjuntos)),
+			interrumpir=True)
+		if self._adjuntos:
+			self._actualizar_estado_respuesta()
+		else:
+			self.poner_estado("", 1)
 
 	def accion_plantillas(self) -> None:
 		from app.ui.dialogos.plantillas import DialogoPlantillas
@@ -405,6 +524,7 @@ class MixinConversacion:
 		if not self.sesion_actual or not self.gestor.ocupada(self.sesion_actual):
 			avisos.anunciar(_("El agente no está trabajando."), interrumpir=True)
 			return
+		self._callar_frases(self.sesion_actual)
 		pendientes = self.gestor.detener(self.sesion_actual)
 		if pendientes:
 			actual = self.respuesta.GetValue()
@@ -449,6 +569,16 @@ class MixinConversacion:
 			if nuevas:
 				self._apuntar_fechas_reglas(clave, nuevas)
 		elegida = next((o.etiqueta for o in solicitud.opciones if o.id == respuesta.opcion), respuesta.opcion)
+		if solicitud.datos.get("pregunta_escrita"):
+			# La pregunta estaba escrita en la respuesta: lo contestado va como tu siguiente mensaje.
+			from app.services.preguntas_escritas import texto_respuesta
+
+			texto = texto_respuesta(solicitud, respuesta.respuestas, respuesta.mensaje) if respuesta.opcion == "responder" else ""
+			if texto and self.enviar_mensaje(clave, texto, anunciar=False):
+				avisos.anunciar(_("Respuesta enviada como tu mensaje."), interrumpir=True)
+			else:
+				avisos.anunciar(_("Pregunta cerrada sin enviar nada."), interrumpir=True)
+			return
 		avisos.anunciar(_("Respondido: {o}.").format(o=elegida), interrumpir=True)
 		restantes = self.gestor.solicitudes()
 		if restantes:
@@ -671,6 +801,14 @@ class MixinConversacion:
 				partes.append(_("Última acción: {h}.").format(h=turno["herramienta"]))
 		else:
 			partes.append(_("Estado: {e}.").format(e=nombre_estado(fila.estado if fila else "inactiva")))
+			if turno.get("duracion"):
+				partes.append(_("El último turno duró {d}.").format(d=duracion(turno["duracion"])))
+		actividad = self.gestor.actividad.resumen(self.sesion_actual)
+		if actividad:
+			partes.append(actividad + " " + _("Detalles con Control+Alt+A."))
+		revisiones = self._recuento_revisiones(self.sesion_actual)
+		if revisiones:
+			partes.append(revisiones)
 		conversacion = self.gestor.conversacion(self.sesion_actual, crear=False)
 		if conversacion is not None:
 			cola = getattr(conversacion, "_cola", None)
@@ -795,10 +933,32 @@ class MixinConversacion:
 		lineas.append(_("Para preguntar ahora tus límites de 5 horas y semanales de todos los agentes: Herramientas, "
 			"«Límites de uso de tus cuentas» (Control+Mayúsculas+Y)."))
 		lineas.append("")
-		lineas.append(_("Cuando el contexto se llena, el agente resume la conversación (la «compacta») y sigue trabajando."))
-		from app.ui.visor_ayuda import mostrar_documento
+		lineas.append(_("Cuando el contexto se llena, el agente resume la conversación (la «compacta») y sigue trabajando. "
+			"También puedes pedírselo con Sesión, «Compactar la conversación» (Control+Alt+K)."))
+		from app.ui.visor_ayuda import _abiertos, mostrar_documento
 
-		mostrar_documento(self, _("Uso de «{t}»").format(t=fila.titulo), "\n".join(lineas), forzar_texto=True)
+		titulo = _("Uso de «{t}»").format(t=fila.titulo)
+
+		def mostrar(desglose: Any = None) -> None:
+			texto = list(lineas)
+			if desglose:
+				# AIChat #555: en qué se va el contexto, parte por parte (Claude Code ``get_context_usage``).
+				parte = ["", "## " + _("En qué se va el contexto"), ""]
+				for nombre, tokens, nota in desglose:
+					parte.append(_("- {n}: {t} unidades de texto{a}.").format(n=nombre, t=tokens, a=f" ({nota})" if nota else ""))
+				texto[3:3] = parte + [""]  # tras la línea del contexto usado
+			anterior = _abiertos.get(titulo)
+			if anterior:
+				anterior.Close()  # el de antes tiene datos viejos
+			mostrar_documento(self, titulo, "\n".join(texto), forzar_texto=True)
+
+		conversacion = self.gestor.conversacion(fila.clave, crear=False) if fila.propia else None
+		proveedor = self.gestor.proveedor(fila.proveedor)
+		if conversacion is not None and proveedor is not None and proveedor.capacidades.desglose_contexto:
+			self.en_segundo_plano(conversacion.uso_contexto, al_terminar=mostrar,
+				al_fallar=lambda error: (log.info("Sin desglose del contexto: %s", error), mostrar()), clave="uso_contexto")
+			return
+		mostrar()
 
 	# ------------------------------------------------------------------
 	# Palabras curiosas en la barra de estado (#314)
@@ -880,7 +1040,9 @@ class MixinConversacion:
 			return
 		for guardado in self.almacen.mensajes(clave, id_mensaje - 1):
 			if guardado.id == id_mensaje:
-				if guardado.rol in ("herramienta", "razonamiento") and not self.opcion("mensajes.herramientas", True):
+				from app.services.gestor import es_de_herramientas
+
+				if es_de_herramientas(guardado.rol, guardado.datos) and not self.opcion("mensajes.herramientas", True):
 					return
 				self.anadir_o_actualizar_mensaje(self._vista_de(guardado))
 				return
@@ -920,17 +1082,25 @@ class MixinConversacion:
 			if clave == self.sesion_actual and not turno.get("escribiendo"):
 				turno["escribiendo"] = True
 				self.poner_estado(self._texto_escribiendo(agente), 0)
+			self._leer_por_frases(clave, fila, datos.get("id"), evento.texto)
 		elif tipo is TipoEvento.MENSAJE:
 			turno["escribiendo"] = False
 			self._texto_reciente[clave] = evento.texto
 			if self._debe_anunciar(clave) and self.opcion("anuncios.nivel", "completo") == "completo":
 				identificador = (clave, datos.get("id") or datos.get("id_mensaje"))
+				lector = self._lectores_frases.pop(identificador, None)
 				ya = self._anunciado.get(identificador, 0)
+				if lector is not None:
+					# Lo leído por frases ya se dijo: queda lo que faltaba (lo de después del último corte).
+					ya = max(ya, lector.consumido)
 				nuevo = evento.texto[ya:].strip()
 				self._anunciado[identificador] = len(evento.texto)
 				if nuevo:
-					avisos.anunciar(self._prefijo(clave, fila) + nuevo[:MAX_ANUNCIO])
+					avisos.anunciar(self._prefijo(clave, fila) + self._para_voz(nuevo)[:MAX_ANUNCIO])
+		elif tipo is TipoEvento.ACTIVIDAD:
+			self._al_actividad(clave, fila, datos)
 		elif tipo is TipoEvento.HERRAMIENTA:
+			self._soltar_frases(clave, fila)
 			turno["herramienta"] = evento.texto
 			if clave == self.sesion_actual:
 				self.poner_estado(evento.texto, 0)
@@ -967,10 +1137,20 @@ class MixinConversacion:
 			self._decision_revision(clave, fila, evento.texto, datos["revision_automatica"])
 		elif tipo is TipoEvento.AVISO and datos.get("herramienta_ctrlia"):
 			self._herramienta_ctrlia(clave, fila, agente, evento)
+		elif tipo is TipoEvento.AVISO and datos.get("uso_extra"):
+			# El agente gasta uso adicional DE PAGO: siempre se dice, como aviso importante.
+			avisos.sonar("limite")
+			avisos.notificar(self._prefijo(clave, fila) + evento.texto, _("Uso adicional de pago"), padre=self)
+			avisos.notificacion_sistema(_("{a}: uso adicional de pago").format(a=agente), evento.texto[:200], al_pulsar=self._llevar_a(clave))
 		elif tipo is TipoEvento.AVISO:
 			if datos.get("compactado"):
 				avisos.sonar("compactado")
-			if self._debe_anunciar(clave) and not datos.get("en_cola"):
+			if datos.get("servicio"):
+				avisos.sonar("servicio")
+			if datos.get("compactando") and clave == self.sesion_actual:
+				self.poner_estado(evento.texto, 0)
+			callar = datos.get("memoria_guardada") and self.opcion("anuncios.nivel", "completo") != "completo"
+			if self._debe_anunciar(clave) and not datos.get("en_cola") and not callar:
 				avisos.anunciar(self._prefijo(clave, fila) + evento.texto)
 		elif tipo is TipoEvento.PERMISO_RETIRADO:
 			if clave == self.sesion_actual:
@@ -979,7 +1159,7 @@ class MixinConversacion:
 			avisos.sonar("error")
 			avisos.notificar(self._prefijo(clave, fila) + evento.texto, _("Error de {a}").format(a=agente), padre=self)
 			if self.opcion("notificaciones.modo", "te_necesita") != "nunca":
-				avisos.notificacion_sistema(_("Error de {a}").format(a=agente), evento.texto[:200])
+				avisos.notificacion_sistema(_("Error de {a}").format(a=agente), evento.texto[:200], al_pulsar=self._llevar_a(clave))
 			if datos.get("sin_transcripcion"):
 				wx.CallAfter(self.ofrecer_seguir_con_contexto, clave)
 		elif tipo is TipoEvento.USO:
@@ -1015,7 +1195,7 @@ class MixinConversacion:
 				avisos.anunciar(texto)
 			if not avisos.aplicacion_activa():
 				avisos.sonar("permiso")
-				avisos.notificacion_sistema(titulo, texto[:200])
+				avisos.notificacion_sistema(titulo, texto[:200], al_pulsar=self._llevar_a(clave))
 		elif accion == "dar_por_terminada":
 			avisos.anunciar(texto)
 			if self.gestor.ocupada(clave):
@@ -1084,16 +1264,41 @@ class MixinConversacion:
 		avisos.notificar(_("En «{t}»: {m}").format(t=fila.titulo if fila else "", m=motivo), _("Mensaje sin confirmar"), padre=self)
 
 	def _decision_revision(self, clave: str, fila: FilaSesion | None, texto: str, revision: dict[str, Any]) -> None:
-		"""Codex ha decidido una petición por sí mismo porque así lo eligió la persona: siempre se dice, sea cual sea la sesión.
+		"""Codex ha decidido una petición por sí mismo porque así lo eligió la persona.
 
-		Lo que no se permitió, además, se notifica: el agente se queda sin hacer algo que
-		quizá esperabas (se puede cambiar de modo y pedírselo otra vez).
+		Lo permitido es rutina (AIChat #564: un turno con 30 órdenes daba 30 anuncios y la respuesta quedaba
+		enterrada): solo se dice con «Mostrar las herramientas» (Ctrl+T), como una acción más, y el Estado del
+		turno da los recuentos. Lo que no se permitió se dice siempre, una vez y sin cortar lo que estés oyendo:
+		el agente se queda sin hacer algo que quizá esperabas (se puede cambiar de modo y pedírselo otra vez).
+		Todas siguen en Permisos de la sesión y en Listas, «Aprobaciones».
 		"""
 		if str(revision.get("estado") or "") == "approved":
-			avisos.anunciar(self._prefijo(clave, fila) + texto)
+			if self.opcion("mensajes.herramientas", True) and self._debe_anunciar(clave) \
+					and self.opcion("anuncios.herramientas", False):
+				avisos.anunciar(self._prefijo(clave, fila) + texto)
 			return
-		avisos.sonar("permiso")
-		avisos.notificar(self._prefijo(clave, fila) + texto, _("Revisión automática de Codex"), padre=self)
+		avisos.sonar("aviso")
+		avisos.anunciar(self._prefijo(clave, fila) + texto)
+		avisos.notificacion_sistema(_("Revisión automática de Codex"), texto[:200], al_pulsar=self._llevar_a(clave))
+
+	def _recuento_revisiones(self, clave: str) -> str:
+		"""«12 peticiones permitidas automáticamente. 1 no permitida.» de la revisión automática de Codex («» si no hubo)."""
+		try:
+			decisiones = self.gestor.revisiones_automaticas(clave)
+		except Exception:  # noqa: BLE001 - el recuento es un extra del Estado del turno
+			log.debug("No se pudieron contar las decisiones de la revisión automática", exc_info=True)
+			return ""
+		if not decisiones:
+			return ""
+		estados = [str((mensaje.datos.get("revision_automatica") or {}).get("estado") or "") for mensaje in decisiones]
+		permitidas = sum(1 for e in estados if e == "approved")
+		otras = len(estados) - permitidas
+		partes = []
+		if permitidas:
+			partes.append(_("{n} peticiones permitidas automáticamente.").format(n=permitidas))
+		if otras:
+			partes.append(_("{n} no permitidas.").format(n=otras))
+		return " ".join(partes)
 
 	def _peticion_repetida(self, clave: str, solicitud: SolicitudPermiso) -> bool:
 		"""Si esa sesión espera otra petición igual (misma herramienta y título) que ya se avisó."""
@@ -1116,9 +1321,114 @@ class MixinConversacion:
 			a=agente, s=titulo, t=solicitud.titulo)
 		avisos.notificar(texto, _("{a} te necesita").format(a=agente), padre=self)
 		if self.opcion("notificaciones.modo", "te_necesita") != "nunca":
-			avisos.notificacion_sistema(_("{a} te necesita").format(a=agente), "{s}: {t}".format(s=titulo, t=solicitud.titulo))
+			avisos.notificacion_sistema(_("{a} te necesita").format(a=agente), "{s}: {t}".format(s=titulo, t=solicitud.titulo), al_pulsar=self._llevar_a(clave))
 		if clave == self.sesion_actual:
 			self.actualizar_barra_estado()
+
+	# ------------------------------------------------------------------
+	# La respuesta, para la voz: sin formato y por frases mientras llega
+	# ------------------------------------------------------------------
+
+	def _para_voz(self, texto: str) -> str:
+		"""El texto del agente como se dice: sin marcas de Markdown y, si se pide, sin el código (Preferencias, Anuncios)."""
+		if not self.opcion("anuncios.quitar_formato", True):
+			return texto
+		from app.services.frases import para_voz
+
+		return para_voz(texto, self.opcion("anuncios.codigo_en_voz", "leer") == "avisar") or texto
+
+	def _leer_por_frases(self, clave: str, fila: FilaSesion | None, identificador: Any, trozo: str) -> None:
+		"""Con «Leer la respuesta mientras llega», dice cada frase en cuanto está completa (BlindPilot)."""
+		if (not trozo or not self.opcion("anuncios.leer_mientras_llega", False) or not self._debe_anunciar(clave)
+				or self.opcion("anuncios.nivel", "completo") != "completo"):
+			return
+		from app.services.frases import LectorFrases
+
+		marca = (clave, identificador)
+		lector = self._lectores_frases.get(marca)
+		if lector is None:
+			# Las frases salen siempre sin marcas de Markdown: a trozos, «**» o «|» solo estorban al oído.
+			lector = self._lectores_frases[marca] = LectorFrases(self.opcion("anuncios.codigo_en_voz", "leer") == "avisar")
+			lector.primera = True
+		for frase in lector.anadir(trozo):
+			# Sin interrumpir, como la respuesta entera: nunca corta lo que estés oyendo.
+			avisos.anunciar(((self._prefijo(clave, fila) if lector.primera else "") + frase)[:MAX_ANUNCIO])
+			lector.primera = False
+
+	def _soltar_frases(self, clave: str, fila: FilaSesion | None) -> None:
+		"""Lo que quedaba por decir de la respuesta (al empezar una herramienta o terminar el turno)."""
+		for marca in [m for m in self._lectores_frases if m[0] == clave]:
+			lector = self._lectores_frases[marca]
+			resto = lector.terminar()
+			if resto:
+				avisos.anunciar(((self._prefijo(clave, fila) if lector.primera else "") + resto)[:MAX_ANUNCIO])
+				lector.primera = False
+			# El mensaje entero llegará después: ``_anunciado`` evita repetir lo ya dicho.
+			self._anunciado[marca] = max(self._anunciado.get(marca, 0), lector.consumido)
+			del self._lectores_frases[marca]
+
+	def _callar_frases(self, clave: str) -> None:
+		"""Se ha detenido: lo que faltaba por leer ya no se dice."""
+		for marca in [m for m in self._lectores_frases if m[0] == clave]:
+			lector = self._lectores_frases.pop(marca)
+			lector.callar()
+			self._anunciado[marca] = max(self._anunciado.get(marca, 0), lector.consumido)
+
+	# ------------------------------------------------------------------
+	# Actividad en segundo plano y sonido de «trabajando»
+	# ------------------------------------------------------------------
+
+	def _al_actividad(self, clave: str, fila: FilaSesion | None, datos: dict[str, Any]) -> None:
+		"""Un subagente o una orden en segundo plano empieza, avanza o termina."""
+		cambio = datos.get("_cambio")
+		if cambio is None:
+			return
+		tarea = cambio.tarea
+		anunciar = self._debe_anunciar(clave) and self.opcion("anuncios.actividad", True)
+		if cambio.empezada:
+			avisos.sonar("tarea_inicio")
+			if anunciar:
+				avisos.anunciar(self._prefijo(clave, fila) + _("Empieza: {t}.").format(t=tarea.nombre()))
+		elif cambio.terminada:
+			avisos.sonar("tarea_fin" if tarea.estado == "completada" else "error" if tarea.estado == "fallida" else "detenido")
+			if anunciar:
+				textos = {"completada": _("Ha terminado: {t}."), "fallida": _("Ha fallado: {t}."), "detenida": _("Se ha detenido: {t}.")}
+				avisos.anunciar(self._prefijo(clave, fila) + textos.get(tarea.estado, textos["completada"]).format(t=tarea.nombre()))
+		elif tarea.en_marcha and tarea.paso and clave == self.sesion_actual:
+			self.poner_estado(_("{t}: {p}").format(t=tarea.nombre(), p=tarea.paso), 0)
+
+	def _latido_trabajando(self) -> None:
+		"""Cada pocos segundos, un toque suave mientras el agente de la sesión abierta trabaja sin pedirte nada."""
+		if not self or getattr(self, "_saliendo", False):
+			return
+		clave = self.sesion_actual
+		if not clave or not avisos.sonido_activo("trabajando"):
+			return
+		if not self.gestor.ocupada(clave) or self.gestor.solicitudes(clave):
+			return
+		turno = self._turnos.get(clave) or {}
+		ahora = time.time()
+		intervalo = max(2, int(self.opcion("sonidos.segundos_trabajando", 10) or 10))
+		if ahora - float(turno.get("inicio") or ahora) < intervalo or ahora - self._ultimo_latido < intervalo:
+			return
+		if avisos.segundos_desde_ultimo_sonido() < 1.5:
+			return  # un sonido que acaba de empezar no se corta (Windows solo suena uno a la vez)
+		self._ultimo_latido = ahora
+		avisos.sonar("trabajando")
+
+	def _llevar_a(self, clave: str):
+		"""Lo que hace pulsar una notificación de Windows: trae Ctrl+IA y abre la sesión que avisó (BlindPilot)."""
+
+		def ir() -> None:
+			if not self or getattr(self, "_saliendo", False):
+				return
+			self.restaurar()
+			if clave != self.sesion_actual and self.fila_de(clave) is not None:
+				self.abrir_sesion(clave)
+			if self.gestor.solicitudes(clave):
+				wx.CallLater(700, avisos.anunciar, _("Te espera una respuesta: pulsa Control+Mayúsculas+A."), True)
+
+		return lambda: wx.CallAfter(ir)
 
 	def _comprobar_contexto(self, clave: str, fila: FilaSesion | None) -> None:
 		uso = self.gestor.uso(clave)
@@ -1137,6 +1447,14 @@ class MixinConversacion:
 		datos = evento.datos
 		turno = self._turnos.get(clave, {})
 		turno["escribiendo"] = False
+		if datos.get("interrumpido"):
+			self._callar_frases(clave)
+		else:
+			self._soltar_frases(clave, fila)
+		if turno.get("inicio"):
+			# «Hecho en 12 segundos» (FastChat): en el Estado del turno y en la barra de estado.
+			turno["duracion"] = time.time() - float(turno["inicio"])
+			turno["fin"] = time.time()
 		self._texto_reciente.pop(clave, None)
 		correcto = bool(datos.get("correcto"))
 		if datos.get("interrumpido"):
@@ -1150,7 +1468,7 @@ class MixinConversacion:
 			if nivel == "resumen" or (nivel == "completo" and not self._debe_anunciar(clave)):
 				avisos.anunciar(_("{a} ha respondido en «{t}».").format(a=agente, t=fila.titulo if fila else ""))
 			if self.opcion("notificaciones.modo", "te_necesita") == "todas":
-				avisos.notificacion_sistema(_("{a} ha terminado").format(a=agente), fila.titulo if fila else "")
+				avisos.notificacion_sistema(_("{a} ha terminado").format(a=agente), fila.titulo if fila else "", al_pulsar=self._llevar_a(clave))
 			if nivel != "silencio" and self._debe_anunciar(clave):
 				self._anunciar_hallazgos(clave, fila)
 		if fila is not None:

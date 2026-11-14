@@ -180,6 +180,45 @@ def _emitir(texto: str, interrumpir: bool, solo_braille: bool = False, siempre: 
 				log.debug("La salida activa no admite braille.", exc_info=True)
 	except Exception:
 		log.exception("Error al enviar un anuncio al lector de pantalla.")
+		# Un lector que se reinicia (JAWS da RPC_E_DISCONNECTED) deja la salida inservible: se crea otra y se
+		# repite la frase una vez, como mucho cada pocos segundos (BlindPilot).
+		if _reconectar():
+			nueva = _obtener_salida()
+			if nueva is not None and not solo_braille:
+				try:
+					nueva.speak(texto, interrupt=interrumpir)
+				except Exception:  # noqa: BLE001 - si tampoco, queda en el registro y en el historial
+					log.warning("El lector de pantalla sigue sin responder tras reconectar.", exc_info=True)
+
+
+#: Segundos mínimos entre dos reconexiones con el lector.
+_ESPERA_RECONECTAR = 5.0
+_ultima_reconexion = [0.0]
+
+
+def _reconectar() -> bool:
+	"""Vuelve a crear la salida de voz (``True`` si se intentó)."""
+	global _salida, _salida_intentada
+	ahora = time.monotonic()
+	if ahora - _ultima_reconexion[0] < _ESPERA_RECONECTAR:
+		return False
+	_ultima_reconexion[0] = ahora
+	with _candado_salida:
+		_salida = None
+		_salida_intentada = False
+	log.info("Reconectando con el lector de pantalla.")
+	return True
+
+
+def callar() -> None:
+	"""Corta lo que esté diciendo la voz de Windows de Ctrl+IA (la tecla Control; con un lector, lo hace él)."""
+	salida = _salida
+	if salida is None or not _es_voz_de_windows(salida):
+		return
+	try:
+		salida.silence()
+	except Exception:  # noqa: BLE001 - callar es un extra
+		log.debug("No se pudo callar la voz de Windows.", exc_info=True)
 
 
 def _trabajador() -> None:

@@ -658,8 +658,39 @@ def abrir_manual(padre: wx.Window | None, **opciones) -> VisorAyuda | None:
 	return abrir_documento(padre, documentacion.MANUAL, _("Manual de uso"), **opciones)
 
 
-def abrir_teclas(padre: wx.Window | None, **opciones) -> VisorAyuda | None:
-	return abrir_documento(padre, documentacion.TECLAS, _("Teclas de la aplicación"), **opciones)
+def con_atajos_cambiados(markdown: str, cambiadas: list[str]) -> str:
+	"""La lista de teclas con, al principio, la sección «Tus atajos cambiados» (antes del primer apartado)."""
+	if not cambiadas:
+		return markdown
+	seccion = "\n".join([
+		"## " + _("Tus atajos cambiados"),
+		"",
+		_("Has cambiado estas teclas en Herramientas, «Atajos de teclado». Más abajo, la lista dice las de fábrica."),
+		"",
+		*(f"- {linea}" for linea in cambiadas),
+		"",
+		"",
+	])
+	coincidencia = re.search(r"^## ", markdown, flags=re.MULTILINE)
+	if coincidencia is None:
+		return markdown.rstrip("\n") + "\n\n" + seccion
+	return markdown[:coincidencia.start()] + seccion + markdown[coincidencia.start():]
+
+
+def abrir_teclas(padre: wx.Window | None, cambiadas: list[str] | None = None, **opciones) -> VisorAyuda | None:
+	"""La lista de teclas (Ctrl+F1); con ``cambiadas``, empieza por «Tus atajos cambiados»."""
+	if not cambiadas:
+		return abrir_documento(padre, documentacion.TECLAS, _("Teclas de la aplicación"), **opciones)
+	texto = documentacion.leer_documento(documentacion.TECLAS)
+	if texto is None:
+		return abrir_documento(padre, documentacion.TECLAS, _("Teclas de la aplicación"), **opciones)
+	titulo = documentacion.titulo_de(texto, _("Teclas de la aplicación"))
+	existente = _abiertos.get(titulo)
+	if existente:
+		# Puede estar abierto con otros cambios: se cierra y se abre de nuevo al día.
+		existente.Destroy()
+		_abiertos.pop(titulo, None)
+	return mostrar_documento(padre, titulo, con_atajos_cambiados(texto, cambiadas), **opciones)
 
 
 def abrir_novedades(padre: wx.Window | None, **opciones) -> VisorAyuda | None:

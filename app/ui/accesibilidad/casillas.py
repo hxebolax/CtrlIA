@@ -90,6 +90,12 @@ class _AccesibleCasillas(wx.Accessible):
 		super().__init__(control)
 		self._control = control
 
+	def GetFocus(self):  # noqa: N802 - API de wx
+		"""Con el foco en la lista, «la propia lista»: así NVDA no lee dos veces la casilla al llegar con Tab."""
+		from app.ui.accesibilidad.nombres import foco_en_la_lista
+
+		return foco_en_la_lista(self)
+
 	def GetRole(self, childId: int):  # noqa: N802,N803 - API de wx
 		if childId == 0:
 			return super().GetRole(childId)

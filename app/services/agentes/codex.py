@@ -30,20 +30,26 @@ import collections
 import itertools
 import json
 import logging
+import ntpath
+import tomllib
 import os
 import posixpath
 import re
 import shlex
 import shutil
+import stat
 import threading
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from app.core.version import APP_VERSION
+from app.services import mensajes_largos
 from app.services.agentes import elicitacion, remoto
 from app.services.agentes.base import (
+	MAX_INSTRUCCIONES,
 	NOTA_SIN_CONFIRMAR,
 	Adjunto,
 	AjustesSesion,
@@ -105,6 +111,54 @@ TEXTO_NO_ADMITIDO = "Ctrl+IA no admite esta petición"
 ERROR_PETICION_INVALIDA = -32600
 #: Peticiones del servidor que no son para la persona: se rechazan sin avisar.
 PETICIONES_SIN_PERSONA = frozenset({"item/tool/call", "account/chatgptAuthTokens/refresh", "attestation/generate"})
+#: Peticiones que sí son para la persona: las únicas que se le pueden pasar desde un subagente.
+PETICIONES_PERSONA = frozenset({
+	"item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/tool/requestUserInput",
+	"item/permissions/requestApproval", "mcpServer/elicitation/request", "execCommandApproval", "applyPatchApproval",
+})
+#: Saltos como mucho al subir de un subagente a la conversación que lo lanzó (AIChat #521).
+MAX_SALTOS_SUBAGENTE = 32
+#: Peticiones de subagentes que se comprueban a la vez (cada una en su hilo; las demás se rechazan).
+MAX_TRABAJADORES_SUBAGENTES = 8
+#: Cambios de archivos de subagentes que se recuerdan para enseñar su diff si piden permiso.
+MAX_CAMBIOS_HIJOS = 128
+#: Orígenes de hilo que se listan (``ThreadSourceKind``, codex-cli 0.167): todos los de la persona, sin subagentes.
+FUENTES_HILOS = ("cli", "vscode", "exec", "appServer", "unknown")
+#: Opción de configuración (no está en Preferencias): preguntas de Codex también fuera del modo Plan (punto 13 de 1.6.0).
+CLAVE_PREGUNTAS = "agentes.preguntas_codex"
+#: Lo que se dice de un hilo que Codex ya no tiene (AIChat, codex_owned ``_thread_gone``).
+MENSAJE_HILO_DESAPARECIDO = "Codex ya no tiene esta conversación; puedes borrarla de la lista."
+#: Clave de las instrucciones de la sesión en ``additionalContext`` de ``turn/start`` (AIChat usa ``tcp_chat_instructions``).
+CLAVE_INSTRUCCIONES = "ctrlia_instrucciones"
+#: Segundos mínimos entre dos trozos de salida de una misma orden en marcha (``ACTIVIDAD``).
+INTERVALO_SALIDA = 0.5
+#: Caracteres de salida de una orden en marcha que se pasan, como mucho, en vivo.
+MAX_SALIDA_VIVA = 20000
+#: Terminales en segundo plano por página (el protocolo admite hasta 100).
+LIMITE_TERMINALES = 100
+#: Caracteres como mucho de una pregunta aparte (con todo lo que se le añade).
+MAX_PREGUNTA_APARTE = 32000
+#: Funciones que se apagan en la copia de «Preguntar aparte» (las que existen en codex-cli 0.167; ``js_repl`` ya no).
+FUNCIONES_APAGADAS_APARTE = ("hooks", "goals", "memories", "shell_tool", "unified_exec", "multi_agent")
+#: Segundos que espera «Preguntar aparte» a que Codex termine de contestar.
+TIEMPO_APARTE = 300.0
+#: Elementos de ``input`` como mucho en un mensaje (el texto y 20 más: imágenes y skills).
+MAX_ELEMENTOS_ENTRADA = 21
+#: Segundos que se espera el inicio de sesión de un servidor MCP (``mcpServer/oauth/login``).
+SEGUNDOS_OAUTH_MCP = 180
+#: Lo que se dice si se pide compactar con ajustes cambiados que aún no ha recibido Codex (AIChat).
+MENSAJE_AJUSTES_PENDIENTES = ("Has cambiado los ajustes de esta sesión: envía antes un mensaje normal para que Codex los "
+	"reciba y luego compacta.")
+#: Comandos de barra que Ctrl+IA atiende para Codex (nombre, descripción).
+COMANDOS_CODEX: tuple[tuple[str, str], ...] = (
+	("/compact", "Compacta ahora el contexto de esta conversación."),
+	("/plan", "Cambia entre el modo Plan (Codex propone un plan antes de cambiar nada) y el predeterminado."),
+	("/memories on", "Deja que esta conversación use las memorias de Codex y aporte a ellas."),
+	("/memories off", "Desactiva las memorias de Codex en esta conversación."),
+	("/goal", "Dice el objetivo de Codex de esta conversación y lo que lleva gastado."),
+	("/goal pause", "Pone en pausa el objetivo; el turno en marcha puede terminar."),
+	("/goal clear", "Quita el objetivo."),
+)
 
 
 class ErrorCodex(Exception):
@@ -117,13 +171,15 @@ class ErrorCodex(Exception):
 	"""
 
 	def __init__(self, mensaje: str, codigo: int | None = None, *, muerto: bool = False, tiempo_agotado: bool = False,
-			sin_enviar: bool = False) -> None:
+			sin_enviar: bool = False, hilo_desaparecido: bool = False) -> None:
 		super().__init__(mensaje)
 		self.mensaje = mensaje
 		self.codigo = codigo
 		self.muerto = muerto
 		self.tiempo_agotado = tiempo_agotado
 		self.sin_enviar = sin_enviar
+		#: Codex ya no tiene el hilo (confirmado con ``thread/list``): no tiene sentido reintentarlo.
+		self.hilo_desaparecido = hilo_desaparecido
 
 
 # --------------------------------------------------------------------------
@@ -420,6 +476,13 @@ class _ServidorCodex:
 		self._hilos: dict[str, ConversacionCodex] = {}
 		self._candado = threading.Lock()
 		self._al_morir = al_morir
+		#: Peticiones de subagentes que se están comprobando: id de la petición (como texto) → hilo del subagente.
+		self._hijas_pendientes: dict[str, str] = {}
+		#: Peticiones de subagentes pasadas a una conversación: id → (hilo del subagente, conversación).
+		self._hijas: dict[str, tuple[str, ConversacionCodex]] = {}
+		self._trabajadores = threading.BoundedSemaphore(MAX_TRABAJADORES_SUBAGENTES)
+		#: Cambios de archivos de los subagentes ((hilo, item) → cambios), para el diff de su petición de permiso.
+		self._cambios_hijos: collections.OrderedDict[tuple[str, str], list[dict[str, Any]]] = collections.OrderedDict()
 		self.muerto = False
 		self.codigo_salida: int | None = None
 		self.info: dict[str, Any] = {}
@@ -569,9 +632,9 @@ class _ServidorCodex:
 			if conversacion is not None:
 				conversacion._al_notificacion(metodo, params)  # noqa: SLF001 - reparto interno del módulo
 			else:
-				log.debug("Notificación %s de un hilo que no es nuestro", metodo)
+				self._notificacion_ajena(metodo, params, str(id_hilo))
 			return
-		if metodo in ("account/rateLimits/updated", "warning", "mcpServer/startupStatus/updated"):
+		if metodo in ("account/rateLimits/updated", "warning", "mcpServer/startupStatus/updated", "mcpServer/oauthLogin/completed"):
 			for conversacion in self._todas():
 				conversacion._al_notificacion(metodo, params)  # noqa: SLF001
 		elif metodo in ("configWarning", "deprecationNotice"):
@@ -582,11 +645,111 @@ class _ServidorCodex:
 	def _peticion_servidor(self, identificador: Any, metodo: str, params: dict[str, Any]) -> None:
 		id_hilo = params.get("threadId") or params.get("conversationId") if isinstance(params, dict) else None
 		conversacion = self._conversacion(id_hilo)
-		if conversacion is None:
-			log.warning("Codex pidió %s para un hilo desconocido; se rechaza", metodo)
-			self.responder_error(identificador, ERROR_NO_ADMITIDO, TEXTO_NO_ADMITIDO)
+		if conversacion is not None:
+			conversacion._al_peticion(identificador, metodo, params)  # noqa: SLF001
 			return
-		conversacion._al_peticion(identificador, metodo, params)  # noqa: SLF001
+		if isinstance(id_hilo, str) and id_hilo and metodo in PETICIONES_PERSONA and self._trabajadores.acquire(blocking=False):
+			# Puede ser de un subagente: se comprueba en otro hilo, porque hay que preguntar a Codex (AIChat #521).
+			with self._candado:
+				self._hijas_pendientes[str(identificador)] = id_hilo
+			_en_hilo(self._dirigir_hija, identificador, metodo, params, id_hilo, nombre="codex-subagente")
+			return
+		log.warning("Codex pidió %s para un hilo desconocido; se rechaza", metodo)
+		self.responder_error(identificador, ERROR_NO_ADMITIDO, TEXTO_NO_ADMITIDO)
+
+	# -- Subagentes (AIChat #521) ---------------------------------------------
+
+	def _antepasado(self, id_hilo: str) -> ConversacionCodex | None:
+		"""La conversación nuestra de la que desciende ``id_hilo`` (``thread/read`` → ``parentThreadId``).
+
+		Bloquea (pregunta a Codex): nunca desde el hilo lector. ``None`` si la cadena no se puede
+		comprobar o no llega a ninguna conversación de este proceso.
+		"""
+		actual = id_hilo
+		vistos: set[str] = set()
+		for _salto in range(MAX_SALTOS_SUBAGENTE):
+			conversacion = self._conversacion(actual)
+			if conversacion is not None:
+				return conversacion
+			if actual in vistos:
+				return None
+			vistos.add(actual)
+			respuesta = self.peticion("thread/read", {"threadId": actual, "includeTurns": False}) or {}
+			hilo = respuesta.get("thread") if isinstance(respuesta, dict) else None
+			if not isinstance(hilo, dict) or hilo.get("id") != actual:
+				return None
+			padre = hilo.get("parentThreadId")
+			if not isinstance(padre, str) or not padre:
+				return None
+			actual = padre
+		return None
+
+	def _dirigir_hija(self, identificador: Any, metodo: str, params: dict[str, Any], id_hilo: str) -> None:
+		"""Pasa la petición de un subagente a la conversación que lo lanzó, si tiene un turno en marcha; si no, la rechaza."""
+		clave = str(identificador)
+		dirigida = False
+		try:
+			conversacion = self._antepasado(id_hilo)
+			if conversacion is not None:
+				with self._candado:
+					sigue = clave in self._hijas_pendientes
+					if sigue:
+						self._hijas[clave] = (id_hilo, conversacion)
+				if not sigue:
+					return  # Codex la retiró mientras se comprobaba
+				item = str(params.get("itemId") or "")
+				with self._candado:
+					cambios = list(self._cambios_hijos.get((id_hilo, item), []))
+				dirigida = conversacion._al_peticion_hija(identificador, metodo, params, id_hilo, cambios)  # noqa: SLF001
+				with self._candado:
+					retirada = clave not in self._hijas
+					if not dirigida:
+						self._hijas.pop(clave, None)
+				if dirigida and retirada:
+					# Codex la retiró mientras se enseñaba: que no se quede esperando una respuesta que ya no vale.
+					conversacion._hija_resuelta(clave)  # noqa: SLF001
+		except ErrorCodex:
+			log.info("No se pudo comprobar de quién es el subagente %s", id_hilo, exc_info=True)
+		except Exception:  # noqa: BLE001 - un fallo aquí no debe dejar la petición sin contestar
+			log.exception("Fallo al dirigir la petición de un subagente de Codex")
+		finally:
+			with self._candado:
+				pendiente = self._hijas_pendientes.pop(clave, None) is not None
+			self._trabajadores.release()
+			if not dirigida and pendiente:
+				log.info("Petición %s de un hilo que no es de ninguna conversación con turno en marcha; se rechaza", metodo)
+				self.responder_error(identificador, ERROR_NO_ADMITIDO, TEXTO_NO_ADMITIDO)
+
+	def _notificacion_ajena(self, metodo: str, params: dict[str, Any], id_hilo: str) -> None:
+		"""Notificación de un hilo que no es de ninguna conversación (un subagente, normalmente). Hilo lector."""
+		if metodo == "serverRequest/resolved":
+			clave = str(params.get("requestId"))
+			with self._candado:
+				self._hijas_pendientes.pop(clave, None)
+				dirigida = self._hijas.pop(clave, None)
+			if dirigida is not None and dirigida[0] == id_hilo:
+				dirigida[1]._hija_resuelta(clave)  # noqa: SLF001
+		elif metodo == "turn/completed":
+			# El turno del subagente acabó: lo que pidió ya no espera respuesta.
+			with self._candado:
+				acabadas = [(clave, conv) for clave, (hilo, conv) in self._hijas.items() if hilo == id_hilo]
+				for clave, _conv in acabadas:
+					self._hijas.pop(clave, None)
+				# Las que aún se comprueban ya no se pasan a nadie (Codex las da por terminadas).
+				for clave in [c for c, hilo in self._hijas_pendientes.items() if hilo == id_hilo]:
+					self._hijas_pendientes.pop(clave, None)
+			for clave, conversacion in acabadas:
+				conversacion._hija_resuelta(clave)  # noqa: SLF001
+		elif metodo in ("item/started", "item/completed"):
+			item = params.get("item")
+			if isinstance(item, dict) and item.get("type") == "fileChange" and item.get("id"):
+				cambios = [c for c in item.get("changes") or [] if isinstance(c, dict)]
+				with self._candado:
+					self._cambios_hijos[(id_hilo, str(item["id"]))] = cambios
+					while len(self._cambios_hijos) > MAX_CAMBIOS_HIJOS:
+						self._cambios_hijos.popitem(last=False)
+		else:
+			log.debug("Notificación %s de un hilo que no es nuestro", metodo)
 
 	def _al_terminar(self, codigo: int | None) -> None:
 		with self._candado:
@@ -621,6 +784,8 @@ class _Pendiente:
 	metodo: str
 	params: dict[str, Any]
 	solicitud: SolicitudPermiso
+	#: Hilo del subagente que la pidió («» si es de la propia conversación).
+	origen: str = ""
 
 
 class ConversacionCodex(Conversacion):
@@ -656,6 +821,29 @@ class ConversacionCodex(Conversacion):
 		self._aviso_sandbox_dado = False
 		#: Ya se avisó de que el revisor del hilo no es el del modo elegido (una vez por sesión).
 		self._aviso_revisor_dado = False
+		#: Solo un hilo abre o retoma el *thread* a la vez (un turno y un comando de barra pueden coincidir).
+		self._candado_hilo = threading.Lock()
+		#: Mensajes largos del turno en marcha, en ``data/temp``; se borran al acabarlo (AIChat #625).
+		self._archivos_largos: list[Path] = []
+		#: Órdenes en marcha (id del elemento → salida pendiente, último envío y caracteres pasados).
+		self._ordenes_vivas: dict[str, dict[str, Any]] = {}
+		#: Terminales en segundo plano anunciados (``processId``) y si esta versión de Codex no los sabe listar.
+		self._terminales: set[str] = set()
+		self._sin_terminales = False
+		#: Skills de Codex en la carpeta de la sesión (nombre → ruta), de ``skills/list``.
+		self._skills_codex: dict[str, str] = {}
+		#: Modo de colaboración elegido con /plan: ``None`` (el que tenga Codex), ``"plan"`` o ``"default"``.
+		self._colaboracion: str | None = None
+		#: Modelo con el que Codex abrió el hilo (``collaborationMode`` lo necesita si la sesión no fija uno).
+		self._modelo_hilo = ""
+		#: Ajustes con los que se envió el último turno: compactar exige que no hayan cambiado (AIChat).
+		self._firma_aplicada: tuple[Any, ...] | None = None
+		#: Política de sandbox que tiene Codex: la del hilo al abrirlo o la del último turno que la cambió.
+		self._politica_aplicada: dict[str, Any] | None = None
+		#: Compactación pedida que aún no ha empezado como turno en Codex.
+		self._compactacion_pedida = False
+		#: Servidores MCP en los que esta sesión ha empezado a iniciar sesión (solo de esos se avisa al acabar).
+		self._inicios_mcp: set[str] = set()
 
 	# -- API pública ----------------------------------------------------------
 
@@ -666,7 +854,15 @@ class ConversacionCodex(Conversacion):
 			return self._anadidos_pendientes
 
 	def enviar(self, texto: str, adjuntos: Sequence[Adjunto] = ()) -> None:
-		"""Empieza un turno o, si Codex ya trabaja, encola el mensaje."""
+		"""Empieza un turno o, si Codex ya trabaja, encola el mensaje.
+
+		Los comandos de barra de Codex que atiende Ctrl+IA (:data:`COMANDOS_CODEX`) no se
+		envían como texto: se hacen con su petición (``/compact``, ``/plan``...).
+		"""
+		comando = comando_de(texto) if not adjuntos else None
+		if comando is not None:
+			self._atender_comando(*comando)
+			return
 		with self._candado:
 			if self._cerrada:
 				cerrada = True
@@ -813,12 +1009,387 @@ class ConversacionCodex(Conversacion):
 			self._solicitudes.clear()
 			self._turno_activo = False
 		self._retirar_herramientas_ctrlia()
+		self._borrar_largos()
 		for solicitud_id in retirar:
 			self._emitir(TipoEvento.PERMISO_RETIRADO, id=solicitud_id)
 		if srv is not None and hilo:
 			srv.quitar(hilo)
 			_en_hilo(self._despedirse, srv, hilo, turno, nombre="codex-cerrar")
 		self._cambiar_estado(Estado.CERRADA)
+
+	# -- Comandos de barra (AIChat ui/codex_extras.py, #600 y #467) -----------
+
+	def _atender_comando(self, nombre: str, argumento: str) -> None:
+		"""``/compact``, ``/plan``, ``/memories on|off`` y ``/goal [pause|clear]``: nunca van como texto a Codex."""
+		if nombre == "/compact":
+			try:
+				self.compactar()
+			except RuntimeError as error:
+				self._emitir(TipoEvento.AVISO, str(error))
+			return
+		_en_hilo(self._ejecutar_comando, nombre, argumento, nombre="codex-comando")
+
+	def _ejecutar_comando(self, nombre: str, argumento: str) -> None:
+		try:
+			srv = self._asegurar_hilo()
+			with self._candado:
+				hilo = self._hilo_id
+			if nombre == "/plan":
+				self._cambiar_plan(srv, argumento)
+			elif nombre == "/memories":
+				modo = "enabled" if argumento == "on" else "disabled"
+				srv.peticion("thread/memoryMode/set", {"threadId": hilo, "mode": modo})
+				self._emitir(TipoEvento.AVISO, "Las memorias de Codex están activadas en esta conversación." if modo == "enabled"
+					else "Las memorias de Codex están desactivadas en esta conversación.")
+			elif nombre == "/goal" and argumento == "pause":
+				srv.peticion("thread/goal/set", {"threadId": hilo, "status": "paused", "origin": "user"})
+				self._emitir(TipoEvento.AVISO, "El objetivo de Codex está en pausa; el turno en marcha puede terminar.")
+			elif nombre == "/goal" and argumento == "clear":
+				srv.peticion("thread/goal/clear", {"threadId": hilo, "origin": "user"})
+				self._emitir(TipoEvento.AVISO, "Se ha quitado el objetivo de Codex de esta conversación.")
+			elif nombre == "/goal":
+				respuesta = srv.peticion("thread/goal/get", {"threadId": hilo})
+				self._emitir(TipoEvento.AVISO, texto_objetivo(respuesta))
+		except ErrorCodex as error:
+			if error.codigo == ERROR_NO_ADMITIDO:
+				texto = "Esta versión de Codex no admite %s. Actualiza Codex y vuelve a intentarlo." % nombre
+			else:
+				texto = "Codex no ha podido hacer %s. %s" % (nombre, _explicar(error))
+			self._emitir(TipoEvento.AVISO, texto)
+
+	def _cambiar_plan(self, srv: _ServidorCodex, argumento: str) -> None:
+		"""Modo Plan o predeterminado, solo si Codex tiene un preajuste ``mode: "plan"`` (``collaborationMode/list``)."""
+		with self._candado:
+			actual = self._colaboracion
+		if argumento in ("on", "off"):
+			nuevo = "plan" if argumento == "on" else "default"
+		else:
+			nuevo = "default" if actual == "plan" else "plan"
+		if nuevo == "plan":
+			respuesta = srv.peticion("collaborationMode/list", {}) or {}
+			modos = [m.get("mode") for m in respuesta.get("data") or [] if isinstance(m, dict)] if isinstance(respuesta, dict) else []
+			if "plan" not in modos:
+				self._emitir(TipoEvento.AVISO, "Esta versión de Codex no tiene el modo Plan.")
+				return
+		with self._candado:
+			self._colaboracion = nuevo
+		if nuevo == "plan":
+			self._emitir(TipoEvento.AVISO, "Modo Plan: desde el próximo mensaje, Codex hablará contigo y propondrá un plan antes "
+				"de cambiar nada. Escribe /plan otra vez para volver al modo predeterminado.", modo_colaboracion=nuevo)
+		else:
+			self._emitir(TipoEvento.AVISO, "Modo predeterminado: desde el próximo mensaje, Codex trabaja como siempre.",
+				modo_colaboracion=nuevo)
+
+	def compactar(self) -> None:
+		"""Resume la conversación con ``thread/compact/start`` (AIChat). ``RuntimeError`` si ahora no se puede.
+
+		No bloquea: lo que pase llega como eventos (``AVISO`` con ``compactando`` y ``compactado``, ``FIN_TURNO``).
+		"""
+		with self._candado:
+			if self._cerrada:
+				raise RuntimeError("Esta conversación con Codex está cerrada.")
+			if self._turno_activo:
+				raise RuntimeError("Codex está trabajando. Espera a que termine o detenlo, y vuelve a intentarlo.")
+			if not self._hilo_id and not self.ajustes.id_externo:
+				raise RuntimeError("Todavía no hay nada que compactar en esta conversación.")
+			if self._firma_aplicada is not None and self._firma_aplicada != self._firma():
+				raise RuntimeError(MENSAJE_AJUSTES_PENDIENTES)
+			self._turno_activo = True
+			self._detenido = False
+			self._interrumpir_pendiente = False
+			self._error_en_turno = False
+			self._compactacion_pedida = True
+		self._cambiar_estado(Estado.TRABAJANDO)
+		self._emitir(TipoEvento.AVISO, "Codex está compactando el contexto de esta conversación.", compactando=True)
+		_en_hilo(self._compactar, nombre="codex-compactar")
+
+	def _compactar(self) -> None:
+		try:
+			srv = self._asegurar_hilo()
+			with self._candado:
+				hilo = self._hilo_id
+			srv.peticion("thread/compact/start", {"threadId": hilo})
+		except ErrorCodex as error:
+			if error.hilo_desaparecido:
+				self._fallo_turno(MENSAJE_HILO_DESAPARECIDO, hilo_desaparecido=True)
+			elif error.codigo == ERROR_NO_ADMITIDO:
+				self._fallo_turno("Esta versión de Codex no sabe compactar la conversación desde Ctrl+IA. Actualiza Codex.")
+			else:
+				self._fallo_turno("Codex no ha podido compactar la conversación. " + _explicar(error))
+			return
+		# Codex compacta en un turno propio (turn/started ... turn/completed). Si no llega a empezarlo, no se queda colgado.
+		temporizador = threading.Timer(60.0, self._vigilar_compactacion)
+		temporizador.daemon = True
+		temporizador.start()
+
+	def _vigilar_compactacion(self) -> None:
+		with self._candado:
+			colgada = self._compactacion_pedida and self._turno_activo and self._turno_id is None
+		if colgada:
+			log.warning("Codex aceptó compactar pero no empezó ningún turno en 60 s")
+			self._terminar_sin_turno(interrumpido=False)
+
+	# -- Mensajes largos y skills --------------------------------------------------
+
+	def _texto_para_codex(self, texto: str) -> str:
+		"""El texto que viaja a Codex: el mismo o, si pasa de :data:`mensajes_largos.LIMITE`, el mensaje fijo con su archivo.
+
+		``OSError`` si no se puede escribir el archivo. Por SSH no se puede (Codex no ve ``data/temp``): va tal cual.
+		"""
+		if not mensajes_largos.hace_falta(texto) or remoto.es_remota(self.ajustes.extra):
+			return texto
+		ruta = mensajes_largos.guardar(texto)
+		with self._candado:
+			self._archivos_largos.append(ruta)
+		log.info("Mensaje de %d caracteres enviado a Codex en un archivo", len(texto))
+		return mensajes_largos.mensaje_para(texto, ruta)
+
+	def _borrar_largos(self) -> None:
+		with self._candado:
+			largos, self._archivos_largos = self._archivos_largos, []
+		mensajes_largos.borrar(largos)
+
+	def _skills_en(self, texto: str) -> list[tuple[str, str]]:
+		"""Skills de Codex que nombra el mensaje con ``$nombre`` (van además como elemento ``skill``)."""
+		with self._candado:
+			skills = dict(self._skills_codex)
+		return [(nombre, ruta) for nombre, ruta in skills.items()
+			if re.search(r"(?<![\w$])\$" + re.escape(nombre) + r"(?![\w-])", texto)]
+
+	# -- Actividad en vivo (TipoEvento.ACTIVIDAD) ---------------------------------
+
+	def _salida_orden(self, p: dict[str, Any]) -> None:
+		"""Trozo de salida de una orden en marcha: se agrupa y se pasa como mucho cada :data:`INTERVALO_SALIDA`."""
+		id_item = str(p.get("itemId") or "")
+		delta = p.get("delta")
+		if not id_item or not isinstance(delta, str) or not delta:
+			return
+		ahora = time.monotonic()
+		with self._candado:
+			orden = self._ordenes_vivas.get(id_item)
+			if orden is None or orden["pasados"] >= MAX_SALIDA_VIVA:
+				return
+			orden["pendiente"] += delta
+			if ahora - orden["ultimo"] < INTERVALO_SALIDA:
+				return
+			trozo = self._sacar_salida(orden, ahora)
+		if trozo:
+			self._emitir(TipoEvento.ACTIVIDAD, "", id=id_item, salida=trozo)
+
+	@staticmethod
+	def _sacar_salida(orden: dict[str, Any], ahora: float) -> str:
+		"""Lo pendiente de una orden, recortado al tope de :data:`MAX_SALIDA_VIVA` (con el candado tomado)."""
+		trozo, orden["pendiente"] = orden["pendiente"], ""
+		queda = MAX_SALIDA_VIVA - orden["pasados"]
+		if len(trozo) > queda:
+			trozo = trozo[:queda] + "\n[Salida recortada: el resto, al terminar la orden]"
+		orden["pasados"] += len(trozo)
+		orden["ultimo"] = ahora
+		return trozo
+
+	def _fin_orden(self, id_item: str, estado: Any, error: bool) -> None:
+		with self._candado:
+			orden = self._ordenes_vivas.pop(id_item, None)
+			trozo = self._sacar_salida(orden, time.monotonic()) if orden is not None and orden["pendiente"] else ""
+		if orden is None:
+			return
+		final = "detenida" if estado == "declined" else ("fallida" if error else "completada")
+		datos: dict[str, Any] = {"id": id_item, "estado": final}
+		if trozo:
+			datos["salida"] = trozo
+		self._emitir(TipoEvento.ACTIVIDAD, "", **datos)
+
+	def _actividad_subagentes(self, item: dict[str, Any]) -> None:
+		"""Un ``collabAgentToolCall``: una actividad por subagente (``receiverThreadIds``, con ``agentsStates``)."""
+		herramienta = str(item.get("tool") or "")
+		encargo = str(item.get("prompt") or "")
+		estados = item.get("agentsStates") if isinstance(item.get("agentsStates"), dict) else {}
+		receptores = [r for r in item.get("receiverThreadIds") or [] if isinstance(r, str) and r]
+		for hilo in receptores:
+			estado_agente = estados.get(hilo) if isinstance(estados.get(hilo), dict) else {}
+			datos: dict[str, Any] = {"id": hilo, "clase": "subagente", "segundo_plano": True, "detenible": False,
+				"estado": _ESTADOS_SUBAGENTE.get(str(estado_agente.get("status") or ""), "en_marcha")}
+			if herramienta == "spawnAgent":
+				datos["titulo"] = _recortar_linea(encargo, 200) or "Subagente de Codex"
+				if encargo:
+					datos["encargo"] = encargo
+				if item.get("model"):
+					datos["tipo_agente"] = str(item["model"])
+			paso = _PASOS_SUBAGENTE.get(herramienta)
+			if paso:
+				datos["paso"] = paso
+			mensaje = str(estado_agente.get("message") or "").strip()
+			if mensaje:
+				datos["paso_nuevo"] = "Dice: " + _recortar_linea(mensaje, 500)
+				if datos["estado"] != "en_marcha":
+					datos["resumen"] = mensaje
+			self._emitir(TipoEvento.ACTIVIDAD, "", **datos)
+
+	def _actividad_subagente_suelto(self, item: dict[str, Any]) -> None:
+		"""Un ``subAgentActivity`` (lanzado, interactúa, interrumpido o terminado)."""
+		hilo = item.get("agentThreadId")
+		if not isinstance(hilo, str) or not hilo:
+			return
+		clase = str(item.get("kind") or "")
+		estado = {"interrupted": "detenida", "completed": "completada"}.get(clase, "en_marcha")
+		datos: dict[str, Any] = {"id": hilo, "clase": "subagente", "estado": estado, "segundo_plano": True}
+		if item.get("agentPath"):
+			datos["titulo"] = _recortar_linea(str(item["agentPath"]), 200)
+		if item.get("model"):
+			datos["tipo_agente"] = str(item["model"])
+		self._emitir(TipoEvento.ACTIVIDAD, "", **datos)
+
+	def _revisar_terminales(self) -> None:
+		"""Órdenes que siguen en segundo plano tras el turno (``thread/backgroundTerminals/list``). Hilo de fondo."""
+		with self._candado:
+			srv = self._srv
+			hilo = self._hilo_id
+		if srv is None or not hilo:
+			return
+		vivos: dict[str, dict[str, Any]] = {}
+		cursor = None
+		vistos: set[str] = set()
+		try:
+			for _pagina in range(MAX_PAGINAS):
+				params: dict[str, Any] = {"threadId": hilo, "limit": LIMITE_TERMINALES}
+				if cursor:
+					params["cursor"] = cursor
+				respuesta = srv.peticion("thread/backgroundTerminals/list", params) or {}
+				for terminal in respuesta.get("data") or []:
+					if isinstance(terminal, dict) and isinstance(terminal.get("processId"), str) and terminal["processId"]:
+						vivos[terminal["processId"]] = terminal
+				cursor = respuesta.get("nextCursor")
+				if not isinstance(cursor, str) or not cursor or cursor in vistos:
+					break
+				vistos.add(cursor)
+		except ErrorCodex as error:
+			if error.codigo == ERROR_NO_ADMITIDO:
+				with self._candado:
+					self._sin_terminales = True
+			log.debug("Codex no ha dicho sus terminales en segundo plano: %s", error.mensaje)
+			return
+		with self._candado:
+			acabados = self._terminales - set(vivos)
+			nuevos = set(vivos) - self._terminales
+			self._terminales = set(vivos)
+		for proceso in sorted(nuevos):
+			orden = str(vivos[proceso].get("command") or "")
+			self._emitir(TipoEvento.ACTIVIDAD, "", id=proceso, clase="orden", estado="en_marcha", segundo_plano=True,
+				detenible=True, titulo=_recortar_linea(orden, 200) or "Orden en segundo plano", orden=orden)
+		for proceso in sorted(acabados):
+			self._emitir(TipoEvento.ACTIVIDAD, "", id=proceso, estado="completada", detenible=False)
+
+	def detener_tarea(self, id_tarea: str) -> None:
+		"""Para una orden en segundo plano (``thread/backgroundTerminals/terminate``). Bloquea un momento."""
+		with self._candado:
+			srv = self._srv
+			hilo = self._hilo_id
+		if srv is None or not hilo:
+			raise RuntimeError("Codex no está abierto en esta sesión: no hay tareas que detener.")
+		try:
+			respuesta = srv.peticion("thread/backgroundTerminals/terminate", {"threadId": hilo, "processId": id_tarea})
+		except ErrorCodex as error:
+			if error.codigo == ERROR_NO_ADMITIDO:
+				raise RuntimeError("Esta versión de Codex no sabe detener tareas en segundo plano. Actualiza Codex.") from error
+			raise RuntimeError("Codex no ha podido detener la tarea. " + _explicar(error)) from error
+		with self._candado:
+			self._terminales.discard(id_tarea)
+		if isinstance(respuesta, dict) and respuesta.get("terminated") is False:
+			self._emitir(TipoEvento.ACTIVIDAD, "", id=id_tarea, estado="completada", detenible=False,
+				paso_nuevo="Ya había terminado")
+			self._emitir(TipoEvento.AVISO, "Esa tarea en segundo plano ya había terminado.")
+			return
+		self._emitir(TipoEvento.ACTIVIDAD, "", id=id_tarea, estado="detenida", detenible=False)
+
+	# -- Servidores MCP (AIChat #554 y #626) ----------------------------------------
+
+	def servidores_mcp(self) -> Any:
+		"""Servidores MCP de la sesión según ``mcpServerStatus/list`` (con los del hilo, si está abierto). Bloquea."""
+		try:
+			srv = self._proveedor.servidor(self.ajustes.extra)
+		except ErrorCodex as error:
+			raise RuntimeError("No se ha podido preguntar a Codex: " + error.mensaje) from error
+		with self._candado:
+			hilo = self._hilo_id if self._srv is srv else ""
+		filas: list[dict[str, Any]] = []
+		cursor = None
+		vistos: set[str] = set()
+		try:
+			for _pagina in range(MAX_PAGINAS):
+				params: dict[str, Any] = {"detail": "toolsAndAuthOnly"}
+				if hilo:
+					params["threadId"] = hilo
+				if cursor:
+					params["cursor"] = cursor
+				respuesta = srv.peticion("mcpServerStatus/list", params) or {}
+				filas.extend(f for f in respuesta.get("data") or [] if isinstance(f, dict))
+				cursor = respuesta.get("nextCursor")
+				if not isinstance(cursor, str) or not cursor or cursor in vistos:
+					break
+				vistos.add(cursor)
+		except ErrorCodex as error:
+			raise RuntimeError("Codex no ha dicho el estado de sus servidores MCP. " + _explicar(error)) from error
+		return lista_mcp_desde_codex(filas)
+
+	def mcp_en_vivo(self) -> bool:
+		with self._candado:
+			srv = self._srv
+		return srv is not None and srv.vivo
+
+	def reconectar_mcp(self, nombre: str) -> None:
+		"""Vuelve a leer la configuración MCP de Codex y reconecta sus servidores (``config/mcpServer/reload``)."""
+		try:
+			srv = self._proveedor.servidor(self.ajustes.extra)
+			srv.peticion("config/mcpServer/reload", {})
+		except ErrorCodex as error:
+			raise RuntimeError("Codex no ha podido reconectar sus servidores MCP. " + _explicar(error)) from error
+		with self._candado:
+			self._mcp_fallidos.discard(nombre)
+
+	def url_inicio_sesion_mcp(self, nombre: str) -> str | None:
+		"""Dirección para iniciar sesión en un servidor MCP de Codex (``mcpServer/oauth/login``). Bloquea."""
+		if remoto.es_remota(self.ajustes.extra):
+			return None
+		try:
+			srv = self._proveedor.servidor(self.ajustes.extra)
+			with self._candado:
+				hilo = self._hilo_id if self._srv is srv else ""
+			params: dict[str, Any] = {"name": nombre, "timeoutSecs": SEGUNDOS_OAUTH_MCP}
+			if hilo:
+				params["threadId"] = hilo
+			with self._candado:
+				self._inicios_mcp.add(nombre)
+			respuesta = srv.peticion("mcpServer/oauth/login", params) or {}
+		except ErrorCodex as error:
+			raise RuntimeError("Codex no ha podido empezar el inicio de sesión en «%s». %s" % (nombre, _explicar(error))) from error
+		url = respuesta.get("authorizationUrl") if isinstance(respuesta, dict) else None
+		if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+			raise RuntimeError("Codex no ha dado una dirección para iniciar sesión en «%s»." % nombre)
+		return url
+
+	def orden_inicio_sesion_mcp(self, nombre: str) -> list[str] | None:
+		ruta = self._proveedor.ruta_ejecutable()
+		if ruta is None or remoto.es_remota(self.ajustes.extra):
+			return None
+		return [str(ruta), "mcp", "login", nombre]
+
+	def _oauth_completado(self, p: dict[str, Any]) -> None:
+		"""``mcpServer/oauthLogin/completed``: se dice si el inicio de sesión ha ido bien."""
+		nombre = str(p.get("name") or "")
+		if not nombre or not isinstance(p.get("success"), bool):
+			return
+		with self._candado:
+			if nombre not in self._inicios_mcp:
+				return  # lo empezó otra sesión (o la app de Codex)
+			self._inicios_mcp.discard(nombre)
+		if p["success"]:
+			with self._candado:
+				self._mcp_fallidos.discard(nombre)
+			self._emitir(TipoEvento.AVISO, "Has iniciado sesión en la herramienta externa «%s» de Codex." % nombre, mcp=nombre)
+		else:
+			motivo = _recortar_linea(str(p.get("error") or ""), 300)
+			self._emitir(TipoEvento.AVISO, "No se ha completado el inicio de sesión en la herramienta externa «%s» de Codex%s"
+				% (nombre, ": " + motivo if motivo else "."), mcp=nombre)
 
 	# -- Trabajo en hilos de fondo --------------------------------------------
 
@@ -827,6 +1398,10 @@ class ConversacionCodex(Conversacion):
 
 		Si el proceso se relanzó, el hilo se retoma con ``thread/resume``.
 		"""
+		with self._candado_hilo:
+			return self._asegurar_hilo_sin_candado()
+
+	def _asegurar_hilo_sin_candado(self) -> _ServidorCodex:
 		srv = self._proveedor.servidor(self.ajustes.extra)
 		with self._candado:
 			if self._srv is srv and self._hilo_id:
@@ -858,13 +1433,27 @@ class ConversacionCodex(Conversacion):
 		if ajustes.modelo:
 			comunes["model"] = ajustes.modelo
 		comunes.update(self._params_herramientas_ctrlia())
+		configuracion = comunes.setdefault("config", {})
+		# Los objetivos (/goal) seguirían solos sin pasar por Ctrl+IA: se quedan en pausa (AIChat).
+		configuracion["features.goals"] = False
+		carpetas = self._carpetas_adicionales()
+		if carpetas and modo.sandbox == "workspace-write":
+			configuracion["sandbox_workspace_write.writable_roots"] = carpetas
 		if metodo == "thread/fork":
 			params = {"threadId": ajustes.bifurcar_de, "excludeTurns": True, **comunes}
+			params.update(self._corte_bifurcacion(srv, ajustes.bifurcar_de))
 		elif metodo == "thread/resume":
 			params = {"threadId": ajustes.id_externo, "excludeTurns": True, **comunes}
 		else:
 			params = comunes
-		respuesta = srv.peticion(metodo, params) or {}
+		try:
+			respuesta = srv.peticion(metodo, params) or {}
+		except ErrorCodex as error:
+			if (metodo == "thread/resume" and not error.muerto and not error.tiempo_agotado
+					and hilo_desaparecido(srv, ajustes.id_externo)):
+				log.warning("Codex ya no tiene el hilo %s", ajustes.id_externo)
+				raise ErrorCodex(MENSAJE_HILO_DESAPARECIDO, error.codigo, hilo_desaparecido=True) from error
+			raise
 		hilo = respuesta.get("thread") if isinstance(respuesta, dict) else None
 		id_hilo = hilo.get("id") if isinstance(hilo, dict) else None
 		if not isinstance(id_hilo, str) or not id_hilo:
@@ -874,9 +1463,13 @@ class ConversacionCodex(Conversacion):
 			self._srv = srv
 			self._hilo_id = id_hilo
 			self._modo_aplicado = modo.id
+			# Con carpetas adicionales, el primer turno pide la política entera (con ellas).
+			self._politica_aplicada = None if self._politica(modo) != modo.politica else dict(modo.politica)
 			ajustes.id_externo = id_hilo
 			ajustes.bifurcar_de = ""
+			ajustes.extra.pop("cortar_en", None)
 		modelo = str(respuesta.get("model") or ajustes.modelo or "")
+		self._modelo_hilo = modelo
 		if disponibles and not ajustes.modelo and modelo and modelo not in disponibles:
 			# La copia hereda el modelo de la original, que ya no existe: se pide el primero de la lista en cada turno.
 			sustituto = disponibles[0]
@@ -906,7 +1499,70 @@ class ConversacionCodex(Conversacion):
 				srv.peticion("thread/name/set", {"threadId": id_hilo, "name": ajustes.titulo})
 			except ErrorCodex:
 				log.debug("No se pudo poner título al hilo de Codex", exc_info=True)
+		_en_hilo(self._cargar_skills, srv, nombre="codex-skills")
 		return srv
+
+	def _corte_bifurcacion(self, srv: _ServidorCodex, origen: str) -> dict[str, Any]:
+		"""``lastTurnId`` o ``beforeTurnId`` de ``extra["cortar_en"]``, comprobados contra los turnos de Codex.
+
+		«bifurcar» incluye el turno del mensaje; «reintentar» corta justo antes. Lanza
+		:class:`ErrorCodex` si el mensaje ya no corresponde a un turno de Codex.
+		"""
+		corte = self.ajustes.extra.get("cortar_en")
+		if not isinstance(corte, dict):
+			return {}
+		modo = corte.get("modo")
+		turno = turno_de_ancla(corte.get("ancla"))
+		if modo not in ("bifurcar", "reintentar") or not turno:
+			raise ErrorCodex("No se sabe hasta qué mensaje copiar esta conversación de Codex.")
+		verificar_turno(srv, origen, turno, antes=modo == "reintentar")
+		return {"lastTurnId": turno} if modo == "bifurcar" else {"beforeTurnId": turno}
+
+	def _carpetas_adicionales(self) -> list[str]:
+		"""``extra["carpetas_adicionales"]`` válidas: rutas completas a carpetas concretas, nunca una unidad entera."""
+		from app.services.agentes.claude import carpeta_concreta
+
+		bruto = self.ajustes.extra.get("carpetas_adicionales")
+		if not isinstance(bruto, list | tuple):
+			return []
+		posix = remoto.es_remota(self.ajustes.extra)
+		carpetas: list[str] = []
+		for carpeta in bruto:
+			if isinstance(carpeta, str) and carpeta_concreta(carpeta, posix=posix) and carpeta not in carpetas:
+				carpetas.append(carpeta)
+			elif carpeta:
+				log.warning("Carpeta adicional que no se pasa a Codex (no es una carpeta concreta): %r", carpeta)
+		return carpetas
+
+	def _instrucciones(self) -> str:
+		texto = self.ajustes.extra.get("instrucciones")
+		return texto.strip()[:MAX_INSTRUCCIONES] if isinstance(texto, str) else ""
+
+	def _politica(self, modo: _Modo) -> dict[str, Any]:
+		"""La política de sandbox del turno: la del modo y, si escribe en la carpeta, las carpetas adicionales."""
+		politica = dict(modo.politica)
+		carpetas = self._carpetas_adicionales()
+		if carpetas and politica.get("type") == "workspaceWrite":
+			raiz = remoto.carpeta_remota(self.ajustes.extra) or str(self.ajustes.carpeta)
+			politica["writableRoots"] = list(dict.fromkeys([raiz, *carpetas]))
+		return politica
+
+	def _firma(self) -> tuple[Any, ...]:
+		"""Lo que Codex recibe con cada turno: si cambia, compactar espera a un turno normal."""
+		return (self.ajustes.modelo, self.ajustes.esfuerzo, self.ajustes.modo_permiso, self._instrucciones(),
+			tuple(self._carpetas_adicionales()), self._colaboracion)
+
+	def _cargar_skills(self, srv: _ServidorCodex) -> None:
+		"""Skills de Codex de la carpeta (``skills/list``), para los comandos y para enviarlas con ``$nombre``."""
+		if remoto.es_remota(self.ajustes.extra):
+			return
+		skills = skills_de(srv, str(self.ajustes.carpeta))
+		if skills is None:
+			return
+		with self._candado:
+			self._skills_codex = {nombre: ruta for nombre, ruta, _descripcion in skills}
+		comandos = [*COMANDOS_CODEX, *(("$" + nombre, descripcion) for nombre, _ruta, descripcion in skills)]
+		self._emitir(TipoEvento.COMANDOS, "%d comandos disponibles." % len(comandos), comandos=comandos)
 
 	def _params_herramientas_ctrlia(self) -> dict[str, Any]:
 		"""Las herramientas de Ctrl+IA del hilo: el servidor MCP HTTP local con el token de la sesión.
@@ -920,8 +1576,10 @@ class ConversacionCodex(Conversacion):
 			return {}
 		from app.services import herramientas_propias
 
+		# Los comandos de sesión (ccd_session_mgmt, AIChat #557) van por el mismo servidor y con el mismo token.
+		herramientas.sesiones = self.herramientas_sesiones
 		try:
-			return {"config": herramientas_propias.config_codex(herramientas)}
+			return {"config": herramientas_propias.config_codex(herramientas, sesiones=self.herramientas_sesiones is not None)}
 		except OSError:
 			log.warning("No se pudo arrancar el servidor de las herramientas de Ctrl+IA", exc_info=True)
 			return {}
@@ -996,7 +1654,16 @@ class ConversacionCodex(Conversacion):
 		try:
 			srv = self._asegurar_hilo()
 		except ErrorCodex as error:
-			self._fallo_turno("No se pudo abrir la conversación con Codex. " + _explicar(error))
+			if error.hilo_desaparecido:
+				self._fallo_turno(MENSAJE_HILO_DESAPARECIDO, hilo_desaparecido=True)
+			else:
+				self._fallo_turno("No se pudo abrir la conversación con Codex. " + _explicar(error))
+			return
+		remota = remoto.es_remota(self.ajustes.extra)
+		try:
+			texto_envio = self._texto_para_codex(texto)
+		except OSError as error:
+			self._fallo_turno("No se ha podido preparar tu mensaje largo para Codex (%s). No se ha enviado." % error)
 			return
 		with self._candado:
 			if self._interrumpir_pendiente or self._cerrada:
@@ -1007,7 +1674,7 @@ class ConversacionCodex(Conversacion):
 			else:
 				abortar = False
 			params: dict[str, Any] = {"threadId": self._hilo_id,
-				"input": _entrada(texto, adjuntos, remota=remoto.es_remota(self.ajustes.extra))}
+				"input": _entrada(texto_envio, adjuntos, remota=remota, skills=self._skills_en(texto))}
 			if self.ajustes.modelo:
 				params["model"] = self.ajustes.modelo
 			if self.ajustes.esfuerzo:
@@ -1015,9 +1682,20 @@ class ConversacionCodex(Conversacion):
 			modo = _modo(self.ajustes.modo_permiso)
 			# En cada turno: quien revisa las peticiones nunca se deja a lo que recuerde el hilo.
 			params["approvalsReviewer"] = modo.revisor
-			if modo.id != self._modo_aplicado:
-				params["sandboxPolicy"] = modo.politica
+			politica = self._politica(modo)
+			if modo.id != self._modo_aplicado or politica != self._politica_aplicada or "writableRoots" in politica:
+				params["sandboxPolicy"] = politica
 				params["approvalPolicy"] = modo.aprobacion
+			instrucciones = self._instrucciones()
+			if instrucciones:
+				# AIChat #527: van con cada turno, como contexto de la aplicación (no como palabras de la persona).
+				params["additionalContext"] = {CLAVE_INSTRUCCIONES: {"kind": "application", "value": instrucciones}}
+			modelo_colaboracion = self.ajustes.modelo or self._modelo_hilo
+			if self._colaboracion and modelo_colaboracion:
+				params["collaborationMode"] = {"mode": self._colaboracion, "settings": {
+					"model": modelo_colaboracion, "reasoning_effort": self.ajustes.esfuerzo or None,
+					"developer_instructions": None}}
+			firma = self._firma()
 		if abortar:
 			self._terminar_sin_turno(interrumpido=True)
 			return
@@ -1032,6 +1710,8 @@ class ConversacionCodex(Conversacion):
 		with self._candado:
 			if "sandboxPolicy" in params:
 				self._modo_aplicado = modo.id
+				self._politica_aplicada = politica
+			self._firma_aplicada = firma
 			turno = respuesta.get("turn") if isinstance(respuesta, dict) else None
 			id_turno = turno.get("id") if isinstance(turno, dict) else None
 			interrumpir = False
@@ -1052,7 +1732,12 @@ class ConversacionCodex(Conversacion):
 		try:
 			if srv is None or not hilo:
 				raise ErrorCodex("Codex no está en marcha", muerto=True, sin_enviar=True)
-			srv.peticion("turn/steer", {"threadId": hilo, "input": _entrada(texto, ()), "expectedTurnId": turno})
+			try:
+				texto_envio = self._texto_para_codex(texto)
+			except OSError as error:
+				raise ErrorCodex("No se ha podido preparar el mensaje largo: %s" % error, sin_enviar=True) from error
+			srv.peticion("turn/steer", {"threadId": hilo, "input": _entrada(texto_envio, (), skills=self._skills_en(texto)),
+				"expectedTurnId": turno})
 		except ErrorCodex as error:
 			if error.sin_enviar:
 				self._devolver_texto(texto, "Codex no está en marcha; tu mensaje no se ha enviado.")
@@ -1111,7 +1796,7 @@ class ConversacionCodex(Conversacion):
 
 	# -- Fin de turno ---------------------------------------------------------
 
-	def _fallo_turno(self, mensaje: str) -> None:
+	def _fallo_turno(self, mensaje: str, **datos: Any) -> None:
 		"""El turno no pudo empezar o se perdió. Idempotente: solo avisa una vez."""
 		with self._candado:
 			if not self._turno_activo:
@@ -1120,22 +1805,26 @@ class ConversacionCodex(Conversacion):
 			self._turno_id = None
 			self._interrumpir_pendiente = False
 			self._relanzar_tras_detener = False
+			self._compactacion_pedida = False
 			retirar = list(self._solicitudes)
 			self._solicitudes.clear()
 			en_cola = len(self._cola)
+		self._borrar_largos()
 		for solicitud_id in retirar:
 			self._emitir(TipoEvento.PERMISO_RETIRADO, id=solicitud_id)
-		self._emitir(TipoEvento.ERROR, mensaje)
+		self._emitir(TipoEvento.ERROR, mensaje, **datos)
 		self._emitir(TipoEvento.FIN_TURNO, "El turno ha fallado", correcto=False, interrumpido=False, resumen=mensaje)
 		self._cambiar_estado(Estado.ERROR)
 		self._avisar_cola(en_cola)
 
 	def _terminar_sin_turno(self, interrumpido: bool) -> None:
 		siguiente: tuple[str, tuple[Adjunto, ...]] | None = None
+		self._borrar_largos()
 		with self._candado:
 			self._turno_activo = False
 			self._turno_id = None
 			self._interrumpir_pendiente = False
+			self._compactacion_pedida = False
 			self._detenido = False
 			if self._relanzar_tras_detener and self._cola and not self._cerrada:
 				siguiente = self._cola.pop(0)
@@ -1229,17 +1918,14 @@ class ConversacionCodex(Conversacion):
 			if mensaje:
 				self._emitir(TipoEvento.AVISO, "Aviso de Codex: " + _recortar_linea(mensaje, 500))
 		elif metodo == "serverRequest/resolved":
-			solicitud_id = str(p.get("requestId"))
-			with self._candado:
-				pendiente = self._solicitudes.pop(solicitud_id, None)
-				quedan = bool(self._solicitudes)
-				activo = self._turno_activo
-			if pendiente is not None:
-				self._emitir(TipoEvento.PERMISO_RETIRADO, id=solicitud_id)
-				if not quedan and activo:
-					self._cambiar_estado(Estado.TRABAJANDO)
+			self._solicitud_resuelta(str(p.get("requestId")))
+		elif metodo == "item/commandExecution/outputDelta":
+			self._salida_orden(p)
+		elif metodo == "mcpServer/oauthLogin/completed":
+			self._oauth_completado(p)
 		elif metodo in (
-			"item/commandExecution/outputDelta",
+			"thread/goal/updated",
+			"thread/goal/cleared",
 			"item/reasoning/summaryTextDelta",
 			"item/reasoning/summaryPartAdded",
 			"item/reasoning/textDelta",
@@ -1347,12 +2033,23 @@ class ConversacionCodex(Conversacion):
 			correcto = estado == "completed"
 			relanzar = self._relanzar_tras_detener
 			self._relanzar_tras_detener = False
+			self._compactacion_pedida = False
 			if (relanzar or (correcto and not detenido)) and self._cola and not self._cerrada:
 				siguiente = self._cola.pop(0)
 				self._turno_activo = True
 			en_cola = len(self._cola)
+			largos, self._archivos_largos = self._archivos_largos, []
+			ordenes = list(self._ordenes_vivas)
+			self._ordenes_vivas.clear()
+			revisar_terminales = not self._sin_terminales and self._srv is not None
+		mensajes_largos.borrar(largos)
+		for id_orden in ordenes:
+			# Una orden que no llegó a terminar como elemento: se cierra su actividad con el turno.
+			self._emitir(TipoEvento.ACTIVIDAD, "", id=id_orden, estado="detenida" if estado == "interrupted" else "completada")
 		for solicitud_id in retirar:
 			self._emitir(TipoEvento.PERMISO_RETIRADO, id=solicitud_id)
+		if revisar_terminales:
+			_en_hilo(self._revisar_terminales, nombre="codex-terminales")
 		resumen = ""
 		if estado == "failed":
 			resumen = _texto_error(turno.get("error"))
@@ -1374,6 +2071,11 @@ class ConversacionCodex(Conversacion):
 		if tipo == "commandExecution":
 			orden = str(item.get("command") or "")
 			self._emitir(TipoEvento.HERRAMIENTA, "Ejecutar: " + orden, herramienta="Ejecutar", detalle="Ejecutar: " + orden, id=id_item)
+			if id_item:
+				with self._candado:
+					self._ordenes_vivas[str(id_item)] = {"pendiente": "", "ultimo": 0.0, "pasados": 0}
+				self._emitir(TipoEvento.ACTIVIDAD, "", id=str(id_item), clase="orden", estado="en_marcha",
+					titulo=_recortar_linea(orden, 200), orden=orden, segundo_plano=False, detenible=False)
 		elif tipo == "mcpToolCall":
 			nombre = "%s.%s" % (item.get("server", ""), item.get("tool", ""))
 			detalle = "Herramienta %s del servidor %s" % (item.get("tool", ""), item.get("server", ""))
@@ -1391,6 +2093,7 @@ class ConversacionCodex(Conversacion):
 		elif tipo == "collabAgentToolCall":
 			detalle = "Subagente: %s" % _recortar_linea(str(item.get("prompt") or item.get("tool") or ""), 200)
 			self._emitir(TipoEvento.HERRAMIENTA, detalle, herramienta="Subagente", detalle=detalle, id=id_item)
+			self._actividad_subagentes(item)
 		elif tipo == "fileChange":
 			# Se guardan para enseñar el diff si Codex pide permiso para aplicarlos.
 			cambios = [cambio for cambio in item.get("changes") or [] if isinstance(cambio, dict)]
@@ -1401,7 +2104,11 @@ class ConversacionCodex(Conversacion):
 		tipo = item.get("type")
 		id_item = item.get("id", "")
 		if tipo == "agentMessage":
-			self._emitir(TipoEvento.MENSAJE, str(item.get("text") or ""), id=id_item, fase=item.get("phase") or "")
+			datos: dict[str, Any] = {"id": id_item, "fase": item.get("phase") or ""}
+			if isinstance(id_turno, str) and id_turno and id_item:
+				# Para bifurcar o reintentar desde este mensaje (AIChat, codex_features ``verify_anchor``).
+				datos["ancla"] = "%s:%s" % (id_turno, id_item)
+			self._emitir(TipoEvento.MENSAJE, str(item.get("text") or ""), **datos)
 		elif tipo == "commandExecution":
 			estado = item.get("status")
 			codigo = item.get("exitCode")
@@ -1410,6 +2117,7 @@ class ConversacionCodex(Conversacion):
 			if estado == "declined":
 				salida = salida or "Orden denegada."
 			self._emitir(TipoEvento.HERRAMIENTA_FIN, salida, herramienta="Ejecutar", salida=salida, error=error, codigo=codigo, id=id_item)
+			self._fin_orden(str(id_item), estado, error)
 		elif tipo == "mcpToolCall":
 			nombre = "%s.%s" % (item.get("server", ""), item.get("tool", ""))
 			fallo = item.get("error")
@@ -1426,6 +2134,10 @@ class ConversacionCodex(Conversacion):
 		elif tipo in ("imageView", "collabAgentToolCall"):
 			nombre = "Ver imagen" if tipo == "imageView" else "Subagente"
 			self._emitir(TipoEvento.HERRAMIENTA_FIN, "", herramienta=nombre, salida="", error=False, id=id_item)
+			if tipo == "collabAgentToolCall":
+				self._actividad_subagentes(item)
+		elif tipo == "subAgentActivity":
+			self._actividad_subagente_suelto(item)
 		elif tipo == "fileChange":
 			with self._candado:
 				self._cambios_archivo.pop(id_item, None)
@@ -1476,7 +2188,7 @@ class ConversacionCodex(Conversacion):
 			if id_turno and self._compactado_en == id_turno:
 				return
 			self._compactado_en = id_turno if isinstance(id_turno, str) else None
-		self._emitir(TipoEvento.AVISO, "Se ha compactado el contexto")
+		self._emitir(TipoEvento.AVISO, "Se ha compactado el contexto", compactado=True)
 
 	def _uso(self, uso: dict[str, Any]) -> None:
 		total = uso.get("total") or {}
@@ -1530,7 +2242,7 @@ class ConversacionCodex(Conversacion):
 
 	# -- Peticiones del servidor (hilo lector) --------------------------------
 
-	def _al_peticion(self, rpc_id: Any, metodo: str, p: dict[str, Any]) -> None:
+	def _al_peticion(self, rpc_id: Any, metodo: str, p: dict[str, Any], origen: str = "") -> None:
 		with self._candado:
 			srv = self._srv
 		if srv is None:
@@ -1569,10 +2281,43 @@ class ConversacionCodex(Conversacion):
 			self._emitir(TipoEvento.AVISO, "Codex ha pedido algo que Ctrl+IA aún no sabe mostrar (%s); se ha rechazado. "
 				"Si se repite, crea un paquete de diagnóstico en Herramientas y envíalo al autor." % metodo, metodo=metodo)
 			return
+		if origen:
+			# AIChat #521: la pide un subagente que lanzó esta conversación; se dice así.
+			titulo = solicitud.titulo.removeprefix("Codex ")
+			solicitud.titulo = "Petición de un subagente de Codex: " + titulo[:1].lower() + titulo[1:]
+			solicitud.detalle = ("La pide un subagente que Codex ha lanzado en esta conversación.\n" + solicitud.detalle).rstrip()
+			solicitud.datos["subagente"] = origen
 		with self._candado:
-			self._solicitudes[solicitud.id] = _Pendiente(rpc_id, metodo, p, solicitud)
+			self._solicitudes[solicitud.id] = _Pendiente(rpc_id, metodo, p, solicitud, origen)
 		self._emitir(TipoEvento.PERMISO, solicitud.titulo, solicitud=solicitud)
 		self._cambiar_estado(Estado.ESPERANDO_USUARIO)
+
+	def _al_peticion_hija(self, rpc_id: Any, metodo: str, p: dict[str, Any], hilo_hijo: str,
+			cambios: list[dict[str, Any]]) -> bool:
+		"""Petición de un subagente de esta conversación (la dirige el servidor). ``False`` si no hay turno en marcha."""
+		with self._candado:
+			if self._cerrada or not self._turno_activo or self._srv is None or not self._hilo_id:
+				return False
+			hilo = self._hilo_id
+			item = str(p.get("itemId") or "")
+			if cambios and item:
+				self._cambios_archivo[item] = cambios
+		self._al_peticion(rpc_id, metodo, dict(p, threadId=hilo), origen=hilo_hijo)
+		return True
+
+	def _hija_resuelta(self, solicitud_id: str) -> None:
+		"""Codex retiró la petición de un subagente (o acabó su turno)."""
+		self._solicitud_resuelta(solicitud_id)
+
+	def _solicitud_resuelta(self, solicitud_id: str) -> None:
+		with self._candado:
+			pendiente = self._solicitudes.pop(solicitud_id, None)
+			quedan = bool(self._solicitudes)
+			activo = self._turno_activo
+		if pendiente is not None:
+			self._emitir(TipoEvento.PERMISO_RETIRADO, id=solicitud_id)
+			if not quedan and activo:
+				self._cambiar_estado(Estado.TRABAJANDO)
 
 	def _solicitud_orden(self, rpc_id: Any, p: dict[str, Any]) -> SolicitudPermiso:
 		lineas = []
@@ -1599,16 +2344,18 @@ class ConversacionCodex(Conversacion):
 		# más restrictivo (AIChat #298). Ctrl+IA ofrece en su lugar su propia regla.
 		opciones = _opciones_decision(p.get("availableDecisions"), sesion=False)
 		datos: dict[str, Any] = {"orden": orden or "", "carpeta": p.get("cwd") or "", "item": p.get("itemId", "")}
-		prefijo = self._prefijo_permitible(p)
-		if prefijo and any(o.id == "accept" for o in opciones):
+		permitible = self._prefijo_permitible(p)
+		if permitible and any(o.id == "accept" for o in opciones):
 			# Ctrl+IA guarda la regla y responde «Permitir una vez» por ti: quitarla surte efecto enseguida.
+			prefijo, contexto = permitible
 			texto_prefijo = " ".join(prefijo)
-			datos["regla"] = regla_de_orden(prefijo)
+			datos["regla"] = regla_de_orden(prefijo, contexto)
 			opciones = [o for o in opciones if o.id != "acceptForSession"]
 			posicion = next(i for i, o in enumerate(opciones) if o.id == "accept") + 1
+			dentro = " dentro de %s" % _nombre_interprete(contexto) if contexto else ""
 			opciones.insert(posicion, OpcionPermiso(
-				OPCION_PERMITIR_SESION, "Permitir «%s» con cualquier argumento durante esta sesión" % texto_prefijo,
-				ClaseOpcion.PERMITIR_SESION, self._ayuda_regla(prefijo),
+				OPCION_PERMITIR_SESION, "Permitir «%s» con cualquier argumento%s durante esta sesión" % (texto_prefijo, dentro),
+				ClaseOpcion.PERMITIR_SESION, self._ayuda_regla(prefijo, contexto),
 			))
 		return SolicitudPermiso(
 			id=str(rpc_id),
@@ -1622,8 +2369,9 @@ class ConversacionCodex(Conversacion):
 
 	# -- Reglas «permitir durante esta sesión» de Ctrl+IA --------------------
 
-	def _orden_sencilla_en_carpeta(self, p: dict[str, Any]) -> list[str] | None:
-		"""Palabras de la orden si es una sola orden sencilla, en la carpeta raíz de la sesión y sin más necesidades.
+	def _orden_sencilla_en_carpeta(self, p: dict[str, Any]) -> tuple[list[str], str] | None:
+		"""Palabras de la orden y su intérprete (:func:`orden_y_contexto`) si es una sola orden sencilla, en la
+		carpeta raíz de la sesión y sin más necesidades.
 
 		Solo vale la carpeta raíz, no una subcarpeta (AIChat #333): en una subcarpeta puede
 		haber otro repositorio con su propia configuración. Tampoco valen las órdenes git
@@ -1637,10 +2385,10 @@ class ConversacionCodex(Conversacion):
 		remota = remoto.carpeta_remota(self.ajustes.extra)
 		if not (_misma_carpeta_posix(carpeta, remota) if remota else _misma_carpeta(carpeta, self.ajustes.carpeta)):
 			return None
-		palabras = palabras_orden(p.get("command"))
-		if not palabras or orden_git_peligrosa(palabras):
+		resultado = orden_y_contexto(p.get("command"))
+		if resultado is None or not resultado[0] or orden_git_peligrosa(resultado[0]):
 			return None
-		return palabras
+		return resultado
 
 	def _repositorio_permitido(self, palabras: Sequence[str], carpeta: str) -> bool:
 		"""Una orden git solo se permite por regla en la raíz de un repositorio sin repositorios anidados.
@@ -1653,13 +2401,13 @@ class ConversacionCodex(Conversacion):
 			return False
 		return repositorio_sin_anidados(Path(carpeta))
 
-	def _prefijo_permitible(self, p: dict[str, Any]) -> list[str] | None:
-		"""Prefijo que Codex propone recordar, si se puede ofrecer «Permitir durante esta sesión»."""
-		palabras = self._orden_sencilla_en_carpeta(p)
+	def _prefijo_permitible(self, p: dict[str, Any]) -> tuple[list[str], str] | None:
+		"""Prefijo que Codex propone recordar y su intérprete, si se puede ofrecer «Permitir durante esta sesión»."""
+		sencilla = self._orden_sencilla_en_carpeta(p)
 		prefijo = _prefijo_propuesto(p.get("proposedExecpolicyAmendment"))
-		if not palabras or not prefijo or not prefijo_permitible(prefijo) or palabras[:len(prefijo)] != prefijo:
+		if not sencilla or not prefijo or not prefijo_permitible(prefijo) or sencilla[0][:len(prefijo)] != prefijo:
 			return None
-		return prefijo if self._repositorio_permitido(palabras, str(p.get("cwd"))) else None
+		return (prefijo, sencilla[1]) if self._repositorio_permitido(sencilla[0], str(p.get("cwd"))) else None
 
 	def _regla_que_permite(self, p: dict[str, Any]) -> str:
 		"""Regla guardada que cubre esta petición de orden, o ``""`` si hay que preguntar."""
@@ -1669,12 +2417,15 @@ class ConversacionCodex(Conversacion):
 		disponibles = p.get("availableDecisions")
 		if isinstance(disponibles, list) and "accept" not in disponibles:
 			return ""
-		palabras = self._orden_sencilla_en_carpeta(p)
-		if not palabras:
+		sencilla = self._orden_sencilla_en_carpeta(p)
+		if not sencilla:
 			return ""
+		palabras, contexto = sencilla
 		for regla in reglas:
 			prefijo = prefijo_de_regla(regla)
-			if prefijo and prefijo_permitible(prefijo) and palabras[:len(prefijo)] == prefijo:
+			# La regla está atada al intérprete exacto con el que se concedió (o a ninguno).
+			if (prefijo and prefijo_permitible(prefijo) and palabras[:len(prefijo)] == prefijo
+					and _mismo_contexto(contexto_de_regla(regla), contexto)):
 				# La carpeta se revisa al final y solo si hay regla: recorrerla cuesta.
 				return regla if self._repositorio_permitido(palabras, str(p.get("cwd"))) else ""
 		return ""
@@ -1701,13 +2452,15 @@ class ConversacionCodex(Conversacion):
 		return ("Si la permites, esta orden puede ejecutarse fuera del aislamiento (sandbox) de Codex, con acceso a "
 			"todos tus archivos y a internet.")
 
-	def _ayuda_regla(self, prefijo: Sequence[str]) -> str:
+	def _ayuda_regla(self, prefijo: Sequence[str], contexto: str = "") -> str:
 		"""Ayuda (Ctrl+H) de «Permitir … con cualquier argumento durante esta sesión»."""
 		texto_prefijo = " ".join(prefijo)
 		partes = [
 			"Ctrl+IA lo recordará y contestará «Permitir una vez» por ti cada vez que Codex quiera ejecutar «%s» en "
 			"esta sesión, solo en la carpeta raíz de la sesión y nunca con órdenes compuestas." % texto_prefijo,
 		]
+		if contexto:
+			partes.append("Solo cuando Codex la ejecute con este mismo intérprete: %s." % contexto)
 		if self._sin_aislamiento():
 			partes.append("En el modo actual, Codex ejecuta todas las órdenes sin aislamiento (sandbox), con acceso a todo "
 				"el equipo.")
@@ -1792,12 +2545,15 @@ def _explicar(error: ErrorCodex) -> str:
 	return "Motivo: " + _recortar_linea(error.mensaje, 300)
 
 
-def _entrada(texto: str, adjuntos: Sequence[Adjunto], remota: bool = False) -> list[dict[str, Any]]:
-	"""Convierte el mensaje en ``UserInput``: texto + imágenes locales.
+def _entrada(texto: str, adjuntos: Sequence[Adjunto], remota: bool = False,
+		skills: Sequence[tuple[str, str]] = ()) -> list[dict[str, Any]]:
+	"""Convierte el mensaje en ``UserInput``: texto + imágenes locales + skills de Codex.
 
 	Los adjuntos que no son imágenes se citan por ruta para que Codex los lea
 	desde el disco (el protocolo no tiene un tipo «archivo»). En otro equipo
 	(``remota``), Codex no ve los archivos de Windows: se dice que no se han enviado.
+	Las skills (``$nombre`` en el texto) van además como ``{"type": "skill"}``; en total,
+	como mucho :data:`MAX_ELEMENTOS_ENTRADA` elementos (AIChat, codex_input.py).
 	"""
 	if remota and adjuntos:
 		nombres = ", ".join(adjunto.ruta.name for adjunto in adjuntos)
@@ -1807,22 +2563,137 @@ def _entrada(texto: str, adjuntos: Sequence[Adjunto], remota: bool = False) -> l
 	otros = [str(adjunto.ruta) for adjunto in adjuntos if not adjunto.es_imagen]
 	if otros:
 		texto = (texto + "\n\n" if texto else "") + "Archivos adjuntos (léelos del disco):\n" + "\n".join("- " + ruta for ruta in otros)
-	return [{"type": "text", "text": texto}, *imagenes]
+	elementos = [{"type": "text", "text": texto}, *imagenes]
+	for nombre, ruta in skills:
+		if len(elementos) >= MAX_ELEMENTOS_ENTRADA:
+			break
+		elementos.append({"type": "skill", "name": nombre, "path": ruta})
+	return elementos
+
+
+#: Una palabra literal del guion de un intérprete (AIChat #478, codex_permissions ``command_words``): sin
+#: variables, subexpresiones, comodines, llaves ni nada que el intérprete pueda interpretar.
+_PALABRA_LITERAL = r"""(?:[A-Za-z0-9_./:=+-]+|'[A-Za-z0-9_./:=+ -]+'|"[A-Za-z0-9_./:=+ -]+")"""
+_RE_PALABRA_LITERAL = re.compile(_PALABRA_LITERAL)
+_RE_GUION_LITERAL = re.compile(r" *" + _PALABRA_LITERAL + r"(?: +" + _PALABRA_LITERAL + r")* *")
+#: Intérpretes POSIX de confianza (sesiones por SSH): solo con ``-c`` o ``-lc``.
+_INTERPRETES_POSIX = frozenset({"/bin/bash", "/bin/zsh", "/bin/sh", "/usr/bin/bash", "/usr/bin/zsh", "/usr/bin/sh"})
+_OPCIONES_INTERPRETE = {"powershell": (["-command"], ["-noprofile", "-command"]), "posix": (["-c"], ["-lc"])}
+
+
+def _es_alias_tienda(ruta: str) -> bool:
+	"""Un alias de aplicación de la Microsoft Store de verdad, no un programa puesto en su lugar."""
+	try:
+		return getattr(os.lstat(ruta), "st_reparse_tag", None) == stat.IO_REPARSE_TAG_APPEXECLINK
+	except (OSError, AttributeError):
+		return False
+
+
+def interprete_de_confianza(ejecutable: str) -> str:
+	"""``"powershell"`` o ``"posix"`` si ``ejecutable`` es un intérprete cuya orden se puede desenvolver; ``""`` si no.
+
+	Solo rutas exactas (AIChat #478, platform_paths ``codex_approval_shell``): el PowerShell de Windows,
+	PowerShell 7 y 7-preview de ``%ProgramFiles%``, el alias de la Store (si de verdad lo es) y los
+	``sh``, ``bash`` y ``zsh`` de ``/bin`` y ``/usr/bin``.
+	"""
+	if ejecutable in _INTERPRETES_POSIX:
+		return "posix"
+	if not ES_WINDOWS:
+		return ""
+	raiz = os.environ.get("SystemRoot") or "C:\\Windows"
+	confianza = [ntpath.join(raiz, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")]
+	programas = os.environ.get("ProgramFiles") or ""
+	if ntpath.isabs(programas):
+		confianza += [ntpath.join(programas, "PowerShell", "7", "pwsh.exe"), ntpath.join(programas, "PowerShell", "7-preview", "pwsh.exe")]
+	if ntpath.normcase(ejecutable) in {ntpath.normcase(ruta) for ruta in confianza}:
+		return "powershell"
+	local = os.environ.get("LOCALAPPDATA") or ""  # auditoria: ignorar ruta-no-portable - reconoce el PowerShell de la Store; no guarda datos
+	if ntpath.isabs(local):
+		tienda = ntpath.join(local, "Microsoft", "WindowsApps", "pwsh.exe")
+		if ntpath.normcase(ejecutable) == ntpath.normcase(tienda) and _es_alias_tienda(tienda):
+			return "powershell"
+	return ""
+
+
+def _sin_comillas_exactas(palabra: str) -> str | None:
+	"""La palabra sin las comillas que la envuelven entera; ``None`` si tiene comillas sueltas."""
+	if len(palabra) >= 2 and palabra[0] == palabra[-1] and palabra[0] in "\"'":
+		interior = palabra[1:-1]
+		return None if palabra[0] in interior else interior
+	return None if any(c in palabra for c in "\"'") else palabra
+
+
+def orden_y_contexto(orden: Any) -> tuple[list[str], str] | None:
+	"""Palabras de UNA orden sencilla y el intérprete que la envuelve (``""`` si ninguno); ``None`` si no lo es.
+
+	Solo se desenvuelve un intérprete de confianza (:func:`interprete_de_confianza`) con
+	``-Command`` o ``-NoProfile -Command`` (PowerShell) o ``-c``/``-lc`` (POSIX) y un guion de
+	palabras literales; el contexto es ese intérprete exacto con sus opciones, al que queda
+	atada la regla. Cualquier otro intérprete, como palabra normal (y nunca permitible).
+	"""
+	argv: list[str] | None = None
+	if isinstance(orden, list):
+		if not orden or not all(isinstance(parte, str) for parte in orden):
+			return None
+		argv = list(orden)
+		texto = " ".join(orden)
+	elif isinstance(orden, str):
+		texto = orden
+	else:
+		return None
+	if not texto.strip() or _RE_ORDEN_COMPUESTA.search(texto):
+		return None
+	if argv is None:
+		try:
+			crudas = shlex.split(texto, posix=False)
+		except ValueError:
+			return None
+	else:
+		crudas = argv
+	if not crudas:
+		return None
+	ejecutable = crudas[0].strip("\"'") if argv is None else crudas[0]
+	clase = interprete_de_confianza(ejecutable)
+	if not clase:
+		return crudas, ""
+	if len(crudas) < 3:
+		return None
+	opciones = [o.lower() for o in crudas[1:-1]] if clase == "powershell" else list(crudas[1:-1])
+	if opciones not in [list(v) for v in _OPCIONES_INTERPRETE[clase]]:
+		return None
+	guion = crudas[-1] if argv is not None else _sin_comillas_exactas(crudas[-1])
+	if not guion or any(ord(c) < 32 or ord(c) > 126 for c in guion) or not _RE_GUION_LITERAL.fullmatch(guion):
+		return None
+	palabras = [w[1:-1] if w[0] in "\"'" else w for w in _RE_PALABRA_LITERAL.findall(guion)]
+	if not palabras or any(w.startswith("=") for w in palabras):
+		return None
+	return palabras, " ".join([ejecutable, *opciones])
 
 
 def palabras_orden(orden: Any) -> list[str] | None:
-	"""Palabras de una orden si es UNA orden sencilla; ``None`` si encadena, redirige o expande algo."""
-	if isinstance(orden, list):
-		if not all(isinstance(parte, str) for parte in orden):
-			return None
-		orden = " ".join(orden)
-	if not isinstance(orden, str) or not orden.strip() or _RE_ORDEN_COMPUESTA.search(orden):
-		return None
-	try:
-		palabras = shlex.split(orden, posix=False)
-	except ValueError:
-		return None
-	return palabras or None
+	"""Palabras de una orden si es UNA orden sencilla; ``None`` si encadena, redirige o expande algo.
+
+	Si la envuelve un intérprete de confianza, las del guion (ver :func:`orden_y_contexto`).
+	"""
+	resultado = orden_y_contexto(orden)
+	return resultado[0] if resultado and resultado[0] else None
+
+
+def _nombre_interprete(contexto: str) -> str:
+	"""«PowerShell» o «bash» para la etiqueta de la opción."""
+	bajo = contexto.lower()
+	if "powershell.exe" in bajo or "pwsh.exe" in bajo:
+		return "PowerShell"
+	return posixpath.basename(contexto.split(" ", 1)[0]) or "un intérprete"
+
+
+def _mismo_contexto(uno: str, otro: str) -> bool:
+	"""El mismo intérprete y opciones (sin distinguir mayúsculas en la ruta de Windows)."""
+	if not uno or not otro:
+		return uno == otro
+	if uno.startswith("/") or otro.startswith("/"):
+		return uno == otro
+	return ntpath.normcase(uno) == ntpath.normcase(otro)
 
 
 def _prefijo_propuesto(propuesta: Any) -> list[str] | None:
@@ -1939,15 +2810,38 @@ def prefijo_permitible(prefijo: Sequence[str]) -> bool:
 	return not orden_git_peligrosa(prefijo)
 
 
-def regla_de_orden(prefijo: Sequence[str]) -> str:
-	"""Regla con la que Ctrl+IA recuerda un prefijo permitido: ``Orden(git switch)``."""
-	return "Orden(%s)" % " ".join(prefijo)
+def regla_de_orden(prefijo: Sequence[str], contexto: str = "") -> str:
+	"""Regla con la que Ctrl+IA recuerda un prefijo permitido: ``Orden(git switch)``.
+
+	Con intérprete (AIChat #478), atada a él: ``Orden(git switch; C:\\…\\powershell.exe -command)``.
+	El ``;`` no puede estar en el prefijo (las órdenes compuestas no se permiten nunca).
+	"""
+	return "Orden(%s)" % (" ".join(prefijo) + ("; " + contexto if contexto else ""))
+
+
+def _partes_regla(regla: str) -> tuple[str, str] | None:
+	if not regla.startswith("Orden(") or not regla.endswith(")"):
+		return None
+	contenido = regla[len("Orden("):-1]
+	prefijo, separador, contexto = contenido.partition("; ")
+	return prefijo, contexto.strip() if separador else ""
 
 
 def prefijo_de_regla(regla: str) -> list[str] | None:
-	if not regla.startswith("Orden(") or not regla.endswith(")"):
+	partes = _partes_regla(regla)
+	if partes is None or _RE_ORDEN_COMPUESTA.search(partes[0]):
 		return None
-	return palabras_orden(regla[len("Orden("):-1])
+	try:
+		palabras = shlex.split(partes[0], posix=False)
+	except ValueError:
+		return None
+	return palabras or None
+
+
+def contexto_de_regla(regla: str) -> str:
+	"""El intérprete al que está atada una regla ``Orden(...)`` («» si a ninguno)."""
+	partes = _partes_regla(regla)
+	return partes[1] if partes else ""
 
 
 def _misma_carpeta_posix(ruta: str, carpeta: str) -> bool:
@@ -2227,6 +3121,317 @@ def _texto_contenido_mcp(resultado: Any) -> str:
 
 
 # --------------------------------------------------------------------------
+# Comandos, subagentes, turnos, skills y servidores MCP (funciones sin estado)
+# --------------------------------------------------------------------------
+
+#: Estado de un subagente (``CollabAgentStatus``) → estado de una ``ACTIVIDAD``.
+_ESTADOS_SUBAGENTE = {
+	"pendingInit": "en_marcha", "running": "en_marcha", "completed": "completada", "errored": "fallida",
+	"notFound": "fallida", "interrupted": "detenida", "shutdown": "detenida",
+}
+#: Lo que hace Codex con un subagente (``CollabAgentTool``), como paso de la actividad.
+_PASOS_SUBAGENTE = {
+	"spawnAgent": "Lanzado", "sendInput": "Recibe instrucciones", "sendMessage": "Recibe un mensaje",
+	"followupTask": "Recibe otra tarea", "resumeAgent": "Retomado", "wait": "Codex espera su resultado",
+	"closeAgent": "Cerrado", "interruptAgent": "Interrumpido", "listAgents": "Codex repasa sus subagentes",
+}
+#: Estado de un objetivo de Codex (``ThreadGoalStatus``).
+_ESTADOS_OBJETIVO = {
+	"active": "activo", "paused": "en pausa", "blocked": "bloqueado", "usageLimited": "detenido por el límite de uso",
+	"budgetLimited": "detenido por agotar su presupuesto", "complete": "cumplido",
+}
+#: Lo que se dice si se pregunta aparte sin ninguna respuesta terminada.
+NADA_TERMINADO = ("Esta conversación todavía no tiene ninguna respuesta terminada de Codex: espera a que termine y "
+	"vuelve a preguntar.")
+_RE_NOMBRE_MCP = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def comando_de(texto: str) -> tuple[str, str] | None:
+	"""``(comando, argumento)`` si ``texto`` es un comando de barra de :data:`COMANDOS_CODEX`; si no, ``None``."""
+	if not isinstance(texto, str):
+		return None
+	partes = texto.strip().split()
+	if not partes or not partes[0].startswith("/") or len(partes) > 2:
+		return None
+	nombre = partes[0].lower()
+	argumento = partes[1].lower() if len(partes) == 2 else ""
+	validos = {"/compact": ("",), "/plan": ("", "on", "off"), "/memories": ("on", "off"), "/goal": ("", "pause", "clear")}
+	return (nombre, argumento) if argumento in validos.get(nombre, ()) else None
+
+
+def turno_de_ancla(ancla: Any) -> str:
+	"""El turno de un ancla ``"<turnId>:<itemId>"`` (``""`` si no lo parece)."""
+	if not isinstance(ancla, str) or ":" not in ancla:
+		return ""
+	turno = ancla.split(":", 1)[0].strip()
+	return turno if re.fullmatch(r"[A-Za-z0-9_.-]{1,200}", turno) else ""
+
+
+def _paginas_turnos(srv: _ServidorCodex, hilo: str, limite: int) -> Any:
+	"""Cada página de ``thread/turns/list`` del hilo, del más reciente al más antiguo, sin sus elementos."""
+	cursor = None
+	vistos: set[str] = set()
+	for _pagina in range(MAX_PAGINAS):
+		params: dict[str, Any] = {"threadId": hilo, "sortDirection": "desc", "limit": limite, "itemsView": "notLoaded"}
+		if cursor:
+			params["cursor"] = cursor
+		respuesta = srv.peticion("thread/turns/list", params) or {}
+		turnos = respuesta.get("data") if isinstance(respuesta, dict) else None
+		if not isinstance(turnos, list):
+			raise ErrorCodex("Codex no ha dado la lista de turnos de la conversación")
+		yield [turno for turno in turnos if isinstance(turno, dict)]
+		cursor = respuesta.get("nextCursor")
+		if not isinstance(cursor, str) or not cursor or cursor in vistos:
+			return
+		vistos.add(cursor)
+
+
+def verificar_turno(srv: _ServidorCodex, hilo: str, turno: str, *, antes: bool = False) -> None:
+	"""Comprueba con ``thread/turns/list`` que ``turno`` sigue en ``hilo`` (AIChat ``verify_anchor``).
+
+	Para bifurcar (``antes`` falso) el turno no puede estar en marcha. Lanza :class:`ErrorCodex`.
+	"""
+	for pagina in _paginas_turnos(srv, hilo, 100):
+		for datos in pagina:
+			if datos.get("id") == turno:
+				if not antes and datos.get("status") not in ("completed", "failed", "interrupted"):
+					raise ErrorCodex("Codex aún está trabajando en ese mensaje: espera a que termine y vuelve a intentarlo.")
+				return
+	raise ErrorCodex("El mensaje elegido ya no corresponde a un turno completo de Codex. Vuelve a abrir la sesión y "
+		"elígelo otra vez.")
+
+
+def ultimo_turno_terminado(srv: _ServidorCodex, hilo: str) -> tuple[str, bool]:
+	"""``(id del turno terminado más reciente, si hay alguno más nuevo sin terminar)``; ``("", …)`` si no hay ninguno."""
+	sin_terminar = False
+	for pagina in _paginas_turnos(srv, hilo, 20):
+		for datos in pagina:
+			identificador = datos.get("id")
+			if datos.get("status") == "completed" and isinstance(identificador, str) and identificador:
+				return identificador, sin_terminar
+			sin_terminar = True
+	return "", sin_terminar
+
+
+def hilo_desaparecido(srv: _ServidorCodex, id_hilo: str) -> bool:
+	"""Si Codex ya no tiene ``id_hilo`` en su lista (activos y archivados, de cualquier proveedor y origen).
+
+	Cualquier duda (la lista falla, viene rara o repite el cursor) no es prueba: ``False``.
+	"""
+	if not id_hilo:
+		return False
+	try:
+		for archivados in (False, True):
+			cursor = None
+			vistos: set[str] = set()
+			for _pagina in range(MAX_PAGINAS):
+				params: dict[str, Any] = {"archived": archivados, "limit": 100, "sourceKinds": list(FUENTES_HILOS),
+					"modelProviders": []}
+				if cursor:
+					params["cursor"] = cursor
+				respuesta = srv.peticion("thread/list", params) or {}
+				datos = respuesta.get("data") if isinstance(respuesta, dict) else None
+				if not isinstance(datos, list):
+					return False
+				if any(isinstance(hilo, dict) and hilo.get("id") == id_hilo for hilo in datos):
+					return False
+				cursor = respuesta.get("nextCursor")
+				if cursor is None:
+					break
+				if not isinstance(cursor, str) or not cursor or cursor in vistos:
+					return False
+				vistos.add(cursor)
+			else:
+				return False  # demasiadas páginas: no se ha visto la lista entera
+	except ErrorCodex:
+		log.debug("No se pudo confirmar si Codex aún tiene el hilo %s", id_hilo, exc_info=True)
+		return False
+	return True
+
+
+def skills_de_respuesta(respuesta: Any) -> list[tuple[str, str, str]]:
+	"""``[(nombre, ruta, descripción)]`` de las skills activas de una respuesta de ``skills/list``."""
+	skills: dict[str, tuple[str, str, str]] = {}
+	for entrada in (respuesta.get("data") if isinstance(respuesta, dict) else None) or []:
+		if not isinstance(entrada, dict):
+			continue
+		for skill in entrada.get("skills") or []:
+			if not isinstance(skill, dict) or skill.get("enabled") is not True:
+				continue
+			nombre, ruta = skill.get("name"), skill.get("path")
+			if not isinstance(nombre, str) or not nombre.strip() or not isinstance(ruta, str) or not ruta:
+				continue
+			descripcion = str(skill.get("shortDescription") or skill.get("description") or "")
+			skills.setdefault(nombre, (nombre, ruta, _recortar_linea(descripcion, 300)))
+	return list(skills.values())
+
+
+def skills_de(srv: _ServidorCodex, carpeta: str) -> list[tuple[str, str, str]] | None:
+	"""Skills activas de Codex para ``carpeta`` (``skills/list`` recargado); ``None`` si Codex no contesta."""
+	try:
+		return skills_de_respuesta(srv.peticion("skills/list", {"cwds": [carpeta], "forceReload": True}))
+	except ErrorCodex:
+		log.debug("Codex no ha dicho sus skills", exc_info=True)
+		return None
+
+
+def texto_objetivo(respuesta: Any) -> str:
+	"""El objetivo de ``thread/goal/get``, en una frase para la persona."""
+	objetivo = respuesta.get("goal") if isinstance(respuesta, dict) else None
+	if not isinstance(objetivo, dict) or not isinstance(objetivo.get("objective"), str):
+		return "Esta conversación no tiene ningún objetivo de Codex."
+	partes = ["Objetivo de Codex: %s." % _recortar_linea(objetivo["objective"], 500).rstrip(".")]
+	estado = objetivo.get("status")
+	partes.append("Estado: %s." % _ESTADOS_OBJETIVO.get(estado, str(estado or "desconocido")))
+	if isinstance(objetivo.get("tokensUsed"), int):
+		partes.append("Tokens usados: %d." % objetivo["tokensUsed"])
+	presupuesto = objetivo.get("tokenBudget")
+	partes.append("Presupuesto: %d tokens." % presupuesto if isinstance(presupuesto, int) and presupuesto else "Sin presupuesto.")
+	if isinstance(objetivo.get("timeUsedSeconds"), int):
+		partes.append("Tiempo: %d segundos." % objetivo["timeUsedSeconds"])
+	return " ".join(partes)
+
+
+def lista_mcp_desde_codex(filas: Any) -> list[Any]:
+	"""Filas de ``mcpServerStatus/list`` (``McpServerStatus``) como ``servidores_mcp.ServidorMcp``."""
+	from app.services import servidores_mcp
+
+	servidores = []
+	for fila in filas or []:
+		if not isinstance(fila, dict) or not isinstance(fila.get("name"), str) or not fila["name"].strip():
+			continue
+		conexion = fila.get("runtimeStatus")
+		autenticacion = fila.get("authStatus")
+		if conexion == "connected":
+			estado = "connected"
+		elif conexion in ("starting", "notStarted"):
+			estado = "pending"
+		elif conexion == "authenticationRequired" or autenticacion == "notLoggedIn":
+			estado = "needs-auth"
+		elif conexion in ("failed", "cancelled"):
+			estado = "failed"
+		elif conexion == "disabled":
+			estado = "disabled"
+		else:
+			estado = "connected" if fila.get("tools") else "pending"
+		herramientas = fila.get("tools")
+		servidores.append(servidores_mcp.ServidorMcp(
+			nombre=fila["name"].strip(),
+			estado=estado,
+			motivo=servidores_mcp.motivo_legible(str(fila.get("toolsError") or "")),
+			herramientas=len(herramientas) if isinstance(herramientas, dict | list) else None,
+			origen="plugin" if fila.get("pluginId") else "",
+			destino=str(fila.get("httpOrigin") or ""),
+		))
+	return servidores
+
+
+def argumentos_preguntas(casa: Path | None = None) -> list[str]:
+	"""Argumentos de ``codex app-server`` para que Codex pregunte con ``request_user_input`` (BlindPilot).
+
+	Codex la trae apagada y solo en modo Plan; con esto llega también en el predeterminado
+	(``default_mode_request_user_input``, «en desarrollo» en codex-cli 0.167). ``-c`` sustituye
+	la clave entera, así que las ``developer_instructions`` de la persona (de su ``config.toml``)
+	van delante de las de Ctrl+IA y no se pierden.
+	"""
+	from app.services.historial.codex import carpeta_codex
+
+	propias = ""
+	try:
+		ajustes = tomllib.loads(((casa or carpeta_codex()) / "config.toml").read_text(encoding="utf-8"))
+		propias = str(ajustes.get("developer_instructions") or "") if isinstance(ajustes, dict) else ""
+	except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+		propias = ""
+	instrucciones = (propias.strip() + "\n\n" + INSTRUCCIONES_PREGUNTAS).strip()
+	return ["-c", "tools.experimental_request_user_input={enabled=true}", "--enable", "default_mode_request_user_input",
+		"-c", "developer_instructions=" + json.dumps(instrucciones, ensure_ascii=False)]
+
+
+#: Por qué preguntar con la herramienta y no en el texto de la respuesta (BlindPilot ``ask_through_the_tool``).
+INSTRUCCIONES_PREGUNTAS = (
+	"Trabajas dentro de Ctrl+IA, que una persona ciega maneja con un lector de pantalla. Cuando quieras que te "
+	"responda algo, pregúntaselo con la herramienta request_user_input en lugar de escribir la pregunta en tu "
+	"respuesta: Ctrl+IA lee en voz alta las preguntas de esa herramienta y las abre en un diálogo, mientras que una "
+	"pregunta escrita en la respuesta ni se anuncia como pregunta ni se le muestra como tal, y el turno termina sin "
+	"que nada le diga que esperas su respuesta. Vale para todas las preguntas, también en una entrevista que pregunte "
+	"de una en una."
+)
+
+
+class _Aparte:
+	"""El hilo efímero de «Preguntar aparte» en su propio proceso: junta la respuesta y rechaza toda petición."""
+
+	def __init__(self, al_texto: Callable[[str], None] | None) -> None:
+		self._al_texto = al_texto
+		self._candado = threading.Lock()
+		self._textos: dict[str, str] = {}
+		self.srv: _ServidorCodex | None = None
+		self.fin = threading.Event()
+		self.estado = ""
+		self.error = ""
+
+	def texto(self) -> str:
+		with self._candado:
+			return "\n\n".join(texto for texto in self._textos.values() if texto.strip())
+
+	def _avisar(self) -> None:
+		if self._al_texto is not None:
+			try:
+				self._al_texto(self.texto())
+			except Exception:  # noqa: BLE001 - quien recibe el texto no debe tumbar el lector
+				log.exception("Fallo al pasar la respuesta aparte")
+
+	def _al_notificacion(self, metodo: str, p: dict[str, Any]) -> None:
+		if metodo == "item/agentMessage/delta" and isinstance(p.get("delta"), str):
+			with self._candado:
+				clave = str(p.get("itemId") or "")
+				self._textos[clave] = self._textos.get(clave, "") + p["delta"]
+			self._avisar()
+		elif metodo == "item/completed" and isinstance(p.get("item"), dict) and p["item"].get("type") == "agentMessage":
+			with self._candado:
+				self._textos[str(p["item"].get("id") or "")] = str(p["item"].get("text") or "")
+			self._avisar()
+		elif metodo == "error" and not p.get("willRetry"):
+			self.error = _texto_error(p.get("error"))
+		elif metodo == "turn/completed":
+			turno = p.get("turn") if isinstance(p.get("turn"), dict) else {}
+			self.estado = str(turno.get("status") or "")
+			if self.estado == "failed" and not self.error:
+				self.error = _texto_error(turno.get("error"))
+			self.fin.set()
+
+	def _al_peticion(self, rpc_id: Any, metodo: str, _p: dict[str, Any]) -> None:
+		log.info("Petición de Codex en una pregunta aparte (%s); se rechaza", metodo)
+		if self.srv is not None:
+			self.srv.responder_error(rpc_id, ERROR_NO_ADMITIDO, TEXTO_NO_ADMITIDO)
+
+	def _al_peticion_hija(self, *_args: Any) -> bool:
+		return False
+
+	def _hija_resuelta(self, _solicitud_id: str) -> None:
+		return
+
+	def _servidor_caido(self, _srv: _ServidorCodex, _codigo: int | None, detalle: str) -> None:
+		self.estado = "muerto"
+		self.error = "Codex se ha cerrado sin contestar." + (" Detalle: " + detalle if detalle else "")
+		self.fin.set()
+
+
+def _mcp_apagados(srv: _ServidorCodex, carpeta: str) -> dict[str, Any]:
+	"""``mcp_servers.<nombre>.enabled = false`` de cada servidor MCP de la configuración de Codex (``config/read``)."""
+	try:
+		respuesta = srv.peticion("config/read", {"cwd": carpeta}) or {}
+	except ErrorCodex:
+		log.debug("Codex no ha dado su configuración para la pregunta aparte", exc_info=True)
+		return {}
+	configuracion = respuesta.get("config") if isinstance(respuesta, dict) else None
+	servidores = configuracion.get("mcp_servers") if isinstance(configuracion, dict) else None
+	if not isinstance(servidores, dict):
+		return {}
+	return {"mcp_servers.%s.enabled" % nombre: False for nombre in servidores if isinstance(nombre, str) and _RE_NOMBRE_MCP.match(nombre)}
+
+
+# --------------------------------------------------------------------------
 # Historial
 # --------------------------------------------------------------------------
 
@@ -2255,8 +3460,18 @@ def convertir_hilo(hilo: dict[str, Any]) -> dict[str, Any]:
 	}
 
 
-def item_a_mensaje(item: dict[str, Any], fecha: float | None = None) -> dict[str, Any] | None:
-	"""Convierte un ``ThreadItem`` en un mensaje de historial (o ``None`` si no se muestra)."""
+def item_a_mensaje(item: dict[str, Any], fecha: float | None = None, turno: str = "") -> dict[str, Any] | None:
+	"""Convierte un ``ThreadItem`` en un mensaje de historial (o ``None`` si no se muestra).
+
+	Con ``turno``, los mensajes de la persona y de Codex llevan ``ancla`` (``"<turnId>:<itemId>"``).
+	"""
+	mensaje = _item_a_mensaje(item, fecha)
+	if mensaje is not None and turno and item.get("id") and item.get("type") in ("userMessage", "agentMessage"):
+		mensaje["ancla"] = "%s:%s" % (turno, item["id"])
+	return mensaje
+
+
+def _item_a_mensaje(item: dict[str, Any], fecha: float | None) -> dict[str, Any] | None:
 	tipo = item.get("type")
 	if tipo == "userMessage":
 		partes = []
@@ -2265,7 +3480,8 @@ def item_a_mensaje(item: dict[str, Any], fecha: float | None = None) -> dict[str
 				continue
 			clase = entrada.get("type")
 			if clase == "text":
-				partes.append(str(entrada.get("text") or ""))
+				# Un mensaje largo enviado como archivo (AIChat #625) se enseña como tal, no con el texto fijo.
+				partes.append(mensajes_largos.texto_visible(str(entrada.get("text") or "")))
 			elif clase in ("localImage", "image"):
 				partes.append("[Imagen: %s]" % (entrada.get("path") or entrada.get("url") or ""))
 			elif clase in ("mention", "skill"):
@@ -2329,7 +3545,7 @@ def turnos_a_mensajes(turnos: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 		for item in turno.get("items") or []:
 			if not isinstance(item, dict):
 				continue
-			mensaje = item_a_mensaje(item, inicio if item.get("type") == "userMessage" else fin)
+			mensaje = item_a_mensaje(item, inicio if item.get("type") == "userMessage" else fin, str(turno.get("id") or ""))
 			if mensaje is not None and mensaje["texto"]:
 				mensajes.append(mensaje)
 	return mensajes
@@ -2401,15 +3617,23 @@ class ProveedorCodex(Proveedor):
 		bifurcar=True,
 		permisos_interactivos=True,
 		cambiar_modelo_en_marcha=True,
-		comandos_barra=False,
+		comandos_barra=True,
 		enviar_ahora=True,
 		anadir_al_turno=True,
 		leer_historial_externo=True,
+		compactar=True,
+		detener_tareas=True,
+		preguntar_aparte=True,
+		bifurcar_en_mensaje=True,
+		instrucciones_sesion=True,
 	)
 
-	def __init__(self, ejecutable: str | Path | None = None, orden: Sequence[str] | None = None) -> None:
+	def __init__(self, ejecutable: str | Path | None = None, orden: Sequence[str] | None = None,
+			preguntas: bool | Callable[[], bool] | None = None) -> None:
 		self._ejecutable = Path(ejecutable) if ejecutable else None
 		self._orden = list(orden) if orden else None
+		#: Preguntas de Codex (request_user_input) también fuera del modo Plan; ``None``: la opción ``agentes.preguntas_codex``.
+		self._preguntas = preguntas
 		self._candado = threading.Lock()
 		self._servidor: _ServidorCodex | None = None
 		#: Un servidor por equipo SSH (id del equipo → servidor).
@@ -2425,11 +3649,38 @@ class ProveedorCodex(Proveedor):
 			return self._ejecutable
 		return buscar_ejecutable(["codex"], _candidatos_windows() if ES_WINDOWS else ())
 
-	def orden_servidor(self) -> list[str] | None:
+	def preguntas_activas(self) -> bool:
+		"""Si se lanza Codex con sus preguntas (``request_user_input``) también en el modo predeterminado.
+
+		Apagado de fábrica: en codex-cli 0.167 es una función «en desarrollo». Se aplica al lanzar el proceso.
+		"""
+		if callable(self._preguntas):
+			return bool(self._preguntas())
+		if self._preguntas is not None:
+			return bool(self._preguntas)
+		from app.core import configuracion
+
+		instancia = getattr(configuracion, "_instancia", None)
+		if instancia is None:
+			return False
+		try:
+			return bool(instancia.obtener(CLAVE_PREGUNTAS, False))
+		except Exception:  # noqa: BLE001 - una clave ilegible deja la opción como de fábrica
+			log.debug("No se pudo leer %s", CLAVE_PREGUNTAS, exc_info=True)
+			return False
+
+	def orden_servidor(self, preguntas: bool | None = None) -> list[str] | None:
+		"""Orden del servidor; con ``preguntas`` (de fábrica, :meth:`preguntas_activas`) añade :func:`argumentos_preguntas`."""
 		if self._orden:
-			return list(self._orden)
-		ruta = self.ruta_ejecutable()
-		return [str(ruta), "app-server", "--listen", "stdio://"] if ruta else None
+			base = list(self._orden)
+		else:
+			ruta = self.ruta_ejecutable()
+			if not ruta:
+				return None
+			base = [str(ruta), "app-server", "--listen", "stdio://"]
+		if self.preguntas_activas() if preguntas is None else preguntas:
+			base += argumentos_preguntas()
+		return base
 
 	def servidor(self, extra: dict[str, Any] | None = None) -> _ServidorCodex:
 		"""El proceso compartido, lanzándolo si no existe o murió. Lanza :class:`ErrorCodex`.
@@ -2655,6 +3906,76 @@ class ProveedorCodex(Proveedor):
 	def modos_permiso(self) -> list[OpcionLista]:
 		return [OpcionLista(modo.id, modo.etiqueta, modo.ayuda) for modo in _MODOS]
 
+	def obtener_comandos(self, carpeta: Path) -> list[tuple[str, str]]:
+		"""Comandos de barra de Codex y sus skills (``$nombre``) en ``carpeta``, sin enviar nada. Bloquea."""
+		comandos = list(COMANDOS_CODEX)
+		try:
+			respuesta = self._consultar("skills/list", {"cwds": [str(carpeta)], "forceReload": True})
+		except ErrorCodex as error:
+			log.info("Codex no ha dicho sus skills: %s", error.mensaje)
+			return comandos
+		return comandos + [("$" + nombre, descripcion) for nombre, _ruta, descripcion in skills_de_respuesta(respuesta)]
+
+	def preguntar_aparte(self, ajustes: AjustesSesion, pregunta: str, al_texto: Callable[[str], None] | None = None,
+			cancelar: threading.Event | None = None) -> str:
+		"""Pregunta sobre la sesión en una copia efímera y de solo lectura, en OTRO proceso (AIChat codex_aside.py).
+
+		La copia llega hasta el último turno terminado (``thread/turns/list``), con ``sandbox`` de solo
+		lectura, ``approvalPolicy: never``, sin hooks, objetivos, memorias, órdenes, subagentes ni
+		servidores MCP, y cualquier petición de Codex se rechaza. No se guarda en ningún sitio.
+		"""
+		if remoto.es_remota(ajustes.extra):
+			raise RuntimeError("Preguntar aparte no está disponible en las sesiones de otro equipo.")
+		hilo = ajustes.id_externo
+		if not hilo:
+			raise RuntimeError(NADA_TERMINADO)
+		pregunta = (pregunta or "").strip()
+		if not pregunta:
+			raise RuntimeError("Escribe primero la pregunta.")
+		if len(pregunta) >= MAX_PREGUNTA_APARTE:
+			raise RuntimeError("La pregunta es demasiado larga: como mucho %d caracteres." % (MAX_PREGUNTA_APARTE - 1))
+		orden = self.orden_servidor(preguntas=False)
+		if not orden:
+			raise RuntimeError("No se encuentra Codex en este equipo.")
+		srv = _ServidorCodex(orden)
+		aparte = _Aparte(al_texto)
+		aparte.srv = srv
+		try:
+			srv.iniciar()
+			terminado, _sin_terminar = ultimo_turno_terminado(srv, hilo)
+			if not terminado:
+				raise RuntimeError(NADA_TERMINADO)
+			configuracion: dict[str, Any] = {"features.%s" % funcion: False for funcion in FUNCIONES_APAGADAS_APARTE}
+			configuracion.update(_mcp_apagados(srv, str(ajustes.carpeta)))
+			params: dict[str, Any] = {"threadId": hilo, "ephemeral": True, "excludeTurns": True, "lastTurnId": terminado,
+				"sandbox": "read-only", "approvalPolicy": "never", "approvalsReviewer": "user", "cwd": str(ajustes.carpeta),
+				"config": configuracion}
+			if ajustes.modelo:
+				params["model"] = ajustes.modelo
+			respuesta = srv.peticion("thread/fork", params) or {}
+			copia = respuesta.get("thread") if isinstance(respuesta, dict) else None
+			id_copia = copia.get("id") if isinstance(copia, dict) else None
+			if not isinstance(id_copia, str) or not id_copia:
+				raise RuntimeError("Codex no ha podido preparar la copia para la pregunta aparte.")
+			srv.registrar(id_copia, aparte)  # type: ignore[arg-type]
+			if cancelar is not None and cancelar.is_set():
+				raise RuntimeError("Has cancelado la pregunta.")
+			srv.peticion("turn/start", {"threadId": id_copia, "input": [{"type": "text", "text": pregunta}],
+				"approvalPolicy": "never", "sandboxPolicy": {"type": "readOnly"}})
+			limite = time.monotonic() + TIEMPO_APARTE
+			while not aparte.fin.wait(0.1):
+				if cancelar is not None and cancelar.is_set():
+					raise RuntimeError("Has cancelado la pregunta.")
+				if time.monotonic() > limite:
+					raise RuntimeError("Codex no ha contestado a tiempo.")
+			if aparte.estado != "completed":
+				raise RuntimeError(aparte.error or "Codex no ha terminado de contestar la pregunta aparte.")
+			return aparte.texto()
+		except ErrorCodex as error:
+			raise RuntimeError("No se ha podido preguntar a Codex. " + _explicar(error)) from error
+		finally:
+			srv.terminar()
+
 	def instrucciones_instalacion(self) -> str:
 		return (
 			"Para usar Codex necesitas una cuenta de ChatGPT (Plus, Pro, Business, Edu o Enterprise).\n"
@@ -2687,7 +4008,10 @@ class ProveedorCodex(Proveedor):
 		cursor = None
 		servidor = self.servidor(extra)
 		for _pagina in range(MAX_PAGINAS):
-			params: dict[str, Any] = {"limit": 100, "sortKey": "updated_at", "archived": archivados}
+			# Sin «sourceKinds» Codex solo lista los interactivos, y sin «modelProviders: []» solo los del proveedor
+			# que tiene puesto ahora: se perderían los de «codex exec» y los de otro proveedor (AIChat).
+			params: dict[str, Any] = {"limit": 100, "sortKey": "updated_at", "archived": archivados,
+				"sourceKinds": list(FUENTES_HILOS), "modelProviders": []}
 			if cursor:
 				params["cursor"] = cursor
 			respuesta = servidor.peticion("thread/list", params) or {}
@@ -2707,7 +4031,12 @@ class ProveedorCodex(Proveedor):
 		de una sesión en otro equipo, la lee en ese equipo (por SSH).
 		"""
 		servidor = self.servidor(extra)
-		respuesta = servidor.peticion("thread/read", {"threadId": id_hilo, "includeTurns": True}) or {}
+		try:
+			respuesta = servidor.peticion("thread/read", {"threadId": id_hilo, "includeTurns": True}) or {}
+		except ErrorCodex as error:
+			if not error.muerto and not error.tiempo_agotado and hilo_desaparecido(servidor, id_hilo):
+				raise ErrorCodex(MENSAJE_HILO_DESAPARECIDO, error.codigo, hilo_desaparecido=True) from error
+			raise
 		hilo = respuesta.get("thread") or {}
 		turnos = [t for t in hilo.get("turns") or [] if isinstance(t, dict)]
 		incompleto = any(t.get("itemsView") in ("notLoaded", "summary") for t in turnos)
@@ -2734,7 +4063,7 @@ class ProveedorCodex(Proveedor):
 					continue
 				milisegundos = entrada.get("completedAtMs") or entrada.get("startedAtMs")
 				fecha = milisegundos / 1000 if isinstance(milisegundos, (int, float)) else inicio_turno.get(entrada.get("turnId"))
-				mensaje = item_a_mensaje(entrada["item"], fecha)
+				mensaje = item_a_mensaje(entrada["item"], fecha, str(entrada.get("turnId") or ""))
 				if mensaje is not None and mensaje["texto"]:
 					mensajes.append(mensaje)
 			cursor = respuesta.get("nextCursor")

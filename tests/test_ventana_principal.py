@@ -172,12 +172,14 @@ def test_dialogo_de_permiso_tiene_la_opcion_segura_por_defecto(app_wx):
 def test_dialogo_nueva_sesion_valida_la_carpeta(ventana, monkeypatch, tmp_path):
 	from app.ui.dialogos import nueva_sesion
 
-	errores = []
-	monkeypatch.setattr(nueva_sesion, "mostrar_error", lambda padre, texto, titulo="": errores.append(texto))
+	preguntas = []
+	monkeypatch.setattr(nueva_sesion, "confirmar", lambda padre, texto, titulo="", **opciones: preguntas.append(texto) or wx.ID_NO)
 	dialogo = nueva_sesion.DialogoNuevaSesion(ventana, ventana.gestor, ventana.almacen, ventana.config, carpeta=tmp_path / "no_existe")
 	try:
+		# 1.6.0: una carpeta que no existe ya no se rechaza: se ofrece crearla (y aquí se dice que no).
 		dialogo._aceptar()
-		assert errores and "no existe" in errores[0]
+		assert preguntas and "no existe" in preguntas[0] and "Crearla" in preguntas[0]
+		assert dialogo.resultado is None and not (tmp_path / "no_existe").exists()
 		dialogo.carpeta.SetValue(str(tmp_path))
 		dialogo.mensaje.SetValue("Revisa el proyecto")
 		monkeypatch.setattr(dialogo, "EndModal", lambda codigo: None)

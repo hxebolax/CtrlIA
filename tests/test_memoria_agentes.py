@@ -255,7 +255,7 @@ def test_dialogo_memoria_construccion(app, entorno, sin_efectos):
 		dialogo.ver()
 		assert sin_efectos["visor"][-1][1].startswith("```")
 		menu = dialogo._crear_menu()
-		assert menu is not None and menu.GetMenuItemCount() == 7  # 5 acciones, separador y «Ordenar por»
+		assert menu is not None and menu.GetMenuItemCount() == 11  # 9 acciones, separador y «Ordenar por»
 		menu.Destroy()
 	finally:
 		dialogo.Destroy()
@@ -461,8 +461,9 @@ def test_dialogo_agentes_rellena_filas(app, entorno, gestor_falso, sin_efectos):
 		for identificador in dialogo.ids:
 			dialogo.poner_estado(identificador, gestor_falso.detectar(identificador))
 		dialogo.terminar_comprobacion()
-		assert dialogo.lista.valores_fila(0) == ["Claude Code", "Instalado", "2.1.0", "Iniciada: ana@ejemplo.invalid", "Listo."]
-		assert dialogo.lista.valores_fila(1)[:4] == ["Antigravity (Google)", "No instalado", "", "Desconocida"]
+		# Claude Code nativo no deja consultar la versión disponible: la columna se queda vacía.
+		assert dialogo.lista.valores_fila(0) == ["Claude Code", "Instalado", "2.1.0", "", "Iniciada: ana@ejemplo.invalid", "Listo."]
+		assert dialogo.lista.valores_fila(1)[:5] == ["Antigravity (Google)", "No instalado", "", "", "Desconocida"]
 		assert dialogo.lista.texto_celda(2, 1) == "No se pudo comprobar"
 		assert sin_efectos["voz"][-1].startswith("Comprobación terminada")
 		assert dialogo.boton_comprobar.IsEnabled()

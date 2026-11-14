@@ -32,6 +32,9 @@ para la ventana principal:
 - ``archivos_leidos``: archivos que leyó el agente (Read, read_file, Leer y
   órdenes como Get-Content, cat o sed -n).
 - ``mensajes_usuario``: tus propios mensajes.
+- ``aprobaciones``: las decisiones de la revisión automática de Codex (la más
+  reciente primero); ``resumen_aprobaciones`` las cuenta en una frase
+  («12 permitidas automáticamente, 1 no permitida») para el Estado del turno.
 - ``rango_turno``: dónde empieza y acaba el turno de un mensaje (para ver solo
   lo de ese mensaje o turno).
 
@@ -839,7 +842,11 @@ def _cambios_de_mensaje(mensaje: MensajeVista) -> list[tuple[str, str, str]]:
 			return cambios
 		texto = (mensaje.texto or "").strip()
 		if texto.startswith(_PREFIJOS_EDICION) or mensaje.herramienta in _HERRAMIENTAS_EDICION:
-			ruta = _ruta_tras_dos_puntos(texto)
+			# La ruta entera, del detalle: Claude en vivo solo dice el nombre del archivo y lo que cambia
+			# («Editar archivo: app.py (2 líneas añadidas)», desde la 1.6.0).
+			entrada = entrada_herramienta(mensaje.detalle or "") if mensaje.detalle else {}
+			ruta = next((str(entrada[c]).strip() for c in ("file_path", "notebook_path", "path")
+				if isinstance(entrada.get(c), str) and entrada[c].strip()), "") or _ruta_tras_dos_puntos(texto)
 			if ruta:
 				# El detalle de una herramienta no es un diff: solo se usa si
 				# no llega un mensaje «cambio» con el diff real de esa ruta.
@@ -1992,3 +1999,93 @@ def mensajes_usuario(mensajes: Sequence[MensajeVista]) -> list[MensajeUsuario]:
 		if mensaje.rol == "usuario" and (mensaje.texto or "").strip():
 			resultado.append(MensajeUsuario(mensaje.texto, indice, float(mensaje.fecha or 0), len(resultado) + 1))
 	return resultado
+
+
+# --------------------------------------------------------------------------
+# Aprobaciones: decisiones de la revisión automática de Codex (AIChat #564)
+# --------------------------------------------------------------------------
+
+#: Decisiones de la revisión automática (``revision_automatica["estado"]``), en palabras.
+NOMBRES_APROBACION = {
+	"approved": "Permitida",
+	"denied": "No permitida",
+	"timedOut": "Sin decidir a tiempo",
+	"aborted": "Detenida",
+}
+
+
+@dataclass(slots=True)
+class Aprobacion:
+	"""Una decisión de la revisión automática de Codex, guardada con su aviso en la sesión.
+
+	:param indice: posición del mensaje «sistema» en la conversación.
+	:param estado: ``approved``, ``denied``, ``timedOut`` o ``aborted`` (o el que traiga Codex).
+	:param accion: qué se revisó («Orden: git status», «Cambiar archivos: a.py»...).
+	:param orden: la orden, si lo revisado era una orden; si no, vacía.
+	"""
+
+	indice: int
+	fecha: float
+	estado: str
+	accion: str
+	riesgo: str = ""
+	motivo: str = ""
+	orden: str = ""
+	texto: str = ""
+
+	@property
+	def nombre_estado(self) -> str:
+		return NOMBRES_APROBACION.get(self.estado, self.estado or "Desconocida")
+
+
+def aprobaciones(mensajes: Sequence[MensajeVista]) -> list[Aprobacion]:
+	"""Las decisiones de la revisión automática de Codex de la conversación, la más reciente primero.
+
+	Salen de los mensajes «sistema» con ``datos["revision_automatica"]`` (los guarda el gestor con su aviso; solo
+	en las sesiones de Ctrl+IA). Lo que no tiene la forma esperada se salta: el protocolo es inestable.
+	"""
+	resultado: list[Aprobacion] = []
+	for indice, mensaje in enumerate(mensajes):
+		if mensaje.rol != "sistema":
+			continue
+		revision = (mensaje.datos or {}).get("revision_automatica") if isinstance(mensaje.datos, dict) else None
+		if not isinstance(revision, dict):
+			continue
+		accion = str(revision.get("accion") or "")
+		orden = accion[len("Orden: "):].strip() if accion.startswith("Orden: ") else ""
+		resultado.append(Aprobacion(
+			indice, float(mensaje.fecha or 0.0), str(revision.get("estado") or ""), accion,
+			str(revision.get("riesgo") or ""), str(revision.get("motivo") or ""), orden, mensaje.texto,
+		))
+	resultado.reverse()
+	return resultado
+
+
+def recuento_aprobaciones(lista: Iterable[Aprobacion]) -> dict[str, int]:
+	"""``{estado: veces}`` de unas decisiones de la revisión automática."""
+	return dict(Counter(aprobacion.estado for aprobacion in lista))
+
+
+def resumen_aprobaciones(mensajes_o_aprobaciones: Sequence[Any]) -> str:
+	"""«12 permitidas automáticamente, 1 no permitida» (vacío si no hubo ninguna), para el Estado del turno.
+
+	Admite los mensajes de la conversación o la lista que da :func:`aprobaciones`.
+	"""
+	lista = [a for a in mensajes_o_aprobaciones if isinstance(a, Aprobacion)]
+	if len(lista) != len(mensajes_o_aprobaciones):
+		lista = aprobaciones(mensajes_o_aprobaciones)
+	cuenta = recuento_aprobaciones(lista)
+	partes = []
+	for estado, singular, plural in (
+		("approved", "{n} permitida automáticamente", "{n} permitidas automáticamente"),
+		("denied", "{n} no permitida", "{n} no permitidas"),
+		("timedOut", "{n} sin decidir a tiempo", "{n} sin decidir a tiempo"),
+		("aborted", "{n} detenida", "{n} detenidas"),
+	):
+		veces = cuenta.pop(estado, 0)
+		if veces:
+			partes.append((singular if veces == 1 else plural).format(n=veces))
+	otras = sum(cuenta.values())
+	if otras:
+		partes.append(("{n} con otra decisión" if otras == 1 else "{n} con otras decisiones").format(n=otras))
+	return ", ".join(partes)

@@ -18,6 +18,10 @@ Cómo llegan a cada agente
 - Codex (``thread/start``, ``thread/resume`` y ``thread/fork`` con ``config``)
   y los agentes ACP que admiten HTTP: el servidor HTTP local de este módulo
   (:func:`url_servidor`), con un token por sesión en ``Authorization: Bearer``.
+  Con el mismo token, Codex recibe también los comandos de sesión
+  (``ccd_session_mgmt``, :mod:`app.services.herramientas_sesiones`) en
+  ``/mcp/ccd_session_mgmt`` (AIChat #557): listar va sin preguntar
+  (``approval_mode = "approve"`` por herramienta) y lo demás, con permiso.
 - Los agentes ACP sin HTTP y Antigravity (``agy``): el puente stdio
   ``app/puente_mcp.py`` (``ctrlia-mcp.exe`` en la versión compilada), que
   reenvía cada mensaje al servidor HTTP.
@@ -60,6 +64,9 @@ NOMBRE_SERVIDOR = "ctrlia"
 CLAVE_OPCION = "agentes.herramientas_ctrlia"
 #: Ejecutable del puente en la versión compilada (junto a ``CtrlIA.exe``).
 EJECUTABLE_PUENTE = "ctrlia-mcp.exe"
+#: Nombre del servidor de los comandos de sesión (``herramientas_sesiones.NOMBRE_SERVIDOR``) y su ruta HTTP.
+NOMBRE_SESIONES = "ccd_session_mgmt"
+RUTA_SESIONES = "/mcp/" + NOMBRE_SESIONES
 #: Variables de entorno del puente.
 VARIABLE_URL = "CTRLIA_URL"
 VARIABLE_TOKEN = "CTRLIA_TOKEN"
@@ -288,6 +295,8 @@ class SesionHerramientas:
 		self.agente = agente
 		#: Conversación de Antigravity (``conversation_id``) con la que se reconoce la sesión en el enrutado.
 		self.conversacion_externa = ""
+		#: Comandos de sesión (``herramientas_sesiones.HerramientasSesiones``) que se dan por HTTP con este token.
+		self.sesiones: Any = None
 		self._al_usar = al_usar
 		self._reloj = reloj
 		self._candado = threading.Lock()
@@ -343,6 +352,10 @@ class SesionHerramientas:
 
 	def _usar(self, accion: str, datos: dict[str, Any]) -> None:
 		log.info("El agente usa la herramienta de Ctrl+IA «%s»", accion)
+		self._al_usar(accion, datos)
+
+	def al_usar(self, accion: str, datos: dict[str, Any]) -> None:
+		"""Lo que hace una herramienta de esta sesión (también los comandos de sesión): un aviso en su conversación."""
 		self._al_usar(accion, datos)
 
 
@@ -490,7 +503,8 @@ class _Manejador(BaseHTTPRequestHandler):
 			self._vacia(413, cerrar=not self._descartar(longitud))
 			return
 		datos = self.rfile.read(longitud)
-		if self.path.split("?", 1)[0].rstrip("/") != "/mcp":
+		ruta = self.path.split("?", 1)[0].rstrip("/")
+		if ruta not in ("/mcp", RUTA_SESIONES):
 			self._vacia(404)
 			return
 		if not self._origen_valido():
@@ -503,12 +517,19 @@ class _Manejador(BaseHTTPRequestHandler):
 		if sesion is None and not enrutado:
 			self._vacia(401, {"WWW-Authenticate": "Bearer"})
 			return
+		if ruta == RUTA_SESIONES and (sesion is None or sesion.sesiones is None):
+			# Los comandos de sesión solo con el token de una sesión que los tiene (nunca con el de enrutado).
+			self._vacia(404)
+			return
 		try:
 			mensaje = json.loads(datos.decode("utf-8"))
 		except (UnicodeDecodeError, ValueError, RecursionError):
 			self._json(400, _error(None, -32700, "JSON no válido"))
 			return
-		respuesta = _atender_enrutado(mensaje) if enrutado else sesion.atender(mensaje)  # type: ignore[union-attr]
+		if ruta == RUTA_SESIONES:
+			respuesta = sesion.sesiones.atender(mensaje, sesion.al_usar)  # type: ignore[union-attr]
+		else:
+			respuesta = _atender_enrutado(mensaje) if enrutado else sesion.atender(mensaje)  # type: ignore[union-attr]
 		if respuesta is None:
 			self._vacia(202)
 		else:
@@ -563,15 +584,31 @@ def orden_puente() -> list[str]:
 	return [str(Path(sys.executable).resolve()), "-I", str(script)]
 
 
-def config_codex(sesion: SesionHerramientas) -> dict[str, Any]:
-	"""Claves ``config`` de ``thread/start``, ``thread/resume`` y ``thread/fork`` de Codex (servidor HTTP)."""
+def config_codex(sesion: SesionHerramientas, sesiones: bool = False) -> dict[str, Any]:
+	"""Claves ``config`` de ``thread/start``, ``thread/resume`` y ``thread/fork`` de Codex (servidor HTTP).
+
+	Con ``sesiones``, también el servidor ``ccd_session_mgmt`` (comandos de sesión, AIChat #557): sus
+	herramientas que solo dicen qué sesiones hay van sin preguntar (``approval_mode = "approve"``, comprobado
+	con codex-cli 0.167) y las demás piden permiso (``prompt``), como en Claude Code.
+	"""
 	prefijo = "mcp_servers.%s." % NOMBRE_SERVIDOR
-	return {
-		prefijo + "url": url_servidor(),
+	url = url_servidor()
+	config: dict[str, Any] = {
+		prefijo + "url": url,
 		prefijo + "http_headers": {"Authorization": "Bearer " + sesion.token},
 		# Son inofensivas y solo tocan Ctrl+IA: Codex no pregunta por ellas.
 		prefijo + "default_tools_approval_mode": "approve",
 	}
+	if sesiones:
+		from app.services.herramientas_sesiones import SIN_PREGUNTAR
+
+		otro = "mcp_servers.%s." % NOMBRE_SESIONES
+		config[otro + "url"] = url.removesuffix("/mcp") + RUTA_SESIONES
+		config[otro + "http_headers"] = {"Authorization": "Bearer " + sesion.token}
+		config[otro + "default_tools_approval_mode"] = "prompt"
+		for herramienta in SIN_PREGUNTAR:
+			config[otro + "tools.%s.approval_mode" % herramienta] = "approve"
+	return config
 
 
 def servidor_acp(sesion: SesionHerramientas, http: bool) -> dict[str, Any]:

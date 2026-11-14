@@ -60,6 +60,10 @@ def describir_regla(regla: str) -> str:
 	"""Qué permite una regla, en palabras: «Ejecutar «git push» con cualquier argumento»."""
 	regla = (regla or "").strip()
 	if regla.startswith("Orden(") and regla.endswith(")"):
+		orden, separador, interprete = regla[6:-1].partition("; ")
+		if separador and interprete:
+			# Codex: regla atada al intérprete que envuelve la orden (PowerShell, AIChat #478).
+			return _("Ejecutar «{orden}» con cualquier argumento, solo dentro de {i}").format(orden=orden, i=interprete)
 		return _("Ejecutar «{orden}» con cualquier argumento").format(orden=regla[6:-1])
 	if regla.startswith("Carpeta(") and regla.endswith(")"):
 		# Carpeta conservada con «Permitir durante esta sesión» (Claude Code, --add-dir).

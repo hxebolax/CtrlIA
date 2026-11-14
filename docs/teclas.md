@@ -35,6 +35,17 @@ Arriba, Abajo, Izquierda y Derecha son las teclas de flecha. Aplicaciones es la 
 | Ctrl+Alt+Mayús+Z | Rehacer los cambios de archivos deshechos |
 | Ctrl+Alt+Mayús+Arriba | Un poco más de espacio para el cuadro de respuesta |
 | Ctrl+Alt+Mayús+Abajo | Un poco más de espacio para los mensajes |
+| Ctrl+Alt+A | Actividad en segundo plano: subagentes y órdenes que trabajan junto a la conversación, en vivo |
+| Ctrl+Alt+S | Preguntar aparte: una pregunta sobre la sesión que no se añade a ella (Claude Code y Codex) |
+| Ctrl+Alt+K | Compactar la conversación (Claude Code y Codex) |
+| Ctrl+Alt+L | Leer la conversación entera como una página |
+| F11 | Vista siguiente de la lista de mensajes (todo, la conversación, las respuestas, lo tuyo, las acciones, los errores) |
+| Mayús+F11 | Vista anterior de la lista de mensajes |
+| F12 | Ir a la respuesta siguiente del agente |
+| Mayús+F12 | Ir a la respuesta anterior del agente |
+| Ctrl+Alt+U | Leer la última respuesta del agente sin moverte |
+| Ctrl+Alt+C | Copiar la última respuesta del agente |
+| Control | Sin lector de pantalla, callar la voz de Windows de Ctrl+IA |
 | Ctrl+Alt+H | Herramientas del agente: servidores MCP, complementos y habilidades que tiene cargados |
 | Ctrl+Alt+M | Servidores MCP de la sesión: su estado de ahora, reconectarlos, activarlos e iniciar sesión (Claude Code) |
 | Ctrl+Alt+G | Gestor de skills (tu catálogo de skills con su SKILL.md) |
@@ -87,7 +98,8 @@ Arriba, Abajo, Izquierda y Derecha son las teclas de flecha. Aplicaciones es la 
 | Ctrl+I | Informe de sesiones: tamaños, mensajes y totales |
 | Ctrl+, | Preferencias |
 | F1 | Manual de usuario |
-| Ctrl+F1 | Lista de teclas |
+| Ctrl+F1 | Lista de teclas (si has cambiado algún atajo, empieza por «Tus atajos cambiados») |
+| Ctrl+Mayús+F10 | Buscar una acción del programa por su nombre y hacerla |
 | Ctrl+H | Decir para qué sirve el control enfocado |
 | Alt+F4 | Salir de Ctrl+IA |
 
@@ -136,6 +148,7 @@ Arriba, Abajo, Izquierda y Derecha son las teclas de flecha. Aplicaciones es la 
 | Alt+Arriba | Ir al mensaje favorito anterior |
 | Alt+Abajo | Ir al mensaje favorito siguiente |
 | Ctrl+Alt+Z | En un mensaje tuyo, deshacer los cambios de archivos desde él |
+| Suprimir | En un mensaje tuyo que espera en la cola, retirarlo: no sale y vuelve al cuadro de respuesta |
 | Aplicaciones | Menú contextual del mensaje: también copiar solo el texto o el detalle, leerlo en voz alta y volver a enviar uno tuyo |
 | Ctrl+F | Buscar en los mensajes de la sesión |
 | F3 | Siguiente mensaje que contiene el texto buscado |
@@ -316,7 +329,7 @@ Es el diálogo de bloques de código, enlaces, archivos cambiados, órdenes ejec
 | Alt+Intro | Cerrar e ir al mensaje donde aparece |
 | Aplicaciones | Menú contextual con las acciones del elemento |
 
-Alt+M lleva a «Mostrar» (toda la sesión o este mensaje o turno) y Alt+F al filtro.
+Alt+M lleva a «Mostrar» (toda la sesión o este mensaje o turno) y Alt+F al filtro. En la página «Cambios sin confirmar en git», F5 vuelve a preguntar a git.
 
 ## Gestor de skills
 
@@ -533,7 +546,11 @@ Es el diálogo de Sesión, «Lo que el agente sabe de ti...» (Ctrl+Mayús+K).
 | Atajo | Acción |
 |---|---|
 | Intro | Ver el archivo elegido |
-| Aplicaciones | Menú con Ver, Editar, Abrir la carpeta, Crear, Copiar la ruta y Ordenar por |
+| F2 | Editar aquí el archivo elegido |
+| Suprimir | Borrar la nota de la memoria de Claude Code elegida (pregunta antes) |
+| Aplicaciones | Menú con Ver, Editar aquí, Editar, Abrir la carpeta, Crear, Añadir una memoria, Crear un subagente, Copiar la ruta y Ordenar por |
+
+En el editor de «Editar aquí»: Ctrl+S guarda y Escape cierra (si hay cambios sin guardar, pregunta).
 
 ## Deshacer o rehacer los cambios de archivos
 
@@ -580,10 +597,61 @@ Es el diálogo de Ctrl+Alt+M. Alt+S lleva a la lista, Alt+D al detalle y Alt+C c
 | Intro | Lo que el servidor necesita: reconectarlo o iniciar sesión en él |
 | Ctrl+R | Reconectar el servidor elegido |
 | Ctrl+Mayús+R | Reconectar todos los que fallan |
-| Ctrl+D | Desactivar el servidor o volver a activarlo |
-| Ctrl+L | Iniciar sesión en el servidor, en una consola |
+| Ctrl+D | Desactivar el servidor o volver a activarlo solo en esta sesión |
+| Ctrl+Mayús+D | Desactivarlo o activarlo en la configuración del agente (pregunta antes) |
+| Ctrl+L | Iniciar sesión en el servidor: en el navegador si el agente da la página; si no, en una consola |
 | F5 | Volver a preguntar el estado |
 | Aplicaciones | Menú con todas las acciones |
+
+## Atajos de teclado
+
+Es la ventana de Herramientas, «Atajos de teclado...».
+
+| Atajo | Acción |
+|---|---|
+| Intro | Cambiar la tecla de la acción elegida |
+| Supr | Quitar la tecla de la acción elegida |
+| Aplicaciones | Menú contextual: también restablecer la de fábrica y restablecer todas |
+
+## Cambiar tecla
+
+| Atajo | Acción |
+|---|---|
+| Intro | Asignar la tecla pulsada |
+| Escape | Cancelar sin cambiar nada |
+| Tab | Pasar a los botones |
+
+## Buscar una acción
+
+| Atajo | Acción |
+|---|---|
+| Abajo | En el cuadro «Buscar», ir a la lista de resultados |
+| Arriba | En la primera fila de la lista, volver al cuadro «Buscar» |
+| Intro | Hacer la acción elegida (en el cuadro, la primera de la lista) |
+| Retroceso | En la lista, volver al cuadro y borrar la última letra |
+
+## Actividad en segundo plano
+
+Es la ventana de Ctrl+Alt+A. Alt+T lleva a la lista de tareas, Alt+D al detalle y Alt+C cierra.
+
+| Atajo | Acción |
+|---|---|
+| Arriba y Abajo | Cambiar de tarea (el detalle muestra la elegida) |
+| Suprimir | Detener la tarea elegida, tras preguntar (Claude Code y Codex) |
+| Ctrl+C | Copiar el detalle de la tarea |
+| F5 | Ponerlo todo al día ahora, también el detalle |
+| Aplicaciones | Menú con todas las acciones |
+| Escape | Cerrar la ventana (las tareas siguen) |
+
+## Preguntar aparte
+
+Es la ventana de Ctrl+Alt+S. Alt+P lleva a la pregunta, Alt+G pregunta, Alt+R lleva a las respuestas y Alt+C cierra.
+
+| Atajo | Acción |
+|---|---|
+| Ctrl+Intro | En la pregunta, enviarla |
+| Intro | En la pregunta, línea nueva |
+| Escape | Cerrar la ventana (una pregunta en marcha se abandona) |
 
 ## Visor de documentos
 

@@ -76,6 +76,10 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"abrir_ultima_sesion": True,
 		"ultima_sesion": "",
 		"comprobar_actualizaciones": True,
+		# Al salir, avisar también si el cuadro de respuesta tiene texto sin enviar (BlindPilot).
+		"avisar_texto_sin_enviar": True,
+		# Carpeta base de proyectos (1.6.0): en «Nueva sesión», un nombre o una ruta relativa se busca dentro de ella.
+		"carpeta_proyectos": "",
 	},
 	"agentes": {
 		"predeterminado": "claude",
@@ -109,6 +113,13 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"servidor_ollama": "",
 		# OpenCode, Goose, GitHub Copilot CLI y otros agentes ACP conocidos.
 		"otros_acp": False,
+		# Un turno que acaba con una pregunta escrita en la respuesta (no con su herramienta) pasa a «Te necesita»
+		# y se contesta con Ctrl+Mayús+A (BlindPilot; app/services/preguntas_escritas.py).
+		"preguntas_escritas": True,
+		# Pedir a Claude Code que pregunte con su herramienta (AskUserQuestion) en vez de escribir la pregunta (BlindPilot).
+		"preguntas_con_herramienta": False,
+		# Codex pregunta con su herramienta (request_user_input) también fuera del modo Plan (en desarrollo en Codex).
+		"preguntas_codex": False,
 	},
 	"skills": {
 		# Las skills de ejemplo de data/skills_ejemplo ya se cargaron en el catálogo (solo la primera vez:
@@ -202,6 +213,16 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"barra_estado": True,
 		# Palabras curiosas («Cavilando…») en la barra de estado mientras el agente escribe; nunca por voz (#314).
 		"palabras_curiosas": False,
+		# Leer las respuestas sin las marcas de Markdown (#, *, |...) (FastChat; app/services/frases.py).
+		"quitar_formato": True,
+		# Bloques de código en la voz: «leer» o «avisar» («Bloque de código.»).
+		"codigo_en_voz": "leer",
+		# Leer la respuesta por frases según llega, sin esperar a que termine (BlindPilot).
+		"leer_mientras_llega": False,
+		# Leer lo dictado (Windows+H) o insertado de golpe en el cuadro de respuesta al dejar de dictar (BlindPilot).
+		"releer_dictado": True,
+		# Anunciar cuando empieza y termina un subagente o una orden en segundo plano.
+		"actividad": True,
 	},
 	# Esquema de sonidos: el interruptor general es «anuncios.sonidos».
 	"sonidos": {
@@ -218,6 +239,13 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"detenido": True,
 		"compactado": True,
 		"limite": True,
+		# Un toque suave cada «segundos_trabajando» mientras el agente trabaja (BlindPilot). Sin modo continuo:
+		# Windows suena un sonido a la vez y un bucle cortaría los demás avisos.
+		"trabajando": True,
+		"segundos_trabajando": 10,
+		"servicio": True,
+		"tarea_inicio": True,
+		"tarea_fin": True,
 	},
 	"notificaciones": {
 		"modo": "te_necesita",
@@ -275,6 +303,8 @@ REGLAS: dict[str, Regla] = {
 	"anuncios.retardo_voz_ms": Regla(minimo=0, maximo=600),
 	"anuncios.aviso_contexto": Regla(minimo=0, maximo=100),
 	"anuncios.aviso_limite": Regla(minimo=0, maximo=100),
+	"anuncios.codigo_en_voz": Regla(opciones=("leer", "avisar")),
+	"sonidos.segundos_trabajando": Regla(opciones=(5, 10, 15, 20, 30, 60)),
 	"notificaciones.modo": Regla(opciones=("todas", "te_necesita", "nunca")),
 	"sonidos.esquema": Regla(opciones=("predeterminado", "propio")),
 	"sonidos.volumen": Regla(minimo=0, maximo=100),
@@ -284,6 +314,7 @@ REGLAS: dict[str, Regla] = {
 	"registro.nivel": Regla(opciones=("DEBUG", "INFO", "WARNING", "ERROR")),
 	"agentes.editor_externo": Regla(longitud_maxima=1000),
 	"agentes.carpeta_predeterminada": Regla(longitud_maxima=1000),
+	"general.carpeta_proyectos": Regla(longitud_maxima=1000),
 	"agentes.servidor_ollama": Regla(longitud_maxima=500),
 	"agentes.claude_minutos_abierto": Regla(opciones=(0, 5, 15, 30, 60)),
 	"agentes.segundos_mcp_claude": Regla(opciones=(10, 30, 60, 120, 300)),

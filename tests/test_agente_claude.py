@@ -57,7 +57,9 @@ def test_turno_normal(tmp_path, entorno, monkeypatch):
 	mensajes = recolector.de_tipo(TipoEvento.MENSAJE)
 	assert mensajes and mensajes[-1].texto == "Hola\u2028mundo"
 	assert recolector.de_tipo(TipoEvento.TEXTO_PARCIAL)
-	assert recolector.de_tipo(TipoEvento.HERRAMIENTA)[0].texto == "Leer archivo: C:/x.txt"
+	# Desde la 1.6.0 el aviso dice solo el nombre del archivo; la ruta entera va en el detalle.
+	assert recolector.de_tipo(TipoEvento.HERRAMIENTA)[0].texto == "Leer archivo: x.txt"
+	assert "file_path: C:/x.txt" in recolector.de_tipo(TipoEvento.HERRAMIENTA)[0].datos["detalle"]
 	assert recolector.de_tipo(TipoEvento.HERRAMIENTA_FIN)[0].datos["salida"] == "contenido"
 	assert recolector.de_tipo(TipoEvento.COMANDOS)[0].datos["comandos"][0][0] == "/compact"
 	assert recolector.de_tipo(TipoEvento.FIN_TURNO)[0].datos["correcto"]
@@ -105,6 +107,8 @@ def test_un_proceso_por_mensaje_si_se_elige_no(tmp_path, entorno, monkeypatch):
 
 def test_se_relanza_si_cambia_el_modelo_y_no_por_el_modo(tmp_path, entorno, monkeypatch):
 	monkeypatch.setenv("FAKE_CLAUDE_MODO", "normal")
+	# Claude Code rechaza el cambio en caliente (``set_model``): el modelo nuevo va en la orden del proceso siguiente.
+	monkeypatch.setenv("FAKE_CLAUDE_SET_MODEL", "error")
 	recolector = Recolector()
 	conversacion = _conversacion_con(tmp_path, recolector, 15)
 	_turno(conversacion, recolector, "Uno")

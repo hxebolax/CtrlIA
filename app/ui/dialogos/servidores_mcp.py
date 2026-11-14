@@ -23,7 +23,7 @@ import wx
 from app.services.agentes import procesos
 from app.services.servidores_mcp import ServidorMcp
 from app.ui import avisos
-from app.ui.accesibilidad.dialogos import mostrar_mensaje, preparar_dialogo
+from app.ui.accesibilidad.dialogos import confirmar, mostrar_mensaje, preparar_dialogo
 from app.ui.accesibilidad.lista import ListaAccesible
 from app.ui.accesibilidad.teclado import menu_de_acciones, vincular_menu_contextual
 from app.ui.comun import _
@@ -76,9 +76,10 @@ class DialogoServidoresMcp(wx.Dialog):
 		self.lista = ListaAccesible(panel, _("Servidores"), COLUMNAS)
 		self.lista.SetHelpText(_(
 			"Los servidores MCP y conectores de esta sesión, con su estado. Intro hace lo que el servidor necesita: "
-			"reconectarlo o, si pide iniciar sesión, abrir una consola para ello. Control+R lo reconecta; Control+Mayús+R "
-			"reconecta todos los que tienen algún problema; Control+D lo activa o lo desactiva; Control+L inicia sesión en "
-			"él; F5 vuelve a preguntar el estado. La tecla Aplicaciones abre el menú con todo."
+			"reconectarlo o, si pide iniciar sesión, abrir la página o la consola para ello. Control+R lo reconecta; "
+			"Control+Mayús+R reconecta todos los que tienen algún problema; Control+D lo activa o lo desactiva solo en esta "
+			"sesión; Control+Mayús+D, en la configuración del agente; Control+L inicia sesión en él; F5 vuelve a preguntar "
+			"el estado. La tecla Aplicaciones abre el menú con todo."
 		))
 		self.lista.SetMinSize(self.FromDIP(wx.Size(900, 240)))
 		sizer.Add(self.lista, 1, wx.EXPAND | wx.ALL, 6)
@@ -221,24 +222,56 @@ class DialogoServidoresMcp(wx.Dialog):
 			return True
 		return False
 
-	def alternar(self) -> bool:
-		"""Ctrl+D: desactiva el servidor o lo vuelve a activar."""
+	def alternar(self, solo_sesion: bool = True) -> bool:
+		"""Ctrl+D: desactiva el servidor o lo vuelve a activar SOLO en esta sesión; Ctrl+Mayús+D, en la configuración del agente.
+
+		AIChat (#554, ``claude_mcp.py``): el cambio que guarda Claude Code (``mcp_toggle``) apaga el servidor también en
+		la terminal y en la app de escritorio, y para siempre en esa carpeta. Por eso lo de fábrica es solo esta sesión, y
+		lo otro pregunta antes.
+		"""
 		servidor = self._elegido()
 		if servidor is None:
 			return False
 		nombre, activar = servidor.nombre, servidor.estado == "disabled"
+		if not solo_sesion and confirmar(self, _(
+				"«{n}» se {a} en la configuración del agente para esta carpeta: también en la terminal y en su app, y en las "
+				"sesiones nuevas. ¿Seguir?").format(n=nombre, a=_("activará") if activar else _("desactivará")),
+				_("Servidores MCP de la sesión")) != wx.ID_YES:
+			return False
 
 		def hecho(_resultado: Any) -> None:
-			avisos.anunciar((_("«{n}» activado.") if activar else _("«{n}» desactivado.")).format(n=nombre), interrumpir=True)
+			if solo_sesion:
+				texto = _("«{n}» activado en esta sesión.") if activar else _(
+					"«{n}» desactivado en esta sesión. Se aplica desde tu próximo mensaje.")
+			else:
+				texto = _("«{n}» activado.") if activar else _("«{n}» desactivado.")
+			avisos.anunciar(texto.format(n=nombre), interrumpir=True)
 			self.actualizar(anunciar=False)
 
-		return self._lanzar(lambda: self._conversacion.activar_mcp(nombre, activar), hecho)
+		return self._lanzar(lambda: self._conversacion.activar_mcp(nombre, activar, solo_sesion=solo_sesion), hecho)
 
 	def iniciar_sesion(self) -> bool:
-		"""Ctrl+L: abre una consola con ``claude mcp login`` y reconecta el servidor al cerrarla."""
+		"""Ctrl+L: abre en el navegador la página para iniciar sesión, si el agente la da; si no, una consola."""
 		servidor = self._elegido()
 		if servidor is None:
 			return False
+		nombre = servidor.nombre
+
+		def con_direccion(direccion: Any) -> None:
+			if direccion:
+				import webbrowser
+
+				webbrowser.open(str(direccion))
+				avisos.anunciar(_("Se ha abierto en el navegador la página para iniciar sesión en «{n}». Cuando acabes, vuelve "
+					"aquí y pulsa Control+R.").format(n=nombre), interrumpir=True)
+				return
+			self._iniciar_sesion_en_consola(servidor)
+
+		if not self._lanzar(lambda: self._conversacion.url_inicio_sesion_mcp(nombre), con_direccion):
+			return False
+		return True
+
+	def _iniciar_sesion_en_consola(self, servidor: ServidorMcp) -> bool:
 		if servidor.conector:
 			mostrar_mensaje(self, _("Los conectores de claude.ai se conectan en claude.ai, en Ajustes, Conectores. Cuando "
 				"lo hayas hecho, pulsa Control+R aquí para reconectarlo."), _("Iniciar sesión"))
@@ -281,7 +314,8 @@ class DialogoServidoresMcp(wx.Dialog):
 			(_("&Reconectar\tCtrl+R"), self.reconectar),
 			(_("Reconectar &los que fallan\tCtrl+Shift+R"), self.reconectar_con_problema),
 			(_("&Iniciar sesión...\tCtrl+L"), self.iniciar_sesion),
-			(_("&Activar o desactivar\tCtrl+D"), self.alternar),
+			(_("&Activar o desactivar en esta sesión\tCtrl+D"), self.alternar),
+			(_("Activar o desactivar en la &configuración del agente...\tCtrl+Shift+D"), lambda: self.alternar(solo_sesion=False)),
 			None,
 			(_("Act&ualizar\tF5"), self.actualizar),
 		]
@@ -300,6 +334,9 @@ class DialogoServidoresMcp(wx.Dialog):
 			return
 		if mods == wx.MOD_CONTROL and tecla == ord("D"):
 			self.alternar()
+			return
+		if mods == wx.MOD_CONTROL | wx.MOD_SHIFT and tecla == ord("D"):
+			self.alternar(solo_sesion=False)
 			return
 		if mods == wx.MOD_CONTROL and tecla == ord("L"):
 			self.iniciar_sesion()

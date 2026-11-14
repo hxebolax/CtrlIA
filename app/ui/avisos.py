@@ -72,6 +72,10 @@ EVENTOS_SONIDO: tuple[tuple[str, str], ...] = (
 	("detenido", N_("El agente se ha detenido")),
 	("compactado", N_("El agente resume la conversación para liberar memoria (compactación)")),
 	("limite", N_("Te acercas al límite de uso de tu cuenta")),
+	("trabajando", N_("El agente sigue trabajando (cada pocos segundos o continuo, según Preferencias)")),
+	("servicio", N_("El servicio del agente tiene problemas y lo reintenta")),
+	("tarea_inicio", N_("Empieza un subagente o una orden en segundo plano")),
+	("tarea_fin", N_("Termina un subagente o una orden en segundo plano")),
 )
 #: Carpeta (dentro de ``data/sounds``) del esquema «Propio».
 CARPETA_PROPIA = "propios"
@@ -320,6 +324,7 @@ def sonar(nombre: str, forzar: bool = False) -> None:
 	if not forzar and ahora - _ultimo_sonido.get(nombre, 0.0) < INTERVALO_MINIMO.get(nombre, INTERVALO_POR_DEFECTO):
 		return
 	_ultimo_sonido[nombre] = ahora
+	_estado["ultimo_sonido"] = ahora
 	try:
 		ruta = ruta_sonido(nombre)
 		if ruta is None:
@@ -336,6 +341,11 @@ def sonar(nombre: str, forzar: bool = False) -> None:
 		log.debug("No se pudo reproducir el sonido %s", nombre, exc_info=True)
 
 
+def segundos_desde_ultimo_sonido() -> float:
+	"""Cuánto hace que sonó el último sonido (Windows suena uno a la vez: el siguiente corta al anterior)."""
+	return time.monotonic() - float(_estado.get("ultimo_sonido") or 0.0)
+
+
 # ── Notificaciones de Windows ─────────────────────────────────────────────────
 
 def aplicacion_activa() -> bool:
@@ -343,14 +353,44 @@ def aplicacion_activa() -> bool:
 	return bool(aplicacion and aplicacion.IsActive())
 
 
-def notificacion_sistema(titulo: str, texto: str) -> None:
-	"""Notificación de Windows, solo si Ctrl+IA no es la ventana activa."""
+#: Notificaciones que siguen en pantalla: si se soltaran, se perdería lo que hace pulsarlas (BlindPilot).
+_notificaciones: list[Any] = []
+_MAX_NOTIFICACIONES = 20
+
+
+def notificacion_sistema(titulo: str, texto: str, al_pulsar: Callable[[], None] | None = None) -> None:
+	"""Notificación de Windows, solo si Ctrl+IA no es la ventana activa.
+
+	:param al_pulsar: qué hacer si la persona la pulsa (llevarla a la sesión que avisa).
+	"""
 	if aplicacion_activa():
 		return
 	try:
 		import wx.adv
 
 		mensaje = wx.adv.NotificationMessage(titulo, texto, parent=_estado["ventana"])
+		if al_pulsar is not None:
+			def pulsada(evento: wx.Event, m=mensaje) -> None:
+				_soltar(m)
+				try:
+					al_pulsar()
+				except Exception:  # noqa: BLE001 - pulsar una notificación nunca debe romper nada
+					log.exception("Falló la acción de una notificación")
+				evento.Skip()
+
+			def descartada(evento: wx.Event, m=mensaje) -> None:
+				_soltar(m)
+				evento.Skip()
+
+			mensaje.Bind(wx.PyEventBinder(wx.adv.wxEVT_NOTIFICATION_MESSAGE_CLICK), pulsada)
+			mensaje.Bind(wx.PyEventBinder(wx.adv.wxEVT_NOTIFICATION_MESSAGE_DISMISSED), descartada)
+			_notificaciones.append(mensaje)
+			del _notificaciones[:-_MAX_NOTIFICACIONES]
 		mensaje.Show(timeout=wx.adv.NotificationMessage.Timeout_Auto)
 	except Exception:  # noqa: BLE001 - las notificaciones son un extra
 		log.debug("No se pudo mostrar la notificación", exc_info=True)
+
+
+def _soltar(mensaje: Any) -> None:
+	if mensaje in _notificaciones:
+		_notificaciones.remove(mensaje)

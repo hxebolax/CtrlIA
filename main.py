@@ -129,6 +129,11 @@ def _principal(argumentos: list[str]) -> int:
 	from app.services.proteccion_skills import proteger_carpetas
 
 	proteger_carpetas()
+	# Restos de copias abiertas o mensajes largos de una sesión anterior que se cerró a medias (AIChat #494).
+	if not comprobar:
+		from app.services import limpieza
+
+		limpieza.limpiar_en_segundo_plano()
 
 	# 6. Aviso por voz antes de lo pesado.
 	from app.ui.accesibilidad import voz

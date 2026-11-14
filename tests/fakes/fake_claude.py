@@ -29,6 +29,24 @@ Modo por la variable ``FAKE_CLAUDE_MODO``:
 - ``mcp_sesiones``: habla con ``ccd_session_mgmt`` (y con un servidor que no existe): hace las
   llamadas de ``FAKE_CLAUDE_LLAMADAS`` (JSON: ``[["list_sessions", {}], ...]``) y anota las respuestas.
 
+- ``tareas``: lanza un subagente en segundo plano (``task_started``, ``background_tasks_changed``, pasos con
+  ``parent_tool_use_id``, ``task_progress``), da su resultado y el subagente acaba ``FAKE_CLAUDE_FONDO`` segundos
+  después (``task_updated``, ``task_notification``) o al recibir ``stop_task``; entonces queda inactivo.
+- ``fondo_muere``: como ``tareas``, pero el proceso muere tras el resultado con el subagente vivo.
+- ``permiso_subagente``: el subagente pide permiso para una orden (``can_use_tool`` con ``agent_id``).
+- ``sistema``: compactación (``status``, ``compact_boundary`` con ``compact_metadata``, fallo), cambio de modo por su
+  cuenta, ``api_retry``, ``model_fallback``, ``memory_saved``, ``rate_limit_event`` con uso adicional y rechazo, y
+  razonamiento (``thinking``).
+- ``orden_fondo``: una orden que pasa a segundo plano (``tool_use_result.backgroundTaskId``).
+- ``error_resultado``: un ``result`` con ``error_max_turns`` y un secreto en la salida de errores.
+
+Un mensaje «/compact» (salvo el primero) compacta como 2.1.308. Con ``--resume-session-at`` y
+``--no-session-persistence`` (preguntar aparte) responde «aparte:<pregunta>» y termina.
+
+Atiende ``set_model`` (``FAKE_CLAUDE_SET_MODEL=error`` lo rechaza), ``set_permission_mode`` (rechaza
+``bypassPermissions`` si no arrancó con él), ``stop_task``, ``get_context_usage``, ``mcp_authenticate`` y
+``remote_control`` con los formatos de 2.1.308.
+
 En cualquier modo atiende ``rewind_files`` como Claude Code 2.1.238: conoce el uuid
 de cada mensaje recibido (y los de ``FAKE_CLAUDE_PUNTOS``, separados por comas,
 para un proceso nuevo con ``--resume``); con otro, contesta el error «No file
@@ -48,7 +66,9 @@ Con ``--replay-user-messages``, cada mensaje se devuelve con su uuid al recogerl
 
 import json
 import os
+import queue
 import sys
+import threading
 import time
 
 MODO = os.environ.get("FAKE_CLAUDE_MODO", "normal")
@@ -69,11 +89,32 @@ def escribir(objeto):
 	sys.stdout.flush()
 
 
+#: Lo que llega por la entrada, leído por un hilo (así se puede esperar con tiempo límite).
+_ENTRADA = queue.Queue()
+
+
+def _lector():
+	while True:
+		linea = sys.stdin.readline()
+		if not linea:
+			_ENTRADA.put(None)
+			return
+		_ENTRADA.put(json.loads(linea))
+
+
 def leer():
-	linea = sys.stdin.readline()
-	if not linea:
-		return None
-	return json.loads(linea)
+	return _ENTRADA.get()
+
+
+def leer_con_espera(segundos):
+	"""La siguiente línea, o ``FALTA`` si no llega nada en ``segundos``."""
+	try:
+		return _ENTRADA.get(timeout=segundos)
+	except queue.Empty:
+		return FALTA
+
+
+FALTA = object()
 
 
 def anotar(datos):
@@ -106,12 +147,14 @@ def esperar_mensaje():
 			anotar({"control": datos["request"]})
 			deshacer(datos)
 			continue
-		if datos.get("type") == "control_request" and datos["request"]["subtype"].startswith("mcp_"):
+		if datos.get("type") == "control_request" and datos["request"]["subtype"].startswith("mcp_") \
+				and datos["request"]["subtype"] != "mcp_authenticate":
 			anotar({"control": datos["request"]})
 			control_mcp(datos)
 			continue
 		if datos.get("type") == "control_request":
 			anotar({"control": datos["request"]})
+			control_general(datos)
 			continue
 		if datos.get("type") == "user":
 			if datos.get("uuid"):
@@ -133,6 +176,70 @@ def control_mcp(datos):
 	elif subtipo == "mcp_toggle":
 		SERVIDORES_MCP[nombre]["status"] = "connected" if peticion.get("enabled") else "disabled"
 	escribir({"type": "control_response", "response": cuerpo})
+
+
+#: Tareas en marcha de ``tareas`` (task_id → descripción) y las paradas con ``stop_task``.
+TAREAS = {}
+PARADAS = []
+
+
+def responder_control(datos, cuerpo=None, error=""):
+	if error:
+		escribir({"type": "control_response", "response": {"subtype": "error", "request_id": datos["request_id"], "error": error}})
+	else:
+		escribir({"type": "control_response", "response": {"subtype": "success", "request_id": datos["request_id"],
+			"response": cuerpo or {}}})
+
+
+def control_general(datos):
+	"""``set_model``, ``set_permission_mode``, ``stop_task``, ``get_context_usage``, ``mcp_authenticate`` y
+	``remote_control`` con los formatos de Claude Code 2.1.308. Los demás (``interrupt``) solo se anotan."""
+	peticion = datos["request"]
+	subtipo = peticion["subtype"]
+	if subtipo == "set_model":
+		if os.environ.get("FAKE_CLAUDE_SET_MODEL") == "error":
+			responder_control(datos, error="Model not available")
+		else:
+			responder_control(datos, {"model": peticion.get("model")})
+	elif subtipo == "set_permission_mode":
+		modo = peticion.get("mode")
+		arrancado = "--allow-dangerously-skip-permissions" in sys.argv or (
+			"--permission-mode" in sys.argv and sys.argv[sys.argv.index("--permission-mode") + 1] == "bypassPermissions")
+		if modo == "bypassPermissions" and not arrancado:
+			responder_control(datos, error="Cannot set permission mode to bypassPermissions: session was not launched with "
+				"--allow-dangerously-skip-permissions")
+		elif modo not in ("default", "manual", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"):
+			responder_control(datos, error="Cannot set permission mode: must be one of default, acceptEdits, plan")
+		else:
+			responder_control(datos, {"mode": modo})
+	elif subtipo == "stop_task":
+		# Como Claude Code: contesta que sí aunque no conozca la tarea.
+		PARADAS.append(peticion.get("task_id"))
+		responder_control(datos, {})
+	elif subtipo == "get_context_usage":
+		responder_control(datos, {"categories": [
+			{"id": "system_prompt", "name": "System prompt", "tokens": 3000, "color": "a", "kind": "used"},
+			{"id": "mcp_tools_deferred", "name": "MCP tools (deferred)", "tokens": 900, "color": "b", "isDeferred": True,
+				"kind": "deferred"},
+			{"id": "messages", "name": "Messages", "tokens": 12000, "color": "c", "kind": "used"},
+			{"id": "autocompact_buffer", "name": "Autocompact buffer", "tokens": 33000, "color": "d", "kind": "buffer"},
+			{"name": "Something new", "tokens": 5, "color": "e"},
+		], "totalTokens": 48905, "maxTokens": 200000, "percentage": 24})
+	elif subtipo == "mcp_authenticate":
+		if peticion.get("serverName") == "entrar":
+			responder_control(datos, {"authUrl": "https://auth.example.com/authorize?x=1", "requiresUserAction": True,
+				"callbackExpected": True, "redirectScheme": "localhost", "callbackPort": 54321})
+		elif peticion.get("serverName") == "bien":
+			responder_control(datos, {"requiresUserAction": False, "callbackExpected": False})
+		else:
+			responder_control(datos, error="Server not found: %s" % peticion.get("serverName"))
+	elif subtipo == "remote_control":
+		if peticion.get("enabled"):
+			puente = peticion.get("reattach_session_id") or "cse_puente1"
+			responder_control(datos, {"session_url": "https://claude.ai/code/" + puente, "connect_url": "https://x",
+				"environment_id": "env_1", "bridge_epoch": 1, "bridge_session_id": puente})
+		else:
+			responder_control(datos, {})
 
 
 def eco(mensaje):
@@ -179,6 +286,115 @@ def hablar_mcp(numero, metodo, params=None, notificacion=False, servidor="ctrlia
 		if datos.get("type") == "control_response" and datos["response"].get("request_id") == identificador:
 			return datos["response"]
 		anotar({"otro": datos})
+
+
+def subagente(numero):
+	"""Un subagente en segundo plano (``tareas``) con sus pasos (``parent_tool_use_id``), como 2.1.308."""
+	escribir({"type": "assistant", "parent_tool_use_id": None, "message": {"id": "m-lanza-%d" % numero, "content": [
+		{"type": "tool_use", "id": "t-agente", "name": "Agent", "input": {"description": "Revisar el código", "prompt": "Revisa"}}]}})
+	# Un paso que llega antes que su task_started: se guarda hasta saber de qué tarea es.
+	escribir({"type": "assistant", "parent_tool_use_id": "t-agente", "message": {"id": "s0", "content": [
+		{"type": "text", "text": "Empiezo por el principio"}]}})
+	escribir({"type": "system", "subtype": "task_started", "task_id": "agente-1", "tool_use_id": "t-agente",
+		"description": "Revisar el código", "subagent_type": "general-purpose", "prompt": "Revisa", "is_backgrounded": True,
+		"task_type": "local_agent", "uuid": "u", "session_id": "s"})
+	TAREAS["agente-1"] = "Revisar el código"
+	escribir({"type": "system", "subtype": "background_tasks_changed", "tasks": [{"task_id": "agente-1",
+		"task_type": "local_agent", "description": "Revisar el código"}], "uuid": "u", "session_id": "s"})
+	escribir({"type": "assistant", "parent_tool_use_id": "t-agente", "message": {"id": "s1", "content": [
+		{"type": "tool_use", "id": "sub-1", "name": "Read", "input": {"file_path": "C:\\proyecto\\app.py"}}]}})
+	escribir({"type": "user", "parent_tool_use_id": "t-agente", "message": {"content": [
+		{"type": "tool_result", "tool_use_id": "sub-1", "content": "x" * 1000}]}})
+	escribir({"type": "assistant", "parent_tool_use_id": "t-agente", "message": {"id": "s2", "content": [
+		{"type": "tool_use", "id": "sub-bash", "name": "Bash", "input": {"command": "rm -r build"}}]}})
+	for vez in range(3):
+		escribir({"type": "system", "subtype": "task_progress", "task_id": "agente-1", "tool_use_id": "t-agente",
+			"description": "Revisar el código", "last_tool_name": "Read", "summary": "Leyendo app.py",
+			"usage": {"total_tokens": 1000 + vez, "tool_uses": 1, "duration_ms": 500}, "uuid": "u", "session_id": "s"})
+	escribir({"type": "user", "parent_tool_use_id": None, "message": {"content": [
+		{"type": "tool_result", "tool_use_id": "t-agente", "content": "Async agent launched successfully."}]}})
+
+
+def esperar_tareas():
+	"""Tras el resultado, el subagente sigue ``FAKE_CLAUDE_FONDO`` segundos (o hasta un ``stop_task``) y acaba."""
+	limite = time.monotonic() + float(os.environ.get("FAKE_CLAUDE_FONDO", "1.0"))
+	parada = False
+	while time.monotonic() < limite:
+		datos = leer_con_espera(0.05)
+		if datos is FALTA:
+			if PARADAS:
+				parada = True
+				break
+			continue
+		if datos is None:
+			return
+		if datos.get("type") == "control_request":
+			anotar({"control": datos["request"]})
+			control_general(datos)
+	escribir({"type": "system", "subtype": "task_updated", "task_id": "agente-1",
+		"patch": {"status": "killed" if parada else "completed"}, "uuid": "u", "session_id": "s"})
+	escribir({"type": "system", "subtype": "task_notification", "task_id": "agente-1", "tool_use_id": "t-agente",
+		"status": "stopped" if parada else "completed", "output_file": "C:\\tmp\\agente-1.output",
+		"summary": "Revisión terminada", "usage": {"total_tokens": 5000, "tool_uses": 4, "duration_ms": 9000},
+		"uuid": "u", "session_id": "s"})
+	TAREAS.clear()
+	escribir({"type": "system", "subtype": "background_tasks_changed", "tasks": [], "uuid": "u", "session_id": "s"})
+
+
+def sistema():
+	"""Avisos en vivo de 2.1.308: compactación, modo cambiado, reintentos, otro modelo, memoria, límites y razonamiento."""
+	escribir({"type": "system", "subtype": "status", "status": "compacting", "uuid": "u", "session_id": "s"})
+	escribir({"type": "system", "subtype": "status", "status": "compacting", "compact_output_chars": 40, "uuid": "u",
+		"session_id": "s"})
+	escribir({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto", "pre_tokens": 150000,
+		"post_tokens": 20000}, "uuid": "u", "session_id": "s"})
+	escribir({"type": "system", "subtype": "status", "status": None, "compact_result": "failed",
+		"compact_error": "Prompt too long", "uuid": "u", "session_id": "s"})
+	escribir({"type": "system", "subtype": "status", "status": None, "permissionMode": "plan", "uuid": "u", "session_id": "s"})
+	escribir({"type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 10, "retry_delay_ms": 4000,
+		"error_status": 529, "error": "overloaded", "uuid": "u", "session_id": "s"})
+	escribir({"type": "system", "subtype": "model_fallback", "trigger": "overloaded", "original_model": "claude-opus",
+		"fallback_model": "claude-sonnet", "content": "Switched", "uuid": "u", "session_id": "s"})
+	escribir({"type": "system", "subtype": "memory_saved", "written_paths": ["C:\\m\\a.md", "C:\\m\\b.md"], "verb": "Saved",
+		"uuid": "u", "session_id": "s"})
+	for _vez in range(2):
+		escribir({"type": "rate_limit_event", "rate_limit_info": {"status": "allowed_warning", "isUsingOverage": True,
+			"unifiedWindows": {"five_hour": {"utilization": 0.5, "resetsAt": 1700000000},
+				"seven_day_overage_included": {"utilization": 1.2, "resetsAt": 1700000000}}}, "uuid": "u", "session_id": "s"})
+	escribir({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "rateLimitType": "seven_day_opus",
+		"resetsAt": 1700000000, "utilization": 1.0}, "uuid": "u", "session_id": "s"})
+	escribir({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "thinking"}},
+		"parent_tool_use_id": None})
+	escribir({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "thinking_delta",
+		"thinking": "Pienso"}}, "parent_tool_use_id": None})
+	escribir({"type": "assistant", "parent_tool_use_id": None, "message": {"id": "m-pensar", "content": [
+		{"type": "thinking", "thinking": "Primero miro el archivo.", "signature": "abc"},
+		{"type": "thinking", "thinking": "", "signature": "firmado"}]}})
+
+
+def compactar(sesion):
+	"""«/compact» como Claude Code 2.1.308: estado «compacting», el límite con sus cifras y un resultado sin texto."""
+	estado("running")
+	escribir({"type": "system", "subtype": "status", "status": "compacting", "uuid": "u", "session_id": sesion})
+	time.sleep(float(os.environ.get("FAKE_CLAUDE_COMPACTAR", "0.5")))
+	escribir({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual", "pre_tokens": 9000,
+		"post_tokens": 1000}, "uuid": "u", "session_id": sesion})
+	escribir({"type": "system", "subtype": "status", "status": None, "compact_result": "success", "uuid": "u", "session_id": sesion})
+	escribir({"type": "result", "subtype": "success", "is_error": False, "result": "", "session_id": sesion, "usage": {}})
+	estado("idle")
+
+
+def aparte(mensaje):
+	"""Una pregunta aparte (``--resume-session-at`` y ``--no-session-persistence``): responde y termina."""
+	escribir({"type": "system", "subtype": "init", "session_id": "copia", "model": "claude-prueba", "permissionMode": "default",
+		"apiKeySource": "none", "mcp_servers": []})
+	contenido = str((mensaje.get("message") or {}).get("content") or "")
+	escribir({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "apar"}},
+		"parent_tool_use_id": None})
+	escribir({"type": "assistant", "parent_tool_use_id": None, "message": {"id": "ap1", "content": [
+		{"type": "text", "text": "aparte:" + contenido}]}})
+	escribir({"type": "result", "subtype": "success", "is_error": False, "result": "aparte:" + contenido, "session_id": "copia",
+		"usage": {}})
 
 
 def turno(sesion, numero):
@@ -299,18 +515,50 @@ def turno(sesion, numero):
 		respuesta = leer()
 		anotar({"respuesta": respuesta})
 		texto = "respuesta:" + json.dumps(respuesta["response"]["response"].get("updatedInput", {}).get("answers"), ensure_ascii=False)
+	if MODO in ("tareas", "fondo_muere", "permiso_subagente"):
+		subagente(numero)
+	if MODO == "permiso_subagente":
+		escribir({"type": "control_request", "request_id": "req-sub", "request": {"subtype": "can_use_tool",
+			"tool_name": "Bash", "input": {"command": "rm -r build"}, "tool_use_id": "sub-bash", "agent_id": "agente-1"}})
+		estado("requires_action")
+		respuesta = leer()
+		anotar({"respuesta": respuesta})
+		estado("running")
+	if MODO == "sistema":
+		sistema()
+	if MODO == "orden_fondo":
+		escribir({"type": "assistant", "parent_tool_use_id": None, "message": {"id": "m-of", "content": [
+			{"type": "tool_use", "id": "t-fondo", "name": "Bash", "input": {"command": "npm run servidor", "run_in_background": True}}]}})
+		escribir({"type": "user", "parent_tool_use_id": None, "tool_use_result": {"backgroundTaskId": "bash-7", "stdout": ""},
+			"message": {"content": [{"type": "tool_result", "tool_use_id": "t-fondo", "content":
+				"Command running in background with ID: bash-7. Output is being written to: C:\\tmp\\tareas\\bash-7.output."}]}})
 	escribir({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m1-%d" % numero}}, "parent_tool_use_id": None})
 	escribir({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hola"}},
 		"parent_tool_use_id": None})
-	escribir({"type": "assistant", "parent_tool_use_id": None, "message": {"id": "m1-%d" % numero, "content": [{"type": "text", "text": texto}],
+	escribir({"type": "assistant", "parent_tool_use_id": None, "uuid": "aaaaaaaa-0000-4000-8000-%012d" % numero,
+		"message": {"id": "m1-%d" % numero, "content": [{"type": "text", "text": texto}],
 		"usage": {"input_tokens": 10, "cache_read_input_tokens": 90}}})
 	escribir({"type": "assistant", "parent_tool_use_id": None, "message": {"id": "m2-%d" % numero, "content": [
 		{"type": "tool_use", "id": "t9-%d" % numero, "name": "Read", "input": {"file_path": "C:/x.txt"}}]}})
 	escribir({"type": "user", "parent_tool_use_id": None, "message": {"content": [
 		{"type": "tool_result", "tool_use_id": "t9-%d" % numero, "content": "contenido"}]}})
+	if MODO == "error_resultado":
+		sys.stderr.write("Error de la API: api_key=sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 rechazada\n")
+		sys.stderr.flush()
+		time.sleep(0.2)
+		escribir({"type": "result", "subtype": "error_max_turns", "is_error": True, "stop_reason": "max_turns",
+			"errors": ["Reached maximum number of turns (3)"], "session_id": sesion, "usage": {}, "num_turns": 3})
+		estado("idle")
+		return True
 	escribir({"type": "result", "subtype": "success", "is_error": False, "result": texto, "session_id": sesion,
 		"usage": {"input_tokens": 10, "output_tokens": 5}, "total_cost_usd": 0.01,
 		"modelUsage": {"claude-prueba": {"contextWindow": 200000}}})
+	if MODO == "fondo_muere":
+		time.sleep(0.3)
+		sys.stdout.flush()
+		os._exit(1)
+	if MODO in ("tareas", "permiso_subagente"):
+		esperar_tareas()
 	if MODO == "anadir_tarde":
 		# Comprobado con 2.1.308: sin «idle» de por medio, lo escrito durante la respuesta final se recoge tras el resultado.
 		anotar({"esperando_anadido": True})
@@ -325,6 +573,7 @@ def turno(sesion, numero):
 
 
 def main():
+	threading.Thread(target=_lector, daemon=True).start()
 	sesion = "11111111-2222-3333-4444-555555555555"
 	if "--session-id" in sys.argv:
 		sesion = sys.argv[sys.argv.index("--session-id") + 1]
@@ -350,6 +599,12 @@ def main():
 		numero += 1
 		anotar({"mensaje": mensaje, "turno": numero, "pid": os.getpid()})
 		eco(mensaje)
+		if "--resume-session-at" in sys.argv and "--no-session-persistence" in sys.argv:
+			aparte(mensaje)
+			return
+		if (mensaje.get("message") or {}).get("content") == "/compact" and numero > 1:
+			compactar(sesion)
+			continue
 		if not turno(sesion, numero):
 			return
 

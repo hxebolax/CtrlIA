@@ -1,6 +1,6 @@
 """Diálogo «Listas de la sesión».
 
-Trece páginas (``wx.Notebook``), cada una con una lista accesible:
+Quince páginas (``wx.Notebook``), cada una con una lista accesible:
 
 - **Bloques de código**: Lenguaje, Primera línea, Líneas.
 - **Enlaces**: Texto, Dirección, Tipo (web o archivo local, y si existe).
@@ -21,6 +21,11 @@ Trece páginas (``wx.Notebook``), cada una con una lista accesible:
 - **Incidencias y PR**: Referencia, Tipo, Dónde se cita (GitHub).
 - **Archivos leídos**: Archivo, Veces, Con (herramienta u orden).
 - **Tus mensajes**: Mensaje, Fecha.
+- **Aprobaciones** (1.6.0, AIChat #564): Acción, Decisión, Riesgo, Fecha: lo
+  que decidió la revisión automática de Codex, la más reciente primero.
+- **Cambios sin confirmar en git** (1.6.0): Archivo, Cambios, Carpeta: lo que
+  ``git`` ve cambiado en la carpeta de la sesión respecto al último commit (y
+  los archivos nuevos), leído en segundo plano al abrir; F5 lo vuelve a leer.
 
 Encima de las páginas:
 
@@ -72,6 +77,7 @@ from urllib.parse import urlparse
 import wx
 
 from app.services import extraccion
+from app.services import git as servicio_git
 from app.services.exportar import escribir_atomico
 from app.services.gestor import MensajeVista, coincide
 from app.ui.accesibilidad import voz
@@ -86,14 +92,14 @@ log = logging.getLogger(__name__)
 #: Identificadores de las páginas, en orden (Ctrl+1 a Ctrl+9 y Ctrl+0 las diez primeras).
 PAGINAS = (
 	"codigo", "enlaces", "archivos", "ordenes", "tareas", "subagentes", "hallazgos", "decisiones",
-	"errores", "commits", "incidencias", "leidos", "mios",
+	"errores", "commits", "incidencias", "leidos", "mios", "aprobaciones", "git",
 )
 
 #: Páginas con atajo propio (Ctrl+1 … Ctrl+9, Ctrl+0); las demás, con Ctrl+Tab.
 PAGINAS_CON_ATAJO = 10
 
 #: Páginas cuyos elementos son (o señalan) un archivo local.
-PAGINAS_CON_ARCHIVO = ("enlaces", "archivos", "hallazgos", "leidos")
+PAGINAS_CON_ARCHIVO = ("enlaces", "archivos", "hallazgos", "leidos", "git")
 
 #: Páginas de cosas que están en el texto de un mensaje: con el ámbito «este
 #: mensaje o turno» muestran solo las del mensaje elegido (las demás, las de su turno).
@@ -156,6 +162,7 @@ TECLAS_ACCION = {
 	"contenido": "\tCtrl+Shift+C",
 	"guardar": "\tCtrl+S",
 	"ir": "\tAlt+Enter",
+	"actualizar": "\tF5",
 }
 
 Elemento = Any
@@ -254,6 +261,8 @@ def _titulo_pagina(clave: str) -> str:
 		"incidencias": _("Incidencias y PR"),
 		"leidos": _("Archivos leídos"),
 		"mios": _("Tus mensajes"),
+		"aprobaciones": _("Aprobaciones"),
+		"git": _("Cambios sin confirmar en git"),
 	}[clave]
 
 
@@ -275,6 +284,8 @@ def _etiqueta_lista(clave: str, total: int | str, resumen: str = "") -> str:
 		"incidencias": _("Incidencias y &PR ({n}):"),
 		"leidos": _("Archivos &leídos ({n}):"),
 		"mios": _("T&us mensajes ({n}):"),
+		"aprobaciones": _("Aprobacio&nes de la revisión automática ({n}):"),
+		"git": _("Cambios sin confirmar en &git ({n}):"),
 	}[clave]
 	return plantilla.format(n=total)
 
@@ -300,6 +311,9 @@ def _mensaje_vacio(clave: str, donde: str = "sesion") -> str:
 		"incidencias": _("No se citan incidencias ni PR de GitHub {donde}"),
 		"leidos": _("El agente no ha leído archivos {donde}"),
 		"mios": _("No hay mensajes tuyos {donde}"),
+		"aprobaciones": _("La revisión automática de Codex no ha decidido nada {donde}. Solo existe en las sesiones "
+			"de Codex de Ctrl+IA con un modo de permisos con revisión automática"),
+		"git": _("No hay cambios sin confirmar en la carpeta de la sesión"),
 	}[clave]
 	return plantilla.format(donde=_donde(donde))
 
@@ -320,6 +334,8 @@ def _columnas(clave: str) -> list[tuple[str, int]]:
 		"incidencias": [(_("Referencia"), 220), (_("Tipo"), 100), (_("Dónde se cita"), 380)],
 		"leidos": [(_("Archivo"), 440), (_("Veces"), 60), (_("Con"), 160)],
 		"mios": [(_("Mensaje"), 520), (_("Fecha"), 150)],
+		"aprobaciones": [(_("Acción"), 400), (_("Decisión"), 150), (_("Riesgo"), 80), (_("Fecha"), 150)],
+		"git": [(_("Archivo"), 260), (_("Cambios"), 240), (_("Carpeta"), 300)],
 	}[clave]
 
 
@@ -387,6 +403,18 @@ def _ayuda_lista(clave: str) -> str:
 		"mios": _(
 			"Tus mensajes de la conversación, para volver a uno rápido. Intro cierra y va al mensaje; Control+R lo "
 			"cita en el cuadro de respuesta; Control+C lo copia."
+		),
+		"aprobaciones": _(
+			"Lo que decidió la revisión automática de Codex en esta sesión, lo más reciente primero: qué acción, si "
+			"la permitió, su riesgo y cuándo. Intro muestra la decisión con su motivo; Control+C copia la orden (o la "
+			"acción); Alt+Intro cierra y va al mensaje."
+		),
+		"git": _(
+			"Archivos de la carpeta de la sesión con cambios que aún no están en un commit, según git: modificados, "
+			"borrados, renombrados y nuevos, con las líneas añadidas y quitadas. Intro muestra los cambios (de un "
+			"archivo nuevo, su contenido); Control+L lee el archivo entero; Control+O lo abre con su programa; "
+			"Control+E en el editor; Control+Mayúsculas+E lo muestra en el Explorador; Control+C copia la ruta y "
+			"Control+Mayúsculas+C el contenido; F5 vuelve a preguntar a git."
 		),
 	}[clave]
 
@@ -504,6 +532,25 @@ def _resumen_tareas(tareas: Sequence[extraccion.Tarea]) -> str:
 	return _("{h} de {t} hechas").format(h=hechas, t=len(tareas))
 
 
+def _texto_cambios_git(cambio: servicio_git.CambioGit) -> str:
+	"""«12 líneas añadidas, 3 quitadas», «archivo nuevo, 40 líneas», «binario»..."""
+	if cambio.anadidas is None or cambio.quitadas is None:
+		texto = _("archivo nuevo, binario") if cambio.nuevo else _("binario")
+	elif cambio.nuevo:
+		texto = _("archivo nuevo, 1 línea") if cambio.anadidas == 1 else _("archivo nuevo, {n} líneas").format(n=cambio.anadidas)
+	else:
+		anadidas = _("1 línea añadida") if cambio.anadidas == 1 else _("{n} líneas añadidas").format(n=cambio.anadidas)
+		quitadas = _("1 quitada") if cambio.quitadas == 1 else _("{n} quitadas").format(n=cambio.quitadas)
+		texto = "{a}, {q}".format(a=anadidas, q=quitadas)
+	if cambio.movido_desde:
+		texto += ", " + _("antes {nombre}").format(nombre=cambio.movido_desde)
+	return texto
+
+
+def _texto_carpeta_git(cambio: servicio_git.CambioGit) -> str:
+	return _("en {carpeta}").format(carpeta=cambio.carpeta) if cambio.carpeta else _("en la raíz del repositorio")
+
+
 def _citado(texto: str) -> str:
 	"""El texto como cita de Markdown («> » en cada línea)."""
 	return "\n".join("> " + linea if linea.strip() else ">" for linea in (texto or "").strip().splitlines())
@@ -579,6 +626,10 @@ class DialogoListas(wx.Dialog):
 		self.ambito = ambito if ambito in AMBITOS else _ambito_guardado(padre)
 		self._filtros: dict[str, str] = {}
 		self._temporizador_filtro: wx.CallLater | None = None
+		#: Cambios sin confirmar en git: ``None`` mientras se leen; ``""`` si se leyeron; si no, el motivo.
+		self._estado_git: str | None = ""
+		self._raiz_git: Path | None = None
+		self._generacion_git = 0
 		self._repositorio = self._buscar_repositorio()
 		ordenes = extraccion.ordenes_detalladas(mensajes)
 		subagentes = extraccion.subagentes(mensajes)
@@ -598,6 +649,8 @@ class DialogoListas(wx.Dialog):
 			"incidencias": list(extraccion.incidencias(mensajes, self._repositorio)),
 			"leidos": list(extraccion.archivos_leidos(mensajes)),
 			"mios": list(extraccion.mensajes_usuario(mensajes)),
+			"aprobaciones": list(extraccion.aprobaciones(mensajes)),
+			"git": [],
 		}
 		if transcritos is not None:
 			self._completar_subagentes(list(transcritos))
@@ -634,8 +687,9 @@ class DialogoListas(wx.Dialog):
 		self.libro.SetHelpText(_(
 			"Páginas del diálogo. Control+Tabulador pasa a la siguiente y Control+Mayúsculas+Tabulador a la "
 			"anterior; Control+1 a Control+9 y Control+0 van directamente a las diez primeras. Incidencias y PR, "
-			"Archivos leídos y Tus mensajes se alcanzan con Control+Tabulador; Tus mensajes es la última: "
-			"Control+1 y luego Control+Mayúsculas+Tabulador."
+			"Archivos leídos, Tus mensajes, Aprobaciones y Cambios sin confirmar en git se alcanzan con "
+			"Control+Tabulador; Cambios sin confirmar en git es la última: Control+1 y luego "
+			"Control+Mayúsculas+Tabulador."
 		))
 		for clave in PAGINAS:
 			self._crear_pagina(clave)
@@ -669,6 +723,7 @@ class DialogoListas(wx.Dialog):
 		self.Fit()
 		self.CentreOnParent()
 		wx.CallAfter(self._anunciar_si_vacia)
+		self.cargar_git()
 		if transcritos is None and self.ruta_transcript is not None and any(s.id or s.tipo for s in subagentes):
 			self._leer_subagentes_en_segundo_plano(Path(self.ruta_transcript))
 
@@ -715,6 +770,8 @@ class DialogoListas(wx.Dialog):
 		return "mensaje" if clave in PAGINAS_DE_MENSAJE else "turno"
 
 	def _etiqueta(self, clave: str) -> str:
+		if clave == "git" and self._estado_git is None:
+			return _etiqueta_lista(clave, _("comprobando"))
 		total = len(self._base.get(clave, []))
 		filtro = self._filtros.get(clave, "").strip()
 		cuenta = _("{n} de {m}").format(n=len(self.datos.get(clave, [])), m=total) if filtro else str(total)
@@ -796,6 +853,15 @@ class DialogoListas(wx.Dialog):
 
 			mio: extraccion.MensajeUsuario = elemento
 			return [primera_linea(_primera_no_vacia(mio.texto), 300), escribir_fecha(mio.fecha, self._opcion) if mio.fecha else ""]
+		if clave == "aprobaciones":
+			from app.ui.lectura_listas import escribir_fecha
+
+			aprobacion: extraccion.Aprobacion = elemento
+			return [primera_linea(aprobacion.accion or aprobacion.texto, 300), _(aprobacion.nombre_estado),
+				aprobacion.riesgo, escribir_fecha(aprobacion.fecha, self._opcion) if aprobacion.fecha else ""]
+		if clave == "git":
+			cambio_git: servicio_git.CambioGit = elemento
+			return [cambio_git.nombre, _texto_cambios_git(cambio_git), _texto_carpeta_git(cambio_git)]
 		hallazgo: extraccion.Hallazgo = elemento
 		return [
 			primera_linea(hallazgo.corto or hallazgo.resumen, 250),
@@ -825,6 +891,10 @@ class DialogoListas(wx.Dialog):
 			return elemento.texto
 		if clave == "hallazgos":
 			return elemento.resumen + "\n" + elemento.archivo
+		if clave == "aprobaciones":
+			return elemento.motivo + "\n" + elemento.texto
+		if clave == "git":
+			return elemento.ruta + "\n" + elemento.movido_desde
 		return ""
 
 	def _tipo_archivo(self, ruta: str) -> str:
@@ -896,6 +966,13 @@ class DialogoListas(wx.Dialog):
 		if clave == "mios":
 			return [("activar", _("&Ir al mensaje")), ("citar", _("Citar en la &respuesta")),
 				("copiar", _("&Copiar el mensaje"))]
+		if clave == "aprobaciones":
+			copiar = _("&Copiar la orden") if elemento.orden else _("&Copiar la acción")
+			return [("activar", _("&Ver la decisión y su motivo")), ("copiar", copiar), *ir]
+		if clave == "git":
+			return [("activar", _("&Ver los cambios")), archivo[0], ("abrir", _("Abrir con su &programa de Windows")),
+				*archivo[1:], ("copiar", _("&Copiar la ruta")), ("contenido", _("Copiar el co&ntenido")),
+				("actualizar", _("&Volver a preguntar a git"))]
 		return [("activar", _("&Ver el hallazgo completo")), ("corregir", _("Preparar un mensaje para co&rregirlo")),
 			("copiar", _("&Copiar el hallazgo")), ("editor", _("Abrir en el &editor en su línea")),
 			("leer", _("&Leer el archivo")), ("explorador", _("&Mostrar en el Explorador")), *ir]
@@ -905,8 +982,8 @@ class DialogoListas(wx.Dialog):
 	def _calcular_base(self, clave: str) -> list[Elemento]:
 		"""Los elementos de la página en el ámbito elegido (antes del filtro)."""
 		todos = self._sesion[clave]
-		if not self._ambito_activo():
-			return list(todos)
+		if not self._ambito_activo() or clave == "git":
+			return list(todos)  # lo de git es de la carpeta, no de un mensaje
 		if clave in PAGINAS_DE_MENSAJE:
 			inicio, fin = self.indice_elegido, self.indice_elegido + 1
 		else:
@@ -1055,6 +1132,10 @@ class DialogoListas(wx.Dialog):
 
 	def _aviso_vacio(self, clave: str) -> str:
 		"""Lo que se dice cuando no hay nada que elegir en la página: está vacía o el filtro lo oculta todo."""
+		if clave == "git" and self._estado_git is None:
+			return _("Preguntando a git qué ha cambiado en la carpeta de la sesión…")
+		if clave == "git" and self._estado_git:
+			return self._estado_git
 		if self._base.get(clave) and not self.datos.get(clave):
 			return _("Nada coincide con el filtro «{filtro}». Escape en el filtro lo vacía.").format(
 				filtro=self._filtros.get(clave, "").strip())
@@ -1124,7 +1205,105 @@ class DialogoListas(wx.Dialog):
 			return elemento.ruta, elemento.linea
 		if clave == "hallazgos" and elemento.archivo:
 			return elemento.archivo, elemento.linea
+		if clave == "git" and self._raiz_git is not None:
+			return str(self._raiz_git / elemento.ruta), 0
 		return None
+
+	# ── Git ───────────────────────────────────────────────────────────────────
+
+	def cargar_git(self) -> None:
+		"""Pregunta a git, en segundo plano, qué hay sin confirmar en la carpeta de la sesión (también con F5)."""
+		carpeta = Path(self.carpeta) if self.carpeta else None
+		try:
+			es_local = carpeta is not None and carpeta.is_dir()
+		except OSError:
+			es_local = False
+		self._generacion_git += 1
+		if not es_local:
+			self._estado_git = _("La carpeta de la sesión no está en este equipo, así que no se puede preguntar a git.") if carpeta else _(
+				"Esta sesión no tiene carpeta de trabajo.")
+			self._poner_git(self._generacion_git, None, [], self._estado_git)
+			return
+		self._estado_git = None
+		self._repintar("git", conservar_foco=True)
+		generacion = self._generacion_git
+
+		def leer() -> None:
+			try:
+				raiz, cambios = servicio_git.cambios_sin_confirmar(carpeta)
+				error = ""
+			except servicio_git.ErrorGit as fallo:
+				raiz, cambios, error = None, [], str(fallo)
+			except Exception as fallo:  # noqa: BLE001 - la página dice que falló en vez de quedarse «comprobando»
+				log.warning("No se pudieron leer los cambios de git de %s", carpeta, exc_info=True)
+				raiz, cambios, error = None, [], _("Error inesperado al preguntar a git: {e}").format(e=fallo)
+			try:
+				wx.CallAfter(self._poner_git, generacion, raiz, cambios, error)
+			except (RuntimeError, AssertionError):
+				log.debug("La aplicación se cerró antes de leer los cambios de git", exc_info=True)
+
+		threading.Thread(target=leer, name="listas-git", daemon=True).start()
+
+	def _poner_git(self, generacion: int, raiz: Path | None, cambios: list[servicio_git.CambioGit], error: str) -> None:
+		try:
+			if not self or generacion != self._generacion_git:
+				return
+		except RuntimeError:
+			return  # el diálogo ya no existe
+		self._raiz_git = raiz
+		self._estado_git = error
+		self._sesion["git"] = list(cambios)
+		self._repintar("git", conservar_foco=True)
+		if self.pagina_actual() == "git" and not self.datos["git"]:
+			voz.hablar(self._aviso_vacio("git"))
+
+	def _repintar(self, clave: str, conservar_foco: bool = False) -> None:
+		self._base[clave] = self._calcular_base(clave)
+		self._filas_base[clave] = [self._fila(clave, elemento) for elemento in self._base[clave]]
+		self._aplicar_filtro(clave, conservar_foco=conservar_foco)
+
+	def _mostrar_diff_git(self, cambio: servicio_git.CambioGit) -> None:
+		"""Muestra los cambios de un archivo (``git diff HEAD``), leídos en segundo plano."""
+		raiz = self._raiz_git
+		if raiz is None:
+			return
+		if cambio.nuevo and cambio.anadidas is None:
+			voz.hablar(_("Es un archivo binario: no hay texto que mostrar. Control+O lo abre con su programa."))
+			return
+		estilo = self.estilo_cambios
+
+		def leer() -> None:
+			try:
+				texto, error = servicio_git.diff_de(raiz, cambio), ""
+			except servicio_git.ErrorGit as fallo:
+				texto, error = "", str(fallo)
+			try:
+				wx.CallAfter(self._al_leer_diff_git, cambio, texto, error, estilo)
+			except (RuntimeError, AssertionError):
+				log.debug("La aplicación se cerró antes de mostrar el diff", exc_info=True)
+
+		threading.Thread(target=leer, name="listas-git-diff", daemon=True).start()
+
+	def _al_leer_diff_git(self, cambio: servicio_git.CambioGit, texto: str, error: str, estilo: str) -> None:
+		try:
+			if not self:
+				return
+		except RuntimeError:
+			return
+		if error:
+			mostrar_error(self, error, _("Cambios sin confirmar en git"))
+			return
+		titulo = _("Cambios en {ruta}").format(ruta=cambio.ruta)
+		if cambio.nuevo:
+			lenguaje = Path(cambio.ruta).suffix.lstrip(".").lower()
+			mostrar_documento(self, _("Archivo nuevo {ruta}").format(ruta=cambio.ruta), _en_bloque(texto, lenguaje), forzar_texto=True)
+			return
+		if not texto.strip():
+			voz.hablar(_("Git no muestra diferencias de texto en este archivo (puede ser binario o solo cambiar sus permisos)."))
+			return
+		simbolos = estilo in extraccion.ESTILOS_CON_SIGNOS
+		cuerpo = extraccion.diff_legible(texto, estilo)
+		mostrar_documento(self, titulo, _en_bloque(cuerpo, "diff" if simbolos else ""), forzar_texto=True)
 
 	# ── Subagentes ────────────────────────────────────────────────────────────
 
@@ -1166,8 +1345,16 @@ class DialogoListas(wx.Dialog):
 			"activar": self.activar, "leer": self.leer_archivo, "abrir": self.abrir_con_windows,
 			"editor": self.abrir_en_editor, "explorador": self.mostrar_en_explorador, "corregir": self.preparar_correccion,
 			"citar": self.citar_mensaje, "copiar": self.copiar, "contenido": self.copiar_contenido, "guardar": self.guardar,
-			"ir": self.ir_al_mensaje,
+			"ir": self.ir_al_mensaje, "actualizar": self.actualizar_pagina,
 		}[accion]()
+
+	def actualizar_pagina(self) -> None:
+		"""F5: en «Cambios sin confirmar en git», vuelve a preguntar a git."""
+		if self.pagina_actual() != "git":
+			voz.hablar(_("F5 solo vuelve a leer la página de cambios sin confirmar en git"))
+			return
+		voz.hablar(_("Preguntando a git"))
+		self.cargar_git()
 
 	def ir_a_pagina(self, numero: int) -> None:
 		"""Muestra la página ``numero`` (desde 0) y pone el foco en su lista."""
@@ -1252,6 +1439,11 @@ class DialogoListas(wx.Dialog):
 			self.leer_archivo()
 		elif clave == "mios":
 			self.ir_al_mensaje()
+		elif clave == "aprobaciones":
+			mostrar_documento(self, _("Decisión {n} de la revisión automática").format(n=numero),
+				self._documento_aprobacion(elemento), forzar_texto=True)
+		elif clave == "git":
+			self._mostrar_diff_git(elemento)
 		else:
 			mostrar_documento(self, _("Hallazgo {n}").format(n=numero), self._documento_hallazgo(elemento), forzar_texto=True)
 
@@ -1312,6 +1504,21 @@ class DialogoListas(wx.Dialog):
 		if fallo.entrada.strip():
 			partes += ["", "## " + _("Lo que se pidió"), "", _en_bloque(fallo.entrada).rstrip("\n")]
 		partes += ["", "## " + _("Error"), "", _en_bloque(fallo.detalle).rstrip("\n") if fallo.detalle.strip() else _("(sin detalle)")]
+		return "\n".join(partes) + "\n"
+
+	def _documento_aprobacion(self, aprobacion: extraccion.Aprobacion) -> str:
+		from app.ui.lectura_listas import escribir_fecha
+
+		partes = ["# " + (aprobacion.accion or _("Acción de Codex")), ""]
+		datos = [_("Decisión: {d}.").format(d=_(aprobacion.nombre_estado).lower())]
+		if aprobacion.riesgo:
+			datos.append(_("Riesgo: {r}.").format(r=aprobacion.riesgo))
+		if aprobacion.fecha:
+			datos.append(_("Fecha: {f}.").format(f=escribir_fecha(aprobacion.fecha, self._opcion)))
+		partes.append(" ".join(datos))
+		if aprobacion.orden:
+			partes += ["", "## " + _("Orden"), "", _en_bloque(aprobacion.orden).rstrip("\n")]
+		partes += ["", "## " + _("Motivo"), "", aprobacion.motivo or _("(Codex no dio el motivo)")]
 		return "\n".join(partes) + "\n"
 
 	@staticmethod
@@ -1381,6 +1588,8 @@ class DialogoListas(wx.Dialog):
 			"leidos": lambda e: e.ruta,
 			"mios": lambda e: e.texto,
 			"hallazgos": self._texto_hallazgo,
+			"aprobaciones": lambda e: e.orden or e.accion or e.texto,
+			"git": lambda e: str(self._raiz_git / e.ruta) if self._raiz_git is not None else e.ruta,
 		}
 		return copiar[clave](elemento)
 
@@ -1404,7 +1613,7 @@ class DialogoListas(wx.Dialog):
 		"""Copia el contenido del archivo, la salida de la orden, el detalle del error o el mensaje del commit (Ctrl+Mayús+C)."""
 		clave = self.pagina_actual()
 		elemento = self.elemento_actual(clave)
-		if clave not in ("archivos", "ordenes", "errores", "commits", "leidos"):
+		if clave not in ("archivos", "ordenes", "errores", "commits", "leidos", "git"):
 			voz.hablar(_("Aquí no hay contenido que copiar: solo en los archivos, las órdenes, los errores y los commits"))
 			return False
 		if elemento is None:
@@ -1425,7 +1634,8 @@ class DialogoListas(wx.Dialog):
 				voz.hablar(_("No se sabe el mensaje de este commit"))
 				return False
 			return self._copiar_texto(elemento.mensaje)
-		camino = self.resolver(elemento.ruta)
+		datos = self.ruta_actual(clave)
+		camino = self.resolver(datos[0] if datos else elemento.ruta)
 		if camino is None:
 			voz.hablar(_("No se sabe en qué carpeta está este archivo"))
 			return False
@@ -1641,7 +1851,7 @@ class DialogoListas(wx.Dialog):
 		if elemento is None:
 			voz.hablar(self._aviso_vacio(clave))
 			return
-		if not 0 <= elemento.indice:
+		if not 0 <= getattr(elemento, "indice", -1):
 			voz.hablar(_("Este elemento no tiene un mensaje al que ir"))
 			return
 		self.indice_mensaje = elemento.indice
@@ -1665,7 +1875,11 @@ class DialogoListas(wx.Dialog):
 		# atajo: Ctrl+0 ir a la décima página (Commits)
 		# atajo: Ctrl+F ir al filtro
 		# atajo: Ctrl+T cambiar entre toda la sesión y este mensaje o turno
+		# atajo: F5 volver a preguntar a git (página Cambios sin confirmar en git)
 		tecla, modificadores = evento.GetKeyCode(), evento.GetModifiers()
+		if modificadores == wx.MOD_NONE and tecla == wx.WXK_F5:
+			self.actualizar_pagina()
+			return
 		if modificadores == wx.MOD_CONTROL and ord("0") <= tecla <= ord("9"):
 			self.ir_a_pagina(PAGINAS_CON_ATAJO - 1 if tecla == ord("0") else tecla - ord("1"))
 			return
@@ -1725,4 +1939,5 @@ def contar(mensajes: Sequence[MensajeVista]) -> dict[str, int]:
 		"incidencias": len(extraccion.incidencias(mensajes)),
 		"leidos": len(extraccion.archivos_leidos(mensajes)),
 		"mios": len(extraccion.mensajes_usuario(mensajes)),
+		"aprobaciones": len(extraccion.aprobaciones(mensajes)),
 	}

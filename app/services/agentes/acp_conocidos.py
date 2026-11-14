@@ -129,6 +129,22 @@ AGENTES: tuple[AgenteConocido, ...] = (
 		paquetes=(("cline", "cline"),),
 		instalacion="npm install -g cline",
 	),
+	# 1.6.0. Paquete y nombres de sus programas comprobados con «npm view command-code» (1.89.1): trae cuatro
+	# (cmd, cmdc, command-code y commandcode) y se usa SIEMPRE command-code, porque «cmd» en Windows es el
+	# Símbolo del sistema. El modo ACP («command-code acp») y el inicio de sesión con cuenta («login», en el
+	# navegador) salen de BlindPilot (adjuntos/blindpilot/commandcode_backend.py); no se ha lanzado aquí.
+	AgenteConocido(
+		"command-code",
+		"Command Code",
+		"Agente de programación que aprende tu forma de programar. Funciona con tu cuenta de Command Code y con "
+		"modelos abiertos.",
+		"https://commandcode.ai",
+		"Para usar Command Code: " + _NODE % "command-code" + "3) en una consola escribe: command-code login, e inicia "
+		"sesión con tu cuenta en el navegador que se abre. No uses el nombre corto cmd: en Windows es el Símbolo del sistema.",
+		("acp",),
+		paquetes=(("command-code", "command-code"),),
+		instalacion="npm install -g command-code",
+	),
 )
 
 

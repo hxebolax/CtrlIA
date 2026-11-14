@@ -127,9 +127,15 @@ PAGINAS: tuple[Pagina, ...] = (
 			N_("Dice «Iniciando Ctrl+IA» mientras el programa se abre.")),
 		Opcion("general.abrir_ultima_sesion", N_("Abrir la ú&ltima sesión al iniciar"), BOOL,
 			N_("Al abrir Ctrl+IA se carga la sesión que tenías abierta al salir.")),
+		Opcion("general.carpeta_proyectos", N_("Carpeta base de pro&yectos:"), CARPETA,
+			N_("Carpeta donde tienes tus proyectos. En «Nueva sesión» basta con escribir el nombre de un proyecto (o una "
+				"ruta que no empiece por la unidad) y se busca dentro de ella; si no existe, Ctrl+IA te ofrece crearla. "
+				"Vacía: hay que escribir la ruta completa o pulsar Examinar.")),
 		Opcion("general.comprobar_actualizaciones", N_("&Buscar actualizaciones automáticamente"), BOOL,
 			N_("Una vez al día, Ctrl+IA comprueba en segundo plano si hay una versión nueva y te avisa. Siempre puedes "
 				"comprobarlo a mano en Ayuda, «Buscar actualizaciones». Se aplica al reiniciar Ctrl+IA.")),
+		Opcion("general.avisar_texto_sin_enviar", N_("Avisar al salir si queda te&xto sin enviar"), BOOL,
+			N_("Si al cerrar Ctrl+IA el cuadro de respuesta tiene algo escrito, te pregunta antes, porque se perdería.")),
 	)),
 	Pagina(N_("Agentes"), (
 		Opcion("agentes.predeterminado", N_("A&gente predeterminado:"), OPCION,
@@ -144,7 +150,7 @@ PAGINAS: tuple[Pagina, ...] = (
 			N_("Añade a la lista de agentes las versiones por el protocolo ACP de Claude, Codex y Antigravity. "
 				"Necesitan Node.js. Se aplica al reiniciar Ctrl+IA.")),
 		Opcion("agentes.otros_acp", N_("Mostrar otros agentes ACP co&nocidos (OpenCode, Goose, Copilot...)"), BOOL,
-			N_("Añade a la lista de agentes OpenCode, Goose, GitHub Copilot CLI, Qwen Code, Kilo Code y Cline, que hablan "
+			N_("Añade a la lista de agentes OpenCode, Goose, GitHub Copilot CLI, Qwen Code, Kilo Code, Cline y Command Code, que hablan "
 				"el protocolo ACP. Cada uno se instala aparte y usa tu propia cuenta o modelos gratuitos o locales. "
 				"Se aplica al reiniciar Ctrl+IA.")),
 		Opcion("agentes.puntos_restauracion", N_("Guardar puntos de re&stauración antes de cada mensaje"), BOOL,
@@ -188,6 +194,19 @@ PAGINAS: tuple[Pagina, ...] = (
 				"memoria. «No» arranca Claude Code de nuevo en cada mensaje. Vale desde el siguiente mensaje."),
 			opciones=((0, N_("No: arrancarlo en cada mensaje")), (5, N_("5 minutos")), (15, N_("15 minutos")),
 				(30, N_("30 minutos")), (60, N_("1 hora")))),
+		Opcion("agentes.preguntas_escritas", N_("Tratar como pregunta la que el agente escribe al final de su respuesta"), BOOL,
+			N_("Si un agente termina su respuesta preguntándote algo («¿Qué base de datos prefieres?») en vez de usar su "
+				"herramienta de preguntas, la sesión pasa a «Te necesita» y Control+Mayúsculas+A abre la pregunta, como las "
+				"demás. Lo que contestes le llega como tu siguiente mensaje. No cuenta los ofrecimientos de seguir («¿Quieres "
+				"que ejecute las pruebas?»). Si escribes otra cosa, la pregunta se retira sola.")),
+		Opcion("agentes.preguntas_con_herramienta", N_("Pedir a Claude que pregunte con su herramienta de preguntas"), BOOL,
+			N_("Claude Code recibe la indicación de preguntarte con su herramienta (el diálogo de Control+Mayúsculas+A, con "
+				"opciones para elegir) en vez de escribir la pregunta en la respuesta. Vale desde el siguiente mensaje de cada "
+				"sesión.")),
+		Opcion("agentes.preguntas_codex", N_("Dejar que Codex pregunte con su herramienta también fuera del modo Plan (experimental)"), BOOL,
+			N_("Codex solo usa su herramienta de preguntas en el modo Plan; con esta opción la tiene siempre. Es una función "
+				"que Codex aún tiene en desarrollo y, mientras está activa, las instrucciones de desarrollador de un proyecto "
+				"pueden quedar tapadas. Se aplica al reiniciar Ctrl+IA.")),
 		Opcion("agentes.permitir_clave_api", N_("Permitir que Claude use una clave de API (puede costar dinero)"), BOOL,
 			N_("Normalmente Ctrl+IA solo usa tu suscripción de Claude y se niega a usar claves de API, que se cobran "
 				"por uso. Actívalo solo si sabes que quieres pagar por uso. Se aplica al reiniciar Ctrl+IA.")),
@@ -346,6 +365,25 @@ PAGINAS: tuple[Pagina, ...] = (
 			opciones=(("completo", N_("Completo")), ("resumen", N_("Resumen")), ("silencio", N_("Silencio")))),
 		Opcion("anuncios.todas_las_sesiones", N_("Leer las respuestas de &todas las sesiones"), BOOL,
 			N_("Si está desactivado, solo se lee la sesión abierta; de las demás se dice que han respondido.")),
+		Opcion("anuncios.leer_mientras_llega", N_("Leer la respuesta por &frases mientras el agente la escribe"), BOOL,
+			N_("Oyes las primeras frases de una respuesta larga casi al momento, sin esperar a que termine. Una frase solo "
+				"se dice cuando está completa, y un bloque de código, cuando se cierra. Al detener al agente, lo que quedaba "
+				"ya no se dice. Desactivada, la respuesta se lee entera al terminar, como siempre.")),
+		Opcion("anuncios.quitar_formato", N_("&Quitar las marcas de formato al leer las respuestas"), BOOL,
+			N_("Las respuestas se leen sin los símbolos del formato Markdown: almohadillas de los títulos, asteriscos de la "
+				"negrita, guiones de las listas, barras de las tablas (cada celda se separa con una coma) y las direcciones "
+				"de los enlaces. El mensaje no cambia: con Intro lo ves entero.")),
+		Opcion("anuncios.codigo_en_voz", N_("Los bloques de código, al leer las respuestas:"), OPCION,
+			N_("«Se leen» dice el código entero. «Se avisan» dice solo «Bloque de código.» en su lugar, para no oír líneas "
+				"y líneas de código: el mensaje no cambia y con Intro lo lees cuando quieras."),
+			opciones=(("leer", N_("Se leen")), ("avisar", N_("Se avisan con «Bloque de código»")))),
+		Opcion("anuncios.releer_dictado", N_("Releer lo que dictas o se inserta de golpe en el cuadro de respuesta"), BOOL,
+			N_("Con el dictado de Windows (Windows+H) el lector no dice lo que se escribe. Con esta opción, al dejar de "
+				"dictar un segundo y medio, Ctrl+IA lee lo que se ha añadido. Lo que tecleas y lo que pegas con Control+V "
+				"no se relee.")),
+		Opcion("anuncios.actividad", N_("Anunciar cuando empieza y termina un subagente o una orden en segundo plano"), BOOL,
+			N_("Dice «Empieza: subagente ...» y «Ha terminado: ...». Lo que hace cada uno está en Sesión, «Actividad en "
+				"segundo plano» (Control+Alt+A).")),
 		Opcion("anuncios.herramientas", N_("Anunciar cada acción del agente (&herramientas)"), BOOL,
 			N_("Dice cada archivo que lee o edita y cada orden que ejecuta. Puede ser mucha información.")),
 		Opcion("anuncios.tareas", N_("Anunciar el progreso de la lista de tareas del a&gente"), BOOL,
@@ -423,7 +461,20 @@ PAGINAS: tuple[Pagina, ...] = (
 		Opcion("sonidos.compactado", N_("Cuando el agente res&ume la conversación (compactación)"), BOOL,
 			N_("Tres notas suaves que bajan cuando el agente resume lo anterior de la conversación para liberar memoria.")),
 		Opcion("sonidos.limite", N_("Al acercarte al &límite de uso de tu cuenta"), BOOL,
-			N_("Dos pulsos graves cuando llegas al porcentaje de tu límite de uso que eliges en Anuncios.")),
+			N_("Dos pulsos graves cuando llegas al porcentaje de tu límite de uso que eliges en Anuncios. Suena también si "
+				"el agente empieza a gastar uso adicional de pago.")),
+		Opcion("sonidos.trabajando", N_("Mientras el agente tra&baja, cada pocos segundos"), BOOL,
+			N_("Un latido muy suave mientras el agente de la sesión abierta trabaja sin pedirte nada, para saber que sigue "
+				"vivo durante un razonamiento largo. No suena justo después de otro sonido ni si te está esperando.")),
+		Opcion("sonidos.segundos_trabajando", N_("Segundos entre dos latidos de «trabajando»:"), OPCION,
+			N_("Cada cuánto suena el latido mientras el agente trabaja."),
+			opciones=((5, N_("5")), (10, N_("10")), (15, N_("15")), (20, N_("20")), (30, N_("30")), (60, N_("60")))),
+		Opcion("sonidos.servicio", N_("Cuando el servicio del agente tiene problemas y reintenta"), BOOL,
+			N_("Dos notas que vacilan cuando el servicio del agente está sobrecargado o falla y lo vuelve a intentar.")),
+		Opcion("sonidos.tarea_inicio", N_("Cuando empie&za un subagente o una orden en segundo plano"), BOOL,
+			N_("Dos toques que suben cuando el agente lanza un subagente o una orden que trabaja aparte.")),
+		Opcion("sonidos.tarea_fin", N_("Cuando termina un subagente o una orden en segundo plano"), BOOL,
+			N_("Dos toques que bajan cuando termina. Si falla, suena el de error.")),
 	)),
 	Pagina(N_("Ventana"), (
 		Opcion("ventana.mostrar_sesiones", N_("Mostrar la lista de &sesiones"), BOOL,

@@ -1510,6 +1510,8 @@ _DISPOSITIVOS = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", *(f"COM{i}" fo
 #: Dónde vienen las sesiones dentro de la copia.
 _RE_ROLLOUT = re.compile(r"^rollout-.*?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$", re.IGNORECASE)
 _RE_CHAT_GEMINI = re.compile(r"^gemini/casa/tmp/[^/]+/chats/[^/]+\.json$")
+#: Bases de Codex con la lista de hilos y sus mensajes (el número cambia con las versiones de Codex).
+_RE_BASE_HILOS_CODEX = re.compile(r"(state|thread_history)_([0-9]+)\.sqlite")
 BASE_CTRLIA = f"{ZONA_CTRLIA}/db/ctrlia.db"
 #: Tamaño máximo de un chat de Gemini (JSON entero en memoria).
 _MAX_CHAT_GEMINI = 256 * 1024 * 1024
@@ -1526,7 +1528,7 @@ class SesionEnCopia:
 	clave: str  # «claude:<id>», «codex:<id>», «gemini:<id>», «ctrlia:<uuid>» o «importada:<uuid>»
 	proveedor: str
 	titulo: str
-	tipo: str  # cómo se leen sus mensajes: claude, codex, gemini o ctrlia
+	tipo: str  # cómo se leen sus mensajes: claude, codex (rollout), codex_bd (bases SQLite), gemini o ctrlia
 	carpeta: str = ""
 	origen: str = "otra"
 	creada: float = 0.0
@@ -1567,6 +1569,8 @@ def _nombre_restaurable(nombre: str) -> bool:
 			return True
 	if partes[:2] == ("codex", "casa") and len(partes) > 3 and partes[2] in ("sessions", "archived_sessions"):
 		return _RE_ROLLOUT.match(partes[-1]) is not None
+	if len(partes) == 3 and partes[:2] in (("codex", "casa"), ("codex", "sqlite")) and _RE_BASE_HILOS_CODEX.fullmatch(partes[2]):
+		return True  # las conversaciones de Codex que ya solo están en sus bases SQLite
 	prefijo = ("ctrlia", "datos", "conservadas", "claude")
 	return len(partes) == 6 and partes[:4] == prefijo and partes[-1] in ("registro.json", "transcripcion.jsonl")
 
@@ -1822,7 +1826,7 @@ class CopiaAbierta:
 							titulos[datos["id"].lower()] = (str(datos.get("thread_name") or ""), _fecha(datos.get("updated_at")))
 			except OSError:
 				log.debug("No se pudo leer el índice de Codex de la copia", exc_info=True)
-		sesiones: dict[str, SesionEnCopia] = {}
+		sesiones: dict[str, SesionEnCopia] = self._sesiones_codex_sqlite(ids_propios)
 		for nombre, ruta in self._extraidos.items():
 			coincidencia = _RE_ROLLOUT.match(PurePosixPath(nombre).name) if nombre.startswith("codex/") else None
 			if coincidencia is None:
@@ -1841,6 +1845,38 @@ class CopiaAbierta:
 			sesiones[identificador] = SesionEnCopia(clave=f"codex:{identificador}", proveedor="codex", titulo=titulo, tipo="codex",
 				carpeta=carpeta, origen="codex", creada=creada or actividad, actividad=actividad, ruta=ruta)
 		return list(sesiones.values())
+
+	def _bases_codex(self) -> tuple[Path | None, Path | None]:
+		"""Las bases ``state`` y ``thread_history`` más nuevas que trae la copia (las de su carpeta, primero)."""
+		mejores: dict[str, tuple[tuple[int, int], Path]] = {}
+		for nombre, ruta in self._extraidos.items():
+			partes = PurePosixPath(nombre).parts
+			coincidencia = _RE_BASE_HILOS_CODEX.fullmatch(partes[-1]) if len(partes) == 3 and partes[0] == "codex" else None
+			if coincidencia is None:
+				continue
+			clase, numero = coincidencia.group(1), int(coincidencia.group(2))
+			orden = (numero, 1 if partes[1] == "casa" else 0)
+			if clase not in mejores or orden > mejores[clase][0]:
+				mejores[clase] = (orden, ruta)
+		estado, historia = mejores.get("state"), mejores.get("thread_history")
+		return (estado[1] if estado else None), (historia[1] if historia else None)
+
+	def _sesiones_codex_sqlite(self, ids_propios: set[tuple[str, str]]) -> dict[str, SesionEnCopia]:
+		"""Hilos de Codex de sus bases SQLite (Codex ya no guarda los recientes en ``rollout``)."""
+		estado, historia = self._bases_codex()
+		if estado is None or historia is None:
+			return {}
+		con_mensajes = historial_codex.ids_sqlite(historia)
+		sesiones: dict[str, SesionEnCopia] = {}
+		for hilo in historial_codex.hilos_sqlite(estado):
+			identificador = hilo["id"].lower()
+			if ("codex", identificador) in ids_propios or identificador in sesiones or identificador not in con_mensajes:
+				continue
+			titulo = hilo["titulo"] or "Hilo de Codex"
+			sesiones[identificador] = SesionEnCopia(clave=f"codex:{identificador}", proveedor="codex", titulo=titulo[:120],
+				tipo="codex_bd", carpeta=hilo["carpeta"], origen="codex", creada=hilo["creado"] or hilo["actualizado"],
+				actividad=hilo["actualizado"], ruta=historia)
+		return sesiones
 
 	def _sesiones_gemini(self, ids_propios: set[tuple[str, str]]) -> list[SesionEnCopia]:
 		sesiones: dict[str, SesionEnCopia] = {}
@@ -1880,6 +1916,9 @@ class CopiaAbierta:
 				for m in historial_claude.leer_mensajes(sesion.ruta)]
 		if sesion.tipo == "codex" and sesion.ruta is not None:
 			return [dict(m) for m in historial_codex.leer_mensajes(sesion.ruta, self._cancelado)]
+		if sesion.tipo == "codex_bd" and sesion.ruta is not None:
+			return [{"rol": m["rol"], "texto": m["texto"], "fecha": m["fecha"], "datos": {"ancla": m["ancla"]}}
+				for m in historial_codex.mensajes_sqlite(sesion.clave.split(":", 1)[1], sesion.ruta, self._cancelado)]
 		if sesion.tipo == "gemini" and sesion.ruta is not None:
 			return _mensajes_gemini(_chat_gemini(sesion.ruta))
 		if sesion.tipo == "ctrlia":

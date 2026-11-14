@@ -149,6 +149,7 @@ def construir(
 	estadisticas = almacen.estadisticas_mensajes()
 	resultado: list[FilaInforme] = []
 	rollouts: dict[str, Path] | None = None
+	historia_codex: Path | None = None
 	for numero, fila in enumerate(filas, start=1):
 		if cancelado():
 			break
@@ -173,13 +174,24 @@ def construir(
 					from app.services.historial import codex as historial_codex
 
 					rollouts = historial_codex.indice_rollouts()
-				ruta = rollouts.get(fila.clave.split(":", 1)[1].lower())
+				identificador = fila.clave.split(":", 1)[1]
+				ruta = rollouts.get(identificador.lower())
 				if ruta is not None:
 					datos.ruta = str(ruta)
 					try:
 						datos.tamano = ruta.stat().st_size
 					except OSError:
 						log.debug("No se pudo medir %s", ruta, exc_info=True)
+				else:
+					# Las conversaciones recientes solo están en las bases SQLite de Codex.
+					from app.services.historial import codex as historial_codex
+
+					if historia_codex is None:
+						historia_codex = historial_codex.bases_codex()[1] or Path()
+					tamano = historial_codex.tamano_sqlite(identificador, historia_codex) if historia_codex.name else None
+					if tamano is not None:
+						datos.ruta = str(historia_codex)
+						datos.tamano = tamano
 			try:
 				datos.recuento = _contar(leer_mensajes(fila.clave))
 			except Exception:  # noqa: BLE001 - el agente puede no responder; el informe sigue

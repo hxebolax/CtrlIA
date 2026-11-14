@@ -277,7 +277,7 @@ def test_claude_dice_que_skills_tiene_y_puede_leerlas(skill_real, tmp_path):
 	conversacion = ProveedorClaude(orden_base=["claude"]).crear_conversacion(ajustes, lambda e: None)
 	conversacion.skills = [skill_real]
 	orden = conversacion.construir_orden()
-	indicacion = orden[orden.index("--append-system-prompt") + 1]
+	indicacion = next(a for a in orden if a.startswith("--append-system-prompt="))
 	assert "ctrlia-skills:pruebas" in indicacion and "SKILL.md" in indicacion
 	lectura = skills_sesion.regla_lectura(skill_real["carpeta"])
 	assert lectura and lectura in orden

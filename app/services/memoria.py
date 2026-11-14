@@ -20,16 +20,30 @@ los liste, los muestre y permita crear los que faltan:
   ``antigravity-cli/settings.json``; en el proyecto ``GEMINI.md``,
   ``AGENTS.md`` y ``.agents/skills/*/SKILL.md``.
 
-Solo lee el disco. La única escritura es :func:`crear_desde_plantilla`, que
-crea un archivo de instrucciones NUEVO (nunca sobrescribe uno existente).
+Escrituras (todas a petición de la persona, nunca solas):
+
+- :func:`crear_desde_plantilla` crea un archivo de instrucciones NUEVO.
+- :func:`guardar_texto` guarda lo editado en «Lo que el agente sabe de ti»:
+  copia previa en ``data/backups/agentes``, escritura atómica, sin escribir
+  si el archivo cambió desde que se abrió y sin guardar un JSON o TOML roto.
+- :func:`anadir_memoria_claude` y :func:`borrar_memoria_claude`: notas de la
+  memoria automática de Claude Code de la carpeta (y su línea de ``MEMORY.md``).
+- :func:`crear_subagente`: subagentes globales de Claude Code y Codex.
+
+Nada sustituye un archivo que ya exista sin que la persona lo pida (los nuevos
+se crean con ``open(..., "x")``).
 
 Sin wx: todo este módulo se prueba por sí solo.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
+import tempfile
+import time
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -463,4 +477,323 @@ def crear_desde_plantilla(archivo: ArchivoMemoria) -> Path:
 	with ruta.open("x", encoding="utf-8", newline="\n") as salida:
 		salida.write(plantilla_para(archivo))
 	log.info("Archivo de instrucciones creado: %s", ruta)
+	return ruta
+
+
+# --------------------------------------------------------------------------
+# Edición (1.6.0): guardar lo editado sin perder nada
+# --------------------------------------------------------------------------
+
+#: Copias de seguridad que se conservan de cada archivo editado.
+MAX_COPIAS = 20
+
+
+class ErrorMemoria(Exception):
+	"""Fallo con un mensaje en español para la persona."""
+
+
+class ArchivoCambiado(ErrorMemoria):
+	"""El archivo cambió en el disco desde que se abrió para editarlo."""
+
+
+@dataclass(slots=True)
+class TextoEditable:
+	"""Lo que se carga para editar un archivo: su texto y cómo estaba en el disco."""
+
+	texto: str
+	#: ``st_mtime_ns`` y tamaño al leerlo (``None`` si no existía): así se sabe si otro lo cambió.
+	firma: tuple[int, int] | None
+	#: Fin de línea del archivo («\r\n» o «\n») y si llevaba BOM: se conservan al guardar.
+	fin_linea: str = "\n"
+	bom: bool = False
+
+
+def _firma(ruta: Path) -> tuple[int, int] | None:
+	try:
+		estado = Path(ruta).stat()
+	except OSError:
+		return None
+	return estado.st_mtime_ns, estado.st_size
+
+
+def es_editable(archivo: ArchivoMemoria) -> bool:
+	"""Si se puede editar en Ctrl+IA: un archivo de texto que existe y no pasa de :data:`LIMITE_VER`."""
+	return archivo.existe and archivo.ruta.suffix.lower() in (".md", ".json", ".toml", ".txt") and not demasiado_grande(archivo.ruta)
+
+
+def cargar_para_editar(ruta: Path) -> TextoEditable:
+	"""Lee ``ruta`` para editarla (sus saltos de línea pasan a «\\n», como en un cuadro de texto).
+
+	Lanza ``OSError`` si no se puede leer y :class:`ErrorMemoria` si es demasiado grande o no es UTF-8.
+	"""
+	ruta = Path(ruta)
+	if demasiado_grande(ruta):
+		raise ErrorMemoria("El archivo ocupa más de 1 MB: ábrelo con el editor.")
+	firma = _firma(ruta)
+	datos = ruta.read_bytes()
+	bom = datos.startswith(b"\xef\xbb\xbf")
+	try:
+		texto = datos.decode("utf-8-sig")
+	except UnicodeDecodeError as error:
+		# Con bytes que no son UTF-8, guardar lo editado los cambiaría: no se edita aquí.
+		raise ErrorMemoria("El archivo no está en UTF-8: ábrelo con el editor para no estropearlo.") from error
+	fin = "\r\n" if texto.count("\r\n") > texto.count("\n") - texto.count("\r\n") else "\n"
+	return TextoEditable(texto.replace("\r\n", "\n"), firma, fin, bom)
+
+
+def copia_de_seguridad(ruta: Path, carpeta: Path) -> Path | None:
+	"""Copia ``ruta`` a ``carpeta`` como ``<nombre>-<fecha><extensión>`` (las más viejas se borran). ``None`` si no existe.
+
+	Lanza :class:`ErrorMemoria` si no se puede copiar: entonces no se toca el original.
+	"""
+	ruta = Path(ruta)
+	if not ruta.is_file():
+		return None
+	try:
+		carpeta.mkdir(parents=True, exist_ok=True)
+		marca = time.strftime("%Y%m%d_%H%M%S")
+		base = f"{ruta.parent.name}-{ruta.stem}" if ruta.stem.upper() in ("MEMORY", "CLAUDE", "AGENTS", "GEMINI", "SKILL", "SETTINGS") else ruta.stem
+		destino = carpeta / f"{base}-{marca}{ruta.suffix}"
+		numero = 1
+		while destino.exists():
+			numero += 1
+			destino = carpeta / f"{base}-{marca}-{numero}{ruta.suffix}"
+		destino.write_bytes(ruta.read_bytes())
+		viejas = sorted(carpeta.glob(f"{base}-*{ruta.suffix}"))
+		for vieja in viejas[:-MAX_COPIAS]:
+			vieja.unlink(missing_ok=True)
+		return destino
+	except OSError as error:
+		raise ErrorMemoria(f"No se pudo hacer la copia de seguridad: {error.strerror or error}") from error
+
+
+def _comprobar_formato(ruta: Path, texto: str) -> None:
+	"""Un JSON o un TOML que no se entiende no se guarda: el agente dejaría de leerlo."""
+	sufijo = ruta.suffix.lower()
+	try:
+		if sufijo == ".json" and texto.strip():
+			json.loads(texto)
+		elif sufijo == ".toml":
+			import tomllib
+
+			tomllib.loads(texto)
+	except ValueError as error:
+		raise ErrorMemoria(f"El texto no es {sufijo[1:].upper()} válido y no se ha guardado: {error}") from error
+
+
+def escribir_atomico(ruta: Path, contenido: bytes) -> None:
+	"""Escribe ``contenido`` en un temporal de la misma carpeta y lo pone en su sitio con ``os.replace``."""
+	ruta = Path(ruta)
+	ruta.parent.mkdir(parents=True, exist_ok=True)
+	descriptor, temporal = tempfile.mkstemp(prefix=".ctrlia-", suffix=".tmp", dir=str(ruta.parent))
+	try:
+		with os.fdopen(descriptor, "wb") as salida:
+			salida.write(contenido)
+			salida.flush()
+			os.fsync(salida.fileno())
+		os.replace(temporal, ruta)
+	except OSError:
+		try:
+			os.unlink(temporal)
+		except OSError:
+			log.debug("No se pudo borrar el temporal %s", temporal, exc_info=True)
+		raise
+
+
+def guardar_texto(ruta: Path, texto: str, carpeta_copias: Path, cargado: TextoEditable | None = None,
+		forzar: bool = False) -> Path | None:
+	"""Guarda lo editado en ``ruta``: copia previa en ``carpeta_copias`` y escritura atómica. Devuelve la copia.
+
+	Con ``cargado`` (lo que se leyó al abrir), si el archivo cambió en el disco desde entonces se lanza
+	:class:`ArchivoCambiado` y no se escribe nada, salvo con ``forzar``. Se conservan el fin de línea y el
+	BOM que tenía. Lanza :class:`ErrorMemoria` si no se puede.
+	"""
+	ruta = Path(ruta)
+	if cargado is not None and not forzar and _firma(ruta) != cargado.firma:
+		raise ArchivoCambiado("El archivo ha cambiado desde que lo abriste (quizá lo ha escrito el agente).")
+	_comprobar_formato(ruta, texto)
+	copia = copia_de_seguridad(ruta, carpeta_copias)
+	fin = cargado.fin_linea if cargado is not None else "\n"
+	normalizado = texto.replace("\r\n", "\n")
+	contenido = (b"\xef\xbb\xbf" if cargado is not None and cargado.bom else b"") + normalizado.replace("\n", fin).encode("utf-8")
+	try:
+		escribir_atomico(ruta, contenido)
+	except OSError as error:
+		raise ErrorMemoria(f"No se pudo guardar {ruta}: {error.strerror or error}") from error
+	log.info("Archivo de los agentes guardado: %s (copia: %s)", ruta, copia)
+	return copia
+
+
+# --------------------------------------------------------------------------
+# Memoria automática de Claude Code: añadir y borrar
+# --------------------------------------------------------------------------
+
+#: Tipos de memoria de Claude Code (``metadata.type``) con su nombre en español.
+TIPOS_MEMORIA = {
+	"user": "Sobre ti",
+	"feedback": "Cómo quieres que trabaje",
+	"project": "Sobre el proyecto",
+	"reference": "Dónde encontrar información",
+}
+
+#: Nombres de Windows que no pueden ser un archivo.
+_RESERVADOS_WINDOWS = frozenset({"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))})
+
+
+def nombre_seguro(texto: str) -> str:
+	"""«Mis gustos de café» → «mis-gustos-de-cafe»: minúsculas ASCII, dígitos y guiones."""
+	descompuesto = unicodedata.normalize("NFKD", (texto or "").casefold())
+	sin_tildes = "".join(letra for letra in descompuesto if not unicodedata.combining(letra))
+	return re.sub(r"[^a-z0-9]+", "-", sin_tildes).strip("-")[:60].strip("-")
+
+
+def _una_linea(texto: str) -> str:
+	return " ".join((texto or "").split())
+
+
+def es_memoria_claude(ruta: Path) -> bool:
+	"""Si ``ruta`` es una nota de la memoria automática de Claude Code (``projects/<carpeta>/memory/*.md``)."""
+	ruta = Path(ruta)
+	try:
+		proyectos = (raiz_claude() / "projects").resolve()
+		padre = ruta.parent.resolve()
+	except OSError:
+		return False
+	return (ruta.suffix.lower() == ".md" and padre.name == "memory" and padre.parent.parent == proyectos)
+
+
+def anadir_memoria_claude(carpeta_proyecto: Path, titulo: str, descripcion: str, tipo: str, texto: str) -> Path:
+	"""Añade una nota a la memoria de Claude Code de ``carpeta_proyecto`` y la apunta en su ``MEMORY.md``.
+
+	Como lo hace el propio Claude Code: ``<nombre>.md`` con cabecera ``name``, ``description`` y
+	``metadata.type``, y una línea ``- [título](nombre.md) — descripción`` en el índice. Nunca sustituye una
+	nota que ya exista (``FileExistsError``). ``ValueError`` si falta algo.
+	"""
+	nombre = nombre_seguro(titulo)
+	descripcion = _una_linea(descripcion)
+	texto = (texto or "").strip()
+	if not nombre:
+		raise ValueError("Escribe un nombre para la memoria (con alguna letra o número).")
+	if not descripcion or not texto:
+		raise ValueError("La memoria necesita una descripción y un texto.")
+	if tipo not in TIPOS_MEMORIA:
+		raise ValueError("Tipo de memoria desconocido.")
+	if nombre == "memory":
+		raise ValueError("Ese nombre lo usa el índice de la memoria: elige otro.")
+	carpeta = carpeta_memoria_claude(Path(carpeta_proyecto))
+	carpeta.mkdir(parents=True, exist_ok=True)
+	ruta = carpeta / f"{nombre}.md"
+	marca = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + ".000Z"
+	contenido = (
+		f"---\nname: {nombre}\ndescription: {json.dumps(descripcion, ensure_ascii=False)}\n"
+		f"metadata:\n  node_type: memory\n  type: {tipo}\n  modified: {marca}\n---\n\n{texto}\n"
+	)
+	with ruta.open("x", encoding="utf-8", newline="\n") as salida:
+		salida.write(contenido)
+	indice = carpeta / "MEMORY.md"
+	linea = f"- [{_una_linea(titulo).replace(']', ')')}]({nombre}.md) — {descripcion}\n"
+	try:
+		anterior = indice.read_bytes().decode("utf-8-sig") if indice.is_file() else ""
+		nuevo = (anterior.rstrip("\r\n") + "\n" if anterior.strip() else "") + linea
+		escribir_atomico(indice, nuevo.encode("utf-8"))
+	except (OSError, UnicodeDecodeError):
+		log.warning("No se pudo apuntar la memoria %s en MEMORY.md", nombre, exc_info=True)
+		raise ErrorMemoria("La memoria se ha creado, pero no se pudo apuntar en MEMORY.md.") from None
+	log.info("Memoria de Claude Code añadida: %s", ruta)
+	return ruta
+
+
+def borrar_memoria_claude(ruta: Path, carpeta_copias: Path) -> Path | None:
+	"""Borra una nota de la memoria de Claude Code y quita su línea de ``MEMORY.md``. Devuelve la copia hecha antes.
+
+	Solo notas de la memoria automática (nunca el propio ``MEMORY.md``): ``ValueError`` si no lo es. Antes de
+	borrar, copia la nota (y el índice) a ``carpeta_copias``.
+	"""
+	ruta = Path(ruta)
+	if not es_memoria_claude(ruta) or ruta.name.upper() == "MEMORY.MD":
+		raise ValueError("Solo se pueden borrar desde aquí las notas de la memoria automática de Claude Code.")
+	copia = copia_de_seguridad(ruta, carpeta_copias)
+	indice = ruta.parent / "MEMORY.md"
+	try:
+		ruta.unlink()
+	except FileNotFoundError:
+		log.debug("La memoria %s ya no estaba", ruta)
+	except OSError as error:
+		raise ErrorMemoria(f"No se pudo borrar {ruta.name}: {error.strerror or error}") from error
+	if indice.is_file():
+		try:
+			texto = indice.read_bytes().decode("utf-8-sig")
+		except (OSError, UnicodeDecodeError):
+			log.warning("No se pudo leer %s para quitar la nota", indice, exc_info=True)
+			return copia
+		lineas = texto.splitlines(keepends=True)
+		quedan = [linea for linea in lineas if f"({ruta.name})" not in linea and f"(./{ruta.name})" not in linea]
+		if quedan != lineas:
+			copia_de_seguridad(indice, carpeta_copias)
+			try:
+				escribir_atomico(indice, "".join(quedan).encode("utf-8"))
+			except OSError as error:
+				raise ErrorMemoria(f"La nota se ha borrado, pero no se pudo quitar de MEMORY.md: {error.strerror or error}") from error
+	log.info("Memoria de Claude Code borrada: %s", ruta)
+	return copia
+
+
+# --------------------------------------------------------------------------
+# Subagentes personalizados de Claude Code y de Codex
+# --------------------------------------------------------------------------
+
+_RE_NOMBRE_AGENTE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+
+
+def comprobar_nombre_subagente(nombre: str) -> str:
+	"""El nombre si vale (minúsculas, dígitos y guiones, sin nombres reservados de Windows); si no, ``ValueError``."""
+	nombre = (nombre or "").strip()
+	if not _RE_NOMBRE_AGENTE.match(nombre) or nombre in _RESERVADOS_WINDOWS:
+		raise ValueError("El nombre solo puede tener letras minúsculas sin tildes, números y guiones, y empezar por "
+			"una letra o un número (por ejemplo, revisor-de-codigo).")
+	return nombre
+
+
+def ruta_subagente(agente: str, nombre: str) -> Path:
+	"""Dónde se crea el subagente: ``~/.claude/agents/<nombre>.md`` o ``~/.codex/agents/<nombre>.toml``."""
+	if agente == CLAUDE:
+		return raiz_claude() / "agents" / f"{nombre}.md"
+	if agente == CODEX:
+		return raiz_codex() / "agents" / f"{nombre}.toml"
+	raise ValueError("Solo se pueden crear subagentes de Claude Code y de Codex.")
+
+
+def crear_subagente(agente: str, nombre: str, descripcion: str, instrucciones: str, herramientas: str = "") -> Path:
+	"""Crea un subagente personalizado global. Nunca sustituye uno que exista (``FileExistsError``).
+
+	- Claude Code: ``~/.claude/agents/<nombre>.md`` con cabecera ``name``, ``description`` y, si se dan,
+	  ``tools`` (separadas por comas), y las instrucciones debajo.
+	- Codex: ``~/.codex/agents/<nombre>.toml`` con ``name``, ``description`` y ``developer_instructions``
+	  (obligatoria: sin ella Codex lo descarta con un aviso).
+	"""
+	nombre = comprobar_nombre_subagente(nombre)
+	descripcion = _una_linea(descripcion)
+	instrucciones = (instrucciones or "").strip()
+	if not descripcion or not instrucciones:
+		raise ValueError("El subagente necesita una descripción y unas instrucciones.")
+	ruta = ruta_subagente(agente, nombre)
+	if agente == CLAUDE:
+		lista = ", ".join(h for h in (parte.strip() for parte in (herramientas or "").replace("\n", ",").split(",")) if h)
+		if any(caracter in lista for caracter in "\"'#:{}[]"):
+			raise ValueError("Las herramientas se escriben separadas por comas, como Read, Grep, Bash.")
+		cabecera = f"---\nname: {nombre}\ndescription: {json.dumps(descripcion, ensure_ascii=False)}\n"
+		if lista:
+			cabecera += f"tools: {lista}\n"
+		contenido = cabecera + f"---\n\n{instrucciones}\n"
+	else:
+		# Cadenas de JSON: son también cadenas básicas válidas de TOML.
+		contenido = (
+			f"name = {json.dumps(nombre)}\n"
+			f"description = {json.dumps(descripcion, ensure_ascii=False)}\n"
+			f"developer_instructions = {json.dumps(instrucciones, ensure_ascii=False)}\n"
+		)
+	ruta.parent.mkdir(parents=True, exist_ok=True)
+	with ruta.open("x", encoding="utf-8", newline="\n") as salida:
+		salida.write(contenido)
+	log.info("Subagente creado: %s", ruta)
 	return ruta

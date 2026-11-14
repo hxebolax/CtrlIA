@@ -499,7 +499,7 @@ def test_historial(entorno):
 	assert [m["rol"] for m in mensajes] == ["usuario", "herramienta", "asistente"]
 	assert mensajes[0]["texto"] == "Hola\n[Imagen: C:\\i.png]" and mensajes[0]["fecha"] == 10
 	assert mensajes[1]["texto"].startswith("Ejecutar: dir")
-	assert mensajes[2] == {"rol": "asistente", "texto": "Adiós", "fecha": 20}
+	assert mensajes[2] == {"rol": "asistente", "texto": "Adiós", "fecha": 20, "ancla": "t1:a1"}
 
 
 def test_detectar(entorno):

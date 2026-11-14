@@ -211,7 +211,8 @@ def test_el_gestor_guarda_la_decision_con_su_aviso_y_el_en_curso_no(tmp_path):
 	assert gestor.revisiones_automaticas("ctrlia:otra") == []
 
 
-def test_la_ventana_anuncia_cada_decision_aunque_sea_de_otra_sesion(monkeypatch):
+def test_la_ventana_dice_solo_lo_no_permitido_aunque_sea_de_otra_sesion(monkeypatch):
+	"""AIChat #564: lo permitido es rutina (solo con «Mostrar las herramientas» y anunciar acciones); lo demás, una vez."""
 	from types import SimpleNamespace
 
 	from app.ui import avisos
@@ -221,10 +222,16 @@ def test_la_ventana_anuncia_cada_decision_aunque_sea_de_otra_sesion(monkeypatch)
 	monkeypatch.setattr(avisos, "anunciar", lambda texto, *a, **k: dichos.append(("voz", texto)))
 	monkeypatch.setattr(avisos, "notificar", lambda texto, *a, **k: dichos.append(("notificacion", texto)))
 	monkeypatch.setattr(avisos, "sonar", lambda *a, **k: None)
-	ventana = SimpleNamespace(_prefijo=lambda clave, fila: "En «Otra»: ")
+	monkeypatch.setattr(avisos, "notificacion_sistema", lambda *a, **k: None)
+	opciones = {"mensajes.herramientas": True, "anuncios.herramientas": False}
+	ventana = SimpleNamespace(_prefijo=lambda clave, fila: "En «Otra»: ", opcion=lambda c, d=None: opciones.get(c, d),
+		_debe_anunciar=lambda clave: True, _llevar_a=lambda clave: None)
 	MixinConversacion._decision_revision(ventana, "c", None, "Permitido.", {"estado": "approved"})  # noqa: SLF001
 	MixinConversacion._decision_revision(ventana, "c", None, "Denegado.", {"estado": "denied"})  # noqa: SLF001
-	assert dichos == [("voz", "En «Otra»: Permitido."), ("notificacion", "En «Otra»: Denegado.")]
+	assert dichos == [("voz", "En «Otra»: Denegado.")]
+	opciones["anuncios.herramientas"] = True
+	MixinConversacion._decision_revision(ventana, "c", None, "Permitido.", {"estado": "approved"})  # noqa: SLF001
+	assert dichos[-1] == ("voz", "En «Otra»: Permitido.")
 
 
 def test_el_texto_de_las_decisiones_para_el_dialogo():

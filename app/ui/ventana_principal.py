@@ -31,6 +31,7 @@ import wx
 from app.core import tareas
 from app.core.configuracion import Configuracion
 from app.core.instancia_unica import ORDEN_ABRIR, ORDEN_MOSTRAR, InstanciaUnica, traer_al_frente
+from app.core.teclas import Accion, MapaTeclas, comandos_de_menus, etiqueta_con_tecla, nombre_de_etiqueta, tecla_de_etiqueta
 from app.core.version import APP_VERSION, NOMBRE_APLICACION
 from app.services.almacen import Almacen
 from app.services.gestor import GestorSesiones
@@ -40,6 +41,7 @@ from app.ui.accesibilidad.ayuda import describir_control_enfocado, habilitar_ayu
 from app.ui.accesibilidad.dialogos import mostrar_error, mostrar_mensaje
 from app.ui.bandeja import IconoBandeja
 from app.ui.comun import _
+from app.ui.vp_avanzado import MixinAvanzado
 from app.ui.vp_conversacion import MixinConversacion
 from app.ui.vp_copias import INTERVALO_COPIAS_MS, MixinCopias
 from app.ui.vp_disposicion import MixinDisposicion
@@ -64,6 +66,8 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("nueva", _("&Nueva sesión...\tCtrl+N"), _("Empieza una conversación nueva con un agente en una carpeta."), "accion_nueva_sesion"),
 		("continuar", _("&Continuar aquí...\tCtrl+Shift+N"), _("Crea una copia de la sesión elegida en Ctrl+IA para seguir conversando."), "accion_continuar_aqui"),
 		("nueva_desde_mensaje", _("Nueva sesión a partir del mensa&je...\tCtrl+Alt+N"), _("Empieza otra sesión con el mensaje elegido (o lo que hayas seleccionado de él) como punto de partida, para explorar esa idea aparte."), "accion_nueva_desde_mensaje"),
+		("bifurcar", _("Bifurcar desde el mensaje..."), _("Empieza una sesión nueva que recuerda la conversación solo hasta el mensaje elegido, incluido. La original no cambia (Claude Code y Codex)."), "accion_bifurcar_desde_mensaje"),
+		("reintentar", _("Reintentar desde tu mensaje..."), _("Empieza una sesión nueva que recuerda la conversación hasta justo antes de tu mensaje elegido, y te lo deja en el cuadro de respuesta para cambiarlo y enviarlo. La original no cambia (Claude Code y Codex)."), "accion_reintentar_desde_mensaje"),
 		("clonar", _("Clonar un repositorio de &GitHub..."), _("Descarga un repositorio de GitHub y empieza una sesión en él."), "accion_clonar_github"),
 		("-",),
 		("exportar", _("&Exportar la sesión...\tCtrl+E"), _("Guarda la conversación en Markdown, HTML o texto."), "accion_exportar"),
@@ -83,6 +87,9 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("anadir_turno", _("Añadir al tur&no en marcha\tCtrl+Alt+Enter"), _("Mete tu mensaje en lo que está haciendo el agente sin detenerlo (Codex y Claude Code). Si no le llega, vuelve al cuadro de respuesta; si no confirma que lo tiene, se queda en la lista marcado «Sin confirmar» y nunca se reenvía solo."), "accion_anadir_al_turno"),
 		("detener", _("&Detener\tCtrl+."), _("Detiene lo que esté haciendo el agente. Los mensajes en cola vuelven al cuadro de respuesta."), "accion_detener"),
 		("responder", _("&Responder al agente...\tCtrl+Shift+A"), _("Abre la petición de permiso o la pregunta pendiente del agente."), "accion_responder"),
+		("actividad", _("Actividad en segundo plano...\tCtrl+Alt+A"), _("Los subagentes y las órdenes que trabajan junto a la conversación, en vivo: qué hace cada uno, sus pasos y su resultado. Desde ahí puedes detener uno."), "accion_actividad"),
+		("preguntar_aparte", _("Preguntar aparte...\tCtrl+Alt+S"), _("Una pregunta rápida sobre la sesión que no se añade a ella, incluso mientras el agente trabaja (Claude Code y Codex)."), "accion_preguntar_aparte"),
+		("compactar", _("Compactar la conversación\tCtrl+Alt+K"), _("Pide al agente que resuma la conversación para liberar contexto (Claude Code y Codex)."), "accion_compactar"),
 		("-",),
 		("comando", _("Insertar un &comando o habilidad...\tCtrl+/"), _("Elige un comando de barra del agente (como /compact) para insertarlo."), "accion_comando"),
 		("adjuntar", _("Ad&juntar archivos...\tCtrl+Shift+F"), _("Adjunta archivos o imágenes al próximo mensaje."), "accion_adjuntar"),
@@ -106,6 +113,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("submenu", _("PR y co&mprobaciones"), "crear_menu_pr"),
 		("herramientas_agente", _("&Herramientas del agente...\tCtrl+Alt+H"), _("Los servidores MCP y conectores, complementos, habilidades y herramientas que tiene cargados el agente en esta sesión, con su estado."), "accion_herramientas_agente"),
 		("servidores_mcp", _("Servidores MCP de la sesión...\tCtrl+Alt+M"), _("El estado de ahora de los servidores MCP y conectores de Claude Code en esta sesión y por qué falla cada uno: reconectarlos, activarlos o desactivarlos e iniciar sesión en ellos."), "accion_servidores_mcp"),
+		("control_remoto", _("Seguir en claude.ai (control remoto)..."), _("Activa o quita el control remoto de Claude Code: la sesión se puede seguir y continuar también desde claude.ai o la app del móvil."), "accion_control_remoto"),
 		("memoria",_("Lo que el agente sabe de t&i...\tCtrl+Shift+K"), _("Instrucciones y memoria que lee el agente: CLAUDE.md, AGENTS.md, GEMINI.md..."), "accion_memoria"),
 	]),
 	(_("&Ver"), [
@@ -115,6 +123,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("leer_estado", _("Leer la &barra de estado\tAlt+4"), _("Dice el estado de la sesión, el agente y el uso de contexto."), "leer_barra_estado"),
 		("ir_visor", _("Volver al visor del mensaje\tAlt+6"), _("Vuelve al visor del último mensaje que abriste, si sigue abierto: para leerlo mientras escribes tu respuesta."), "accion_ir_al_visor"),
 		("submenu", _("Distrib&ución de la ventana"), "crear_menu_disposicion"),
+		("submenu", _("Vista de los mensajes"), "crear_menu_vistas_mensajes"),
 		("-",),
 		("submenu", _("M&ostrar"), "crear_menu_vistas"),
 		("submenu", _("Or&denar por"), "crear_menu_orden"),
@@ -123,6 +132,11 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("siguiente", _("Buscar si&guiente\tF3"), _("Siguiente mensaje que contiene el texto buscado."), "accion_buscar_siguiente"),
 		("anterior", _("Buscar a&nterior\tShift+F3"), _("Mensaje anterior que contiene el texto buscado."), "accion_buscar_anterior"),
 		("buscar_todo", _("Buscar en &todas las sesiones...\tCtrl+Shift+S"), _("Busca un texto en los mensajes de todas las sesiones."), "accion_buscar_todo"),
+		("leer_conversacion", _("Leer la conversación entera como una página\tCtrl+Alt+L"), _("Abre toda la conversación en una página: cada mensaje es un encabezado, para saltar de uno a otro."), "accion_leer_conversacion"),
+		("respuesta_siguiente", _("Ir a la respuesta siguiente del agente\tF12"), _("Lleva el foco a la siguiente respuesta del agente en la lista de mensajes."), "accion_respuesta_siguiente"),
+		("respuesta_anterior", _("Ir a la respuesta anterior del agente\tShift+F12"), _("Lleva el foco a la respuesta anterior del agente en la lista de mensajes."), "accion_respuesta_anterior"),
+		("leer_ultima", _("Leer la última respuesta\tCtrl+Alt+U"), _("Lee la última respuesta del agente sin moverte de donde estás."), "accion_leer_ultima_respuesta"),
+		("copiar_ultima", _("Copiar la última respuesta\tCtrl+Alt+C"), _("Copia al portapapeles la última respuesta del agente."), "accion_copiar_ultima_respuesta"),
 		("cargar_anteriores", _("Cargar mensa&jes anteriores\tAlt+Home"), _("En una sesión larga, pone en la lista el siguiente grupo de mensajes más antiguos sin mover el foco."), "accion_cargar_anteriores"),
 		("cargar_todos", _("Cargar todos los mensajes de la sesión"), _("Pone en la lista toda la conversación de la sesión abierta."), "accion_cargar_todos"),
 		("favorito_mensaje", _("Marcar el mensaje como favorito o quitarlo\tCtrl+Alt+F"), _("Marca el mensaje elegido como favorito para volver a él enseguida (Alt+flecha arriba y Alt+flecha abajo en la lista de mensajes) o, si ya lo era, lo quita."), "accion_favorito_mensaje"),
@@ -170,6 +184,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("submenu", _("Copias de seg&uridad"), "crear_menu_copias"),
 		("-",),
 		("preferencias", _("&Preferencias...\tCtrl+,"), _("Configura Ctrl+IA."), "accion_preferencias"),
+		("atajos_teclado", _("Atajos de tec&lado..."), _("Elige tus propias teclas para cualquier acción de los menús: cámbialas, quítalas o vuelve a las de fábrica. Valen al momento."), "accion_atajos_teclado"),
 		("sonidos", _("S&onidos..."), _("Prueba cada sonido, actívalo o desactívalo y abre la carpeta de tus sonidos propios."), "accion_sonidos"),
 		("sonidos_activos", _("Sonidos acti&vados\tF9"), _("Activa o desactiva todos los sonidos de Ctrl+IA."), "accion_alternar_sonidos"),
 		("datos", _("Abrir la carpeta de &datos"), _("Carpeta donde Ctrl+IA guarda tu configuración y tus sesiones."), "accion_carpeta_datos"),
@@ -179,6 +194,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 	(_("Ay&uda"), [
 		("manual", _("&Manual de usuario\tF1"), _("Abre el manual completo de Ctrl+IA."), "accion_manual"),
 		("teclas", _("&Lista de teclas\tCtrl+F1"), _("Todos los atajos de teclado de Ctrl+IA."), "accion_teclas"),
+		("buscar_accion", _("Busca&r una acción...\tCtrl+Shift+F10"), _("Escribe parte del nombre de cualquier acción del programa, o su tecla, y ejecútala con Intro."), "accion_buscar_accion"),
 		("novedades", _("&Novedades de la versión"), _("Qué ha cambiado en esta versión."), "accion_novedades"),
 		("ayuda_control", _("Ayuda del control &enfocado\tCtrl+H"), _("Explica para qué sirve el control donde está el foco."), "accion_ayuda_control"),
 		("-",),
@@ -190,7 +206,8 @@ MENUS: list[tuple[str, list[tuple]]] = [
 ]
 
 
-class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConversacion, MixinPR, MixinCopias, wx.Frame):
+class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConversacion, MixinAvanzado, MixinPR, MixinCopias,
+		wx.Frame):
 	"""Ventana principal: sesiones, mensajes y respuesta."""
 
 	def __init__(self, configuracion: Configuracion, instancia: InstanciaUnica | None = None,
@@ -264,6 +281,8 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 	def _crear_menus(self) -> None:
 		barra = wx.MenuBar()
 		self._elementos_menu: dict[str, wx.MenuItem] = {}
+		#: Etiqueta de fábrica de cada orden (con su tecla tras el tabulador).
+		self._etiquetas_menu: dict[str, str] = {}
 		for titulo, elementos in MENUS:
 			menu = wx.Menu()
 			for elemento in elementos:
@@ -276,12 +295,131 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 					tipo = wx.ITEM_CHECK if clave in ("herramientas", "silenciar", "favorita", "sonidos_activos") else wx.ITEM_NORMAL
 					item = menu.Append(wx.ID_ANY, etiqueta, ayuda, tipo)
 					self._elementos_menu[clave] = item
+					self._etiquetas_menu[clave] = etiqueta
 					self.Bind(wx.EVT_MENU, lambda _e, m=metodo: self._ejecutar_accion(m), item)
 			barra.Append(menu, titulo)
 		self.SetMenuBar(barra)
 		self._elementos_menu["herramientas"].Check(bool(self.opcion("mensajes.herramientas", True)))
 		self._elementos_menu["sonidos_activos"].Check(bool(self.opcion("anuncios.sonidos", True)))
 		self.sincronizar_menu_disposicion()
+		self._preparar_teclas()
+
+	# ------------------------------------------------------------------
+	# Atajos de teclado propios y «Buscar una acción»
+	# ------------------------------------------------------------------
+
+	def _elementos_de_menu(self) -> list[tuple[wx.MenuItem, str]]:
+		"""Todos los elementos de la barra de menús (también los de los submenús), con su menú («Ver, Mostrar»)."""
+		elementos: list[tuple[wx.MenuItem, str]] = []
+
+		def recorrer(menu: wx.Menu, ruta: str) -> None:
+			for item in menu.GetMenuItems():
+				if item.IsSeparator():
+					continue
+				submenu = item.GetSubMenu()
+				if submenu is not None:
+					recorrer(submenu, f"{ruta}, {nombre_de_etiqueta(item.GetItemLabel())}")
+				else:
+					elementos.append((item, ruta))
+
+		barra = self.GetMenuBar()
+		for indice in range(barra.GetMenuCount()):
+			recorrer(barra.GetMenu(indice), nombre_de_etiqueta(barra.GetMenuLabel(indice)))
+		return elementos
+
+	def _preparar_teclas(self) -> None:
+		"""Lee ``teclas.json`` y pone en los menús las teclas de la persona (al arrancar)."""
+		propios = {item.GetId() for item in self._elementos_menu.values()}
+		# Las teclas de los submenús no se pueden cambiar (no tienen clave estable): nadie más puede cogerlas.
+		ocupadas = {}
+		for item, _ruta in self._elementos_de_menu():
+			tecla = tecla_de_etiqueta(item.GetItemLabel())
+			if tecla and item.GetId() not in propios:
+				ocupadas[tecla] = nombre_de_etiqueta(item.GetItemLabel())
+		self.mapa_teclas = MapaTeclas(comandos_de_menus(MENUS), ocupadas=ocupadas)
+		if self.mapa_teclas.aviso:
+			aviso = self.mapa_teclas.aviso
+			wx.CallLater(2000, lambda: self and avisos.notificar(aviso, _("Atajos de teclado"), self))
+		self.aplicar_teclas()
+
+	def aplicar_teclas(self) -> None:
+		"""Pone en el texto de cada menú su tecla de ahora: wx actualiza con él el acelerador, sin reiniciar."""
+		for clave, item in self._elementos_menu.items():
+			if not self.mapa_teclas.es_personalizable(clave):
+				continue
+			etiqueta = self._etiquetas_menu[clave]
+			if self.mapa_teclas.cambiada(clave):
+				etiqueta = etiqueta_con_tecla(etiqueta, self.mapa_teclas.tecla(clave))
+			if item.GetItemLabel() != etiqueta:
+				item.SetItemLabel(etiqueta)
+
+	def accion_atajos_teclado(self) -> None:
+		"""Herramientas, «Atajos de teclado...»."""
+		from app.ui.dialogos.atajos import DialogoAtajos
+
+		dialogo = DialogoAtajos(self, self.mapa_teclas, self.aplicar_teclas)
+		try:
+			dialogo.ShowModal()
+		finally:
+			dialogo.Destroy()
+
+	def acciones_para_buscar(self) -> tuple[list[Accion], dict[str, Callable[[], None]]]:
+		"""Las acciones de todos los menús y submenús para «Buscar una acción», y cómo ejecutar cada una.
+
+		Las de ``MENUS`` se ejecutan con ``_ejecutar_accion``; las de los submenús, con
+		la misma orden de menú que al elegirlas (sus manejadores ya pasan por él).
+		"""
+		if hasattr(self, "_rellenar_menu_vistas"):
+			self._rellenar_menu_vistas()  # los grupos de Ver, Mostrar, al día
+		metodos = {e[0]: e[3] for _t, elementos in MENUS for e in elementos if e[0] not in ("-", "submenu")}
+		claves = {item.GetId(): clave for clave, item in self._elementos_menu.items()}
+		acciones: list[Accion] = []
+		ejecutores: dict[str, Callable[[], None]] = {}
+		for orden, (item, ruta) in enumerate(self._elementos_de_menu()):
+			clave = claves.get(item.GetId())
+			if clave == "buscar_accion":
+				continue
+			marcable = item.GetKind() in (wx.ITEM_CHECK, wx.ITEM_RADIO)
+			if clave is not None:
+				identificador = clave
+				tecla = self.mapa_teclas.tecla(clave)
+				ejecutores[clave] = lambda m=metodos[clave]: self._ejecutar_accion(m)
+			else:
+				identificador = f"menu:{ruta}/{item.GetItemLabelText()}"
+				tecla = tecla_de_etiqueta(item.GetItemLabel())
+				ejecutores[identificador] = lambda i=item.GetId(): self._ejecutar_elemento_menu(i)
+			acciones.append(Accion(identificador, nombre_de_etiqueta(item.GetItemLabel()), tecla, ruta, item.GetHelp(),
+				item.IsEnabled(), item.IsChecked() if marcable else None, orden))
+		return acciones, ejecutores
+
+	def _ejecutar_elemento_menu(self, identificador: int) -> None:
+		"""Elige un elemento de un submenú como si se hubiera pulsado en el menú."""
+		item = self.GetMenuBar().FindItemById(identificador)
+		if item is None:
+			return
+		if item.GetKind() == wx.ITEM_RADIO:
+			item.Check(True)
+		evento = wx.CommandEvent(wx.wxEVT_MENU, identificador)
+		evento.SetEventObject(self)
+		evento.SetInt(int(item.IsChecked()))
+		self.GetEventHandler().ProcessEvent(evento)
+
+	def accion_buscar_accion(self) -> None:
+		"""Ayuda, «Buscar una acción...» (Ctrl+Mayús+F10): la elegida se ejecuta después de cerrar el cuadro."""
+		from app.ui.dialogos.buscar_accion import DialogoBuscarAccion
+
+		acciones, ejecutores = self.acciones_para_buscar()
+		dialogo = DialogoBuscarAccion(self, acciones, self.mapa_teclas.recientes)
+		try:
+			elegida = dialogo.resultado if dialogo.ShowModal() == wx.ID_OK else None
+		finally:
+			dialogo.Destroy()
+		if elegida is None:
+			return
+		self.mapa_teclas.anotar_reciente(elegida.id)
+		if not self.mapa_teclas.guardar():
+			log.warning("No se pudieron guardar las acciones recientes: %s", self.mapa_teclas.aviso)
+		wx.CallAfter(ejecutores[elegida.id])
 
 	def _ejecutar_accion(self, metodo: str) -> None:
 		"""Ejecuta una acción de menú; un fallo se registra y se explica, nunca cierra la ventana."""
@@ -329,6 +467,11 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		# atajo: Mayús+F6 zona anterior
 		tecla, mods = evento.GetKeyCode(), evento.GetModifiers()
 		foco = wx.Window.FindFocus()
+		if tecla == wx.WXK_CONTROL:
+			# Como con un lector de pantalla: Control calla la voz de Windows de Ctrl+IA (FastChat).
+			voz.callar()
+			evento.Skip()
+			return
 		if tecla == wx.WXK_F6 and mods in (wx.MOD_NONE, wx.MOD_SHIFT):
 			# Solo las zonas visibles: la lista de sesiones oculta y el panel de lectura apagado se saltan.
 			zonas = self.zonas()
@@ -460,6 +603,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		self._temporizador_lista.Start(INTERVALO_LISTA_MS)
 		self._temporizador_buzon.Start(INTERVALO_BUZON_MS)
 		self._temporizador_copias.Start(INTERVALO_COPIAS_MS)
+		self._temporizador_trabajando.Start(1000)
 		self.iniciar_vigilancia_pr()
 		wx.CallLater(800, self.al_mostrar_por_primera_vez)
 
@@ -558,6 +702,14 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		if evento.CanVeto() and not self._salir_sin_preguntar:
 			from app.ui.accesibilidad.dialogos import confirmar
 
+			if self.respuesta.GetValue().strip() and self.opcion("general.avisar_texto_sin_enviar", True):
+				# BlindPilot: lo escrito y no enviado se perdería al cerrar.
+				if confirmar(self, _("Tienes un mensaje escrito sin enviar en el cuadro de respuesta. Si sales, se perderá. "
+						"¿Salir de todas formas?"), _("Salir de Ctrl+IA"), peligroso=True) != wx.ID_YES:
+					evento.Veto()
+					self.ir_a_respuesta()
+					return
+				self._forzar_salida = True  # ya se ha preguntado: no se pregunta dos veces
 			if ocupadas:
 				texto = _("Hay {n} sesiones con el agente trabajando. Si sales, se detendrán. ¿Salir de todas formas?").format(n=len(ocupadas))
 				if confirmar(self, texto, _("Salir de Ctrl+IA"), peligroso=True) != wx.ID_YES:
@@ -569,7 +721,8 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 					return
 		self._saliendo = True
 		for temporizador in (self._temporizador_lista, self._temporizador_seguimiento, self._temporizador_buzon,
-				self._temporizador_copias, self._temporizador_lectura, self._temporizador_palabras):
+				self._temporizador_copias, self._temporizador_lectura, self._temporizador_palabras,
+				self._temporizador_trabajando, self._temporizador_dictado):
 			temporizador.Stop()
 		self.poner_opcion("general.ultima_sesion", self.sesion_actual or "")
 		self._guardar_geometria()
@@ -761,7 +914,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 	def accion_teclas(self) -> None:
 		from app.ui.visor_ayuda import abrir_teclas
 
-		abrir_teclas(self)
+		abrir_teclas(self, cambiadas=self.mapa_teclas.lineas_cambiadas())
 
 	def accion_novedades(self) -> None:
 		from app.ui.visor_ayuda import abrir_novedades

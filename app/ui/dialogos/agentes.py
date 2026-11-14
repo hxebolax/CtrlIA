@@ -1,9 +1,15 @@
 """«Agentes instalados»: qué agentes hay en el equipo y cómo instalarlos.
 
-Una fila por agente con su estado (instalado o no), versión, sesión y un
-detalle. La comprobación puede tardar varios segundos (cada agente ejecuta
+Una fila por agente con su estado (instalado o no), versión, versión
+disponible, sesión y un detalle. La comprobación puede tardar varios segundos (cada agente ejecuta
 ``--version``), así que se hace en un hilo de fondo, agente por agente, y la
 lista se va rellenando; al terminar se anuncia «Comprobación terminada».
+
+La versión disponible (solo de los instalados con npm: Claude Code y
+Antigravity CLI no dejan consultarla sin instalarla) se pide después, también
+en segundo plano y con 5 minutos de caché (``services/agentes/actualizacion``).
+«Actualizar» abre la orden en una consola, nunca con una sesión de ese agente
+trabajando.
 
 Debajo, un campo de solo lectura con la descripción del agente seleccionado,
 cómo instalarlo y su página oficial.
@@ -24,7 +30,7 @@ from typing import Any
 
 import wx
 
-from app.services.agentes import antigravity, procesos
+from app.services.agentes import actualizacion, antigravity, procesos
 from app.services.agentes.base import EstadoProveedor
 from app.ui.accesibilidad import voz
 from app.ui.accesibilidad.dialogos import confirmar, mostrar_error, mostrar_mensaje, preparar_dialogo
@@ -38,7 +44,7 @@ log = logging.getLogger(__name__)
 URL_ANTIGRAVITY = "https://antigravity.google"
 
 # Columnas de la lista.
-COL_AGENTE, COL_ESTADO, COL_VERSION, COL_SESION, COL_DETALLE = range(5)
+COL_AGENTE, COL_ESTADO, COL_VERSION, COL_DISPONIBLE, COL_SESION, COL_DETALLE = range(6)
 
 
 def texto_estado(estado: EstadoProveedor | None, comprobando: bool = False) -> str:
@@ -88,19 +94,24 @@ class DialogoAgentes(wx.Dialog):
 		self._generacion = 0
 		#: Agente del que se dice cómo está su sesión al acabar la comprobación (tras cerrar su consola).
 		self._anunciar_sesion: str | None = None
+		#: Versión disponible de cada agente instalado con npm (``None``: consultándose).
+		self.disponibles: dict[str, actualizacion.VersionDisponible | None] = {}
+		self.comprobador = getattr(gestor, "comprobador_versiones", None) or actualizacion.COMPROBADOR
 
 		panel = wx.Panel(self)
 		raiz = wx.BoxSizer(wx.VERTICAL)
 		etiqueta = wx.StaticText(panel, label=_("&Agentes:"))
 		self.lista = ListaAccesible(
 			panel, _("Agentes"),
-			columnas=[(_("Agente"), 200), (_("Estado"), 120), (_("Versión"), 140), (_("Sesión"), 130), (_("Detalle"), 380)],
+			columnas=[(_("Agente"), 200), (_("Estado"), 120), (_("Versión"), 140), (_("Versión disponible"), 160),
+				(_("Sesión"), 130), (_("Detalle"), 380)],
 		)
 		self.lista.SetHelpText(_(
 			"Agentes de programación que Ctrl+IA sabe usar y si están instalados en este equipo. Arriba y abajo "
-			"cambian de agente; izquierda y derecha leen las columnas. Intro o la tecla Aplicaciones abren las "
-			"acciones del agente: instalar, iniciar sesión, página oficial y, para Antigravity, sus reglas de "
-			"permisos y el IDE o la app. F5 vuelve a comprobar."
+			"cambian de agente; izquierda y derecha leen las columnas, entre ellas la versión disponible de los "
+			"instalados con npm. Intro o la tecla Aplicaciones abren las acciones del agente: instalar, actualizar, "
+			"iniciar sesión, página oficial y, para Antigravity, sus reglas de permisos y el IDE o la app. F5 "
+			"vuelve a comprobar."
 		))
 		self.lista.SetMinSize(self.FromDIP(wx.Size(760, 200)))
 		raiz.Add(etiqueta, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
@@ -128,8 +139,8 @@ class DialogoAgentes(wx.Dialog):
 		self.boton_comprobar.SetHelpText(_("Vuelve a buscar todos los agentes en el equipo, por ejemplo después de instalar uno."))
 		self.boton_mas = wx.Button(panel, label=_("Más acci&ones…"))
 		self.boton_mas.SetHelpText(_(
-			"Abre el menú con todas las acciones del agente seleccionado: página oficial y, para Antigravity, "
-			"reglas de permisos y abrir el IDE o la app. Es el mismo menú de la tecla Aplicaciones."
+			"Abre el menú con todas las acciones del agente seleccionado: actualizar, página oficial y, para "
+			"Antigravity, reglas de permisos y abrir el IDE o la app. Es el mismo menú de la tecla Aplicaciones."
 		))
 		self.boton_cerrar = wx.Button(panel, wx.ID_CANCEL, _("&Cerrar"))
 		self.boton_cerrar.SetHelpText(_("Cierra esta ventana. También con Escape."))
@@ -175,14 +186,88 @@ class DialogoAgentes(wx.Dialog):
 		comprobando = identificador in self.pendientes
 		estado = self.estados.get(identificador)
 		if comprobando:
-			return [self.nombre(identificador), texto_estado(None, True), "", "", ""]
+			return [self.nombre(identificador), texto_estado(None, True), "", "", "", ""]
 		if identificador not in self.estados:
-			return [self.nombre(identificador), _("Sin comprobar"), "", "", _("Pulsa F5 para comprobarlo.")]
+			return [self.nombre(identificador), _("Sin comprobar"), "", "", "", _("Pulsa F5 para comprobarlo.")]
 		if estado is None:
 			detalle = _("Hubo un error al buscar este agente. Puedes volver a intentarlo con F5.")
-			return [self.nombre(identificador), texto_estado(None), "", texto_sesion(None), detalle]
+			return [self.nombre(identificador), texto_estado(None), "", "", texto_sesion(None), detalle]
 		version = estado.version or (_("Desconocida") if estado.disponible else "")
-		return [self.nombre(identificador), texto_estado(estado), version, texto_sesion(estado), estado.mensaje]
+		return [self.nombre(identificador), texto_estado(estado), version, self.texto_disponible(identificador),
+			texto_sesion(estado), estado.mensaje]
+
+	# -- Versión disponible ------------------------------------------------------
+
+	def forma_actualizar(self, identificador: str | None) -> actualizacion.FormaActualizar | None:
+		"""Cómo se actualiza el agente (``None`` si no está instalado o no se sabe)."""
+		if identificador is None:
+			return None
+		try:
+			return actualizacion.forma_de_actualizar(identificador, self.estados.get(identificador))
+		except Exception:  # noqa: BLE001 - sin esto, solo falta la acción de actualizar
+			log.debug("No se pudo saber cómo actualizar %s", identificador, exc_info=True)
+			return None
+
+	def texto_disponible(self, identificador: str) -> str:
+		"""Columna «Versión disponible»: vacía si no se puede saber sin instalar (se dice solo la instalada)."""
+		forma = self.forma_actualizar(identificador)
+		if forma is None or not forma.se_puede_consultar or identificador not in self.disponibles:
+			return ""
+		resultado = self.disponibles[identificador]
+		if resultado is None:
+			return _("Comprobando…")
+		if resultado.error or not resultado.version:
+			return _("No se pudo saber")
+		estado = self.estados.get(identificador)
+		nueva = actualizacion.hay_version_nueva(estado.version if estado else "", resultado.version)
+		if nueva:
+			return _("{v}, hay una nueva").format(v=resultado.version)
+		if nueva is False:
+			return _("{v}, estás al día").format(v=resultado.version)
+		return resultado.version
+
+	def texto_actualizacion(self, identificador: str) -> str:
+		"""Párrafo de la descripción sobre la versión disponible y cómo se actualiza."""
+		forma = self.forma_actualizar(identificador)
+		if forma is None:
+			return ""
+		nombre = self.nombre(identificador)
+		if not forma.se_puede_consultar:
+			return _("Versión disponible: {n} no deja consultarla sin instalarla. «Actualizar» (en Más acciones) "
+				"ejecuta {orden}, que busca la última e instala si hay una más nueva.").format(n=nombre, orden=forma.texto_orden)
+		resultado = self.disponibles.get(identificador)
+		if resultado is None:
+			texto = _("Versión disponible: comprobándola con npm.")
+		elif resultado.error:
+			texto = _("Versión disponible: no se pudo saber. {motivo}").format(motivo=resultado.error)
+		else:
+			texto = _("Versión disponible en npm: {v}.").format(v=resultado.version)
+		return texto + " " + _("«Actualizar» (en Más acciones) ejecuta {orden}.").format(orden=forma.texto_orden)
+
+	def _consultar_disponible(self, identificador: str) -> None:
+		"""Pide en segundo plano la versión disponible de un agente instalado con npm (con caché)."""
+		forma = self.forma_actualizar(identificador)
+		if forma is None or not forma.se_puede_consultar:
+			self.disponibles.pop(identificador, None)
+			return
+		guardada = self.comprobador.guardada(forma.paquete)
+		if guardada is not None:
+			self.disponibles[identificador] = guardada
+			return
+		self.disponibles[identificador] = None
+		hilo = threading.Thread(
+			target=_consultar_version, args=(self, self.comprobador, self._generacion, identificador, forma.paquete),
+			name="version-disponible", daemon=True,
+		)
+		hilo.start()
+
+	def poner_disponible(self, identificador: str, resultado: actualizacion.VersionDisponible) -> None:
+		"""Llega la versión disponible de un agente: se actualiza su fila (sin anunciarlo)."""
+		self.disponibles[identificador] = resultado
+		if identificador in self.ids:
+			self.lista.actualizar_fila(self.ids.index(identificador), self._valores(identificador))
+		if self.seleccionado() == identificador:
+			self.al_cambiar_fila()
 
 	def rellenar_filas(self) -> None:
 		"""Una fila por agente con lo que se sabe ahora mismo (o «Comprobando…»)."""
@@ -199,6 +284,7 @@ class DialogoAgentes(wx.Dialog):
 		"""Guarda el resultado de detectar un agente y actualiza su fila."""
 		self.pendientes.discard(identificador)
 		self.estados[identificador] = estado
+		self._consultar_disponible(identificador)
 		if identificador in self.ids:
 			self.lista.actualizar_fila(self.ids.index(identificador), self._valores(identificador))
 		if self.seleccionado() == identificador:
@@ -287,6 +373,9 @@ class DialogoAgentes(wx.Dialog):
 			instrucciones = ""
 		if instrucciones:
 			partes.append(_("Cómo instalarlo:") + "\n" + instrucciones)
+		actualizar = self.texto_actualizacion(identificador)
+		if actualizar:
+			partes.append(actualizar)
 		web = getattr(proveedor, "web", "") or ""
 		if web:
 			partes.append(_("Página oficial: {web}").format(web=web))
@@ -304,7 +393,7 @@ class DialogoAgentes(wx.Dialog):
 	def _acciones(self, identificador: str | None) -> dict[str, bool]:
 		"""Qué acciones tienen sentido ahora para el agente indicado."""
 		if identificador is None:
-			return {"instalar": False, "sesion": False, "web": False, "antigravity": False}
+			return {"instalar": False, "sesion": False, "actualizar": False, "web": False, "antigravity": False}
 		proveedor = self.proveedor(identificador)
 		comprobado = identificador not in self.pendientes and identificador in self.estados
 		estado = self.estados.get(identificador)
@@ -312,6 +401,7 @@ class DialogoAgentes(wx.Dialog):
 		return {
 			"instalar": comprobado and not instalado,
 			"sesion": comprobado and instalado,
+			"actualizar": comprobado and instalado and self.forma_actualizar(identificador) is not None,
 			"web": bool(getattr(proveedor, "web", "")),
 			"antigravity": es_antigravity(identificador, proveedor),
 		}
@@ -336,6 +426,7 @@ class DialogoAgentes(wx.Dialog):
 		elementos = [
 			(_("&Instalar"), self.instalar, acciones["instalar"]),
 			(_("Iniciar &sesión"), self.iniciar_sesion, acciones["sesion"]),
+			(_("Ac&tualizar…"), self.actualizar, acciones["actualizar"]),
 			(_("&Comprobar de nuevo (F5)"), self.comprobar, not self.comprobando),
 			(_("Página &oficial"), self.abrir_web, acciones["web"]),
 		]
@@ -426,6 +517,62 @@ class DialogoAgentes(wx.Dialog):
 		else:
 			mostrar_error(self, _("No se pudo abrir la consola para iniciar sesión en {nombre}.").format(nombre=nombre))
 
+	def sesiones_trabajando(self, identificador: str) -> int:
+		"""Cuántas sesiones de Ctrl+IA de ese agente están trabajando ahora mismo."""
+		try:
+			claves = list(self.gestor.sesiones_ocupadas())
+		except AttributeError:
+			return 0
+		except Exception:  # noqa: BLE001 - si no se sabe, se sigue: la confirmación avisa igualmente
+			log.debug("No se pudieron leer las sesiones ocupadas", exc_info=True)
+			return 0
+		almacen = getattr(self.gestor, "almacen", None)
+		total = 0
+		for clave in claves:
+			try:
+				sesion = almacen.sesion(clave) if almacen is not None else None
+			except Exception:  # noqa: BLE001 - una sesión ilegible no impide contar las demás
+				log.debug("No se pudo leer la sesión %s", clave, exc_info=True)
+				continue
+			if sesion is not None and getattr(sesion, "proveedor", "") == identificador:
+				total += 1
+		return total
+
+	def actualizar(self) -> None:
+		"""Actualiza el agente seleccionado en una consola nueva, tras confirmar. Nunca con él trabajando."""
+		identificador = self.seleccionado()
+		if identificador is None:
+			return
+		nombre = self.nombre(identificador)
+		titulo = _("Actualizar {nombre}").format(nombre=nombre)
+		forma = self.forma_actualizar(identificador)
+		if forma is None:
+			texto = _("{nombre} no se puede actualizar desde Ctrl+IA: actualízalo con el programa con el que lo "
+				"instalaste.").format(nombre=nombre)
+			web = getattr(self.proveedor(identificador), "web", "")
+			if web:
+				texto += "\n\n" + _("Página oficial: {web}").format(web=web)
+			mostrar_mensaje(self, texto, titulo)
+			return
+		trabajando = self.sesiones_trabajando(identificador)
+		if trabajando:
+			mostrar_mensaje(self, _(
+				"{nombre} está trabajando ahora en {n} sesiones. Actualizarlo mientras trabaja podría cortar lo que "
+				"está haciendo: espera a que termine (o detenlo con Control+punto en su sesión) y vuelve a intentarlo."
+			).format(nombre=nombre, n=trabajando), titulo)
+			return
+		pregunta = _(
+			"Se abrirá una consola que ejecuta: {orden}\n\nSigue lo que te diga y, cuando termine, ciérrala: "
+			"Ctrl+IA comprobará de nuevo la versión solo. Las sesiones abiertas de {nombre} pueden seguir con la "
+			"versión anterior hasta que se vuelvan a abrir.\n\n¿Abrir la consola?"
+		).format(orden=forma.texto_orden, nombre=nombre)
+		if confirmar(self, pregunta, titulo) != wx.ID_YES:
+			return
+		if procesos.abrir_en_consola(list(forma.orden), al_terminar=lambda _codigo: wx.CallAfter(self._al_cerrar_consola, identificador)):
+			voz.hablar(_("Consola de actualización abierta. Cuando se cierre, lo compruebo de nuevo."))
+		else:
+			mostrar_error(self, _("No se pudo abrir la consola para actualizar {nombre}.").format(nombre=nombre))
+
 	def abrir_web(self) -> None:
 		"""Abre la página oficial del agente en el navegador."""
 		identificador = self.seleccionado()
@@ -493,6 +640,12 @@ def _detectar_todos(dialogo: DialogoAgentes, gestor: Any, generacion: int, ids: 
 		if not _entregar(dialogo, generacion, "poner_estado", identificador, estado):
 			return
 	_entregar(dialogo, generacion, "terminar_comprobacion")
+
+
+def _consultar_version(dialogo: DialogoAgentes, comprobador: Any, generacion: int, identificador: str, paquete: str) -> None:
+	"""En un hilo: pregunta la versión disponible de ``paquete`` y la entrega al diálogo."""
+	resultado = comprobador.consultar(paquete)
+	_entregar(dialogo, generacion, "poner_disponible", identificador, resultado)
 
 
 def _entregar(dialogo: DialogoAgentes, generacion: int, metodo: str, *argumentos: Any) -> bool:

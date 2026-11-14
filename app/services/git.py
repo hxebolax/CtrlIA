@@ -3,7 +3,13 @@
 - Copias aisladas («worktrees»): el agente trabaja en una rama propia, en una
   carpeta aparte, sin tocar tu copia de trabajo. Se crean en
   ``<repositorio>/.ctrlia/worktrees/<rama>`` y esa carpeta se añade a
-  ``.git/info/exclude`` para que git no la proponga en los commits.
+  ``.git/info/exclude`` para que git no la proponga en los commits. La rama
+  nueva puede empezar en lo que tiene la carpeta (``HEAD``) o en la rama
+  principal de ``origin`` recién traída (:func:`crear_worktree_desde_remoto`),
+  y también se puede usar una rama que ya existe
+  (:func:`ramas_disponibles`, :func:`crear_worktree_rama_existente`).
+- Cambios sin confirmar de la carpeta (:func:`cambios_sin_confirmar` y
+  :func:`diff_de`), para «Listas de la sesión».
 - GitHub: se usa la herramienta oficial ``gh`` con la sesión que el usuario ya
   tenga iniciada; Ctrl+IA no guarda credenciales de GitHub.
 """
@@ -12,7 +18,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.services.agentes import procesos
@@ -52,8 +60,12 @@ def nombre_rama_valido(nombre: str) -> bool:
 	return bool(_RE_RAMA.match(nombre)) and ".." not in nombre and not nombre.endswith((".lock", "/"))
 
 
-def crear_worktree(carpeta: Path, rama: str) -> Path:
-	"""Crea una copia aislada en una rama nueva y devuelve su carpeta."""
+def crear_worktree(carpeta: Path, rama: str, base: str = "") -> Path:
+	"""Crea una copia aislada en una rama nueva y devuelve su carpeta.
+
+	:param base: dónde empieza la rama (una referencia de git); vacío, en lo que tiene la carpeta (``HEAD``).
+		Con una rama remota, la nueva no la sigue (``--no-track``).
+	"""
 	git = buscar_git()
 	if git is None:
 		raise ErrorGit("Git no está instalado en este equipo.")
@@ -65,8 +77,12 @@ def crear_worktree(carpeta: Path, rama: str) -> Path:
 	destino = raiz / ".ctrlia" / "worktrees" / rama.replace("/", "-")
 	if destino.exists():
 		raise ErrorGit(f"Ya existe una copia aislada con ese nombre: {destino}")
-	codigo, _salida, error = procesos.ejecutar_y_leer(
-		[str(git), "-C", str(raiz), "worktree", "add", "-b", rama, str(destino)], 120)
+	orden = [str(git), "-C", str(raiz), "worktree", "add"]
+	if base:
+		orden += ["--no-track", "-b", rama, str(destino), base]
+	else:
+		orden += ["-b", rama, str(destino)]
+	codigo, _salida, error = procesos.ejecutar_y_leer(orden, 120)
 	if codigo != 0:
 		raise ErrorGit("Git no pudo crear la copia aislada: " + (error.strip().splitlines() or ["error desconocido"])[-1])
 	_excluir(raiz, ".ctrlia/")
@@ -269,3 +285,322 @@ def clonar(repositorio: str, carpeta_padre: Path) -> Path:
 	if codigo != 0:
 		raise ErrorGit("No se pudo clonar: " + (error.strip().splitlines() or ["error desconocido"])[-1])
 	return destino
+
+
+# --------------------------------------------------------------------------
+# Copia aislada: desde dónde empieza la rama (1.6.0, AIChat #561, #587, #622)
+# --------------------------------------------------------------------------
+
+#: Segundos que se espera a ``git fetch`` (puede ir por la red).
+TIEMPO_FETCH = 120
+#: Árbol vacío de git: con él, un repositorio sin commits se compara contra «nada».
+ARBOL_VACIO = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def _entorno_git() -> dict[str, str]:
+	"""El entorno de la persona, pero sin que git pida nada por la consola (no hay consola: se quedaría colgado)."""
+	return dict(os.environ, GIT_TERMINAL_PROMPT="0")
+
+
+def _git(raiz: Path, *argumentos: str, tiempo: float = 30, entorno: dict[str, str] | None = None) -> tuple[int, str, str]:
+	"""``git -C raiz argumentos`` con el git de la persona. Lanza ``ErrorGit`` si no hay git o no contesta."""
+	git = buscar_git()
+	if git is None:
+		raise ErrorGit("Git no está instalado en este equipo.")
+	try:
+		return procesos.ejecutar_y_leer([str(git), "-C", str(raiz), *argumentos], tiempo, entorno)
+	except (OSError, procesos.subprocess.SubprocessError) as fallo:
+		raise ErrorGit("Git no respondió a tiempo.") from fallo
+
+
+def _ultima_linea(error: str) -> str:
+	return (error.strip().splitlines() or ["error desconocido"])[-1]
+
+
+def _raiz_o_error(carpeta: Path) -> Path:
+	if buscar_git() is None:
+		raise ErrorGit("Git no está instalado en este equipo.")
+	raiz = raiz_repositorio(Path(carpeta))
+	if raiz is None:
+		raise ErrorGit("La carpeta no es un repositorio de git.")
+	return raiz
+
+
+def _destino_copia(raiz: Path, rama: str) -> Path:
+	destino = raiz / ".ctrlia" / "worktrees" / rama.replace("/", "-")
+	if destino.exists():
+		raise ErrorGit(f"Ya existe una copia aislada con ese nombre: {destino}")
+	return destino
+
+
+def _existe_ref(raiz: Path, ref: str) -> bool:
+	codigo, _salida, _error = _git(raiz, "rev-parse", "--verify", "--quiet", ref + "^{commit}")
+	return codigo == 0
+
+
+def tiene_origin(raiz: Path) -> bool:
+	"""Si el repositorio tiene un remoto llamado ``origin``."""
+	codigo, salida, _error = _git(raiz, "remote")
+	return codigo == 0 and "origin" in salida.split()
+
+
+def rama_principal_remota(carpeta: Path) -> str | None:
+	"""La rama principal de ``origin`` (``main``, ``master``...) sin ir a la red; ``None`` si no se sabe.
+
+	Primero la que apunta ``refs/remotes/origin/HEAD``; si no existe, ``origin/main`` y después ``origin/master``.
+	"""
+	raiz = _raiz_o_error(carpeta)
+	codigo, salida, _error = _git(raiz, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
+	prefijo = "refs/remotes/origin/"
+	if codigo == 0 and salida.strip().startswith(prefijo):
+		rama = salida.strip()[len(prefijo):]
+		if nombre_rama_valido(rama):
+			return rama
+	for rama in ("main", "master"):
+		if _existe_ref(raiz, prefijo + rama):
+			return rama
+	return None
+
+
+def traer_rama_remota(carpeta: Path, rama: str, tiempo: float = TIEMPO_FETCH) -> None:
+	"""Trae de ``origin`` la última versión de ``rama`` (sin submódulos). Lanza ``ErrorGit``."""
+	if not nombre_rama_valido(rama):
+		raise ErrorGit("El nombre de la rama remota no es válido.")
+	raiz = _raiz_o_error(carpeta)
+	codigo, _salida, error = _git(raiz, "fetch", "--quiet", "--no-recurse-submodules", "origin",
+		f"+refs/heads/{rama}:refs/remotes/origin/{rama}", tiempo=tiempo, entorno=_entorno_git())
+	if codigo != 0:
+		raise ErrorGit(f"No se pudo traer la rama {rama} de origin: " + _ultima_linea(error))
+
+
+def crear_worktree_desde_remoto(carpeta: Path, rama: str, tiempo: float = TIEMPO_FETCH) -> Path:
+	"""Copia aislada en la rama nueva ``rama``, empezando en la última versión de la rama principal de ``origin``.
+
+	Antes trae esa rama con ``git fetch``; la rama nueva no sigue a la remota (``--no-track``), para que un
+	``git push`` no vaya a parar a la principal.
+	"""
+	raiz = _raiz_o_error(carpeta)
+	if not tiene_origin(raiz):
+		raise ErrorGit("El repositorio no tiene un remoto llamado origin.")
+	principal = rama_principal_remota(raiz)
+	if principal is None:
+		raise ErrorGit("No se sabe cuál es la rama principal de origin (ni origin/HEAD, ni origin/main, ni origin/master).")
+	traer_rama_remota(raiz, principal, tiempo)
+	return crear_worktree(raiz, rama, base=f"refs/remotes/origin/{principal}")
+
+
+@dataclass(slots=True)
+class RamaGit:
+	"""Una rama que se puede usar para una copia aislada.
+
+	:param nombre: nombre de la rama (``feature/x``); en las remotas, sin ``origin/``.
+	:param remota: solo existe en ``origin`` (se crea una local que la sigue).
+	:param sacada_en: carpeta donde ya está sacada (otra copia aislada o la principal); vacía si está libre.
+	"""
+
+	nombre: str
+	remota: bool = False
+	sacada_en: str = ""
+
+	@property
+	def texto(self) -> str:
+		"""Cómo se enseña en la lista: «x», «x (en origin)» o «x (ya sacada en C:\\...)»."""
+		if self.sacada_en:
+			return f"{self.nombre} (ya sacada en {self.sacada_en}: no se puede usar en otra copia)"
+		return f"{self.nombre} (en origin)" if self.remota else self.nombre
+
+
+def ramas_sacadas(carpeta: Path) -> dict[str, str]:
+	"""``{rama: carpeta}`` de las ramas sacadas en alguna copia del repositorio (``git worktree list --porcelain``)."""
+	raiz = _raiz_o_error(carpeta)
+	codigo, salida, _error = _git(raiz, "worktree", "list", "--porcelain")
+	if codigo != 0:
+		return {}
+	sacadas: dict[str, str] = {}
+	ruta = ""
+	for linea in salida.splitlines():
+		if linea.startswith("worktree "):
+			ruta = linea[len("worktree "):].strip()
+		elif linea.startswith("branch refs/heads/") and ruta:
+			sacadas[linea[len("branch refs/heads/"):].strip()] = str(Path(ruta))
+	return sacadas
+
+
+def ramas_disponibles(carpeta: Path, traer: bool = True, tiempo: float = TIEMPO_FETCH) -> list[RamaGit]:
+	"""Ramas que se pueden usar en una copia aislada: las locales, las de ``origin`` que no hay aquí y, al final,
+	las que ya están sacadas en otra copia (que git no deja sacar dos veces).
+
+	Con ``traer`` se pone al día la lista de ``origin`` antes (``git fetch --prune``); si falla (sin red), se usa
+	la que hay. Bloquea: llamar desde un hilo. Lanza ``ErrorGit`` si no es un repositorio.
+	"""
+	raiz = _raiz_o_error(carpeta)
+	if traer and tiene_origin(raiz):
+		codigo, _salida, error = _git(raiz, "fetch", "--prune", "--quiet", "--no-recurse-submodules", "origin",
+			tiempo=tiempo, entorno=_entorno_git())
+		if codigo != 0:
+			log.info("No se pudo poner al día la lista de ramas de origin: %s", _ultima_linea(error))
+	codigo, salida, error = _git(raiz, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin")
+	if codigo != 0:
+		raise ErrorGit("Git no pudo listar las ramas: " + _ultima_linea(error))
+	locales: list[str] = []
+	remotas: list[str] = []
+	for linea in salida.splitlines():
+		ref = linea.strip()
+		if ref.startswith("refs/heads/"):
+			locales.append(ref[len("refs/heads/"):])
+		elif ref.startswith("refs/remotes/origin/") and ref != "refs/remotes/origin/HEAD":
+			remotas.append(ref[len("refs/remotes/origin/"):])
+	sacadas = ramas_sacadas(raiz)
+	libres = [RamaGit(nombre) for nombre in sorted(locales, key=str.casefold) if nombre not in sacadas]
+	solo_remotas = [RamaGit(nombre, remota=True) for nombre in sorted(remotas, key=str.casefold)
+		if nombre not in locales and nombre_rama_valido(nombre)]
+	ocupadas = [RamaGit(nombre, sacada_en=sacadas[nombre]) for nombre in sorted(locales, key=str.casefold) if nombre in sacadas]
+	return libres + solo_remotas + ocupadas
+
+
+def crear_worktree_rama_existente(carpeta: Path, rama: RamaGit) -> Path:
+	"""Copia aislada en una rama que ya existe (local o de ``origin``). Lanza ``ErrorGit``."""
+	if rama.sacada_en:
+		raise ErrorGit(f"La rama {rama.nombre} ya está sacada en {rama.sacada_en}, y git no deja usar la misma rama "
+			"en dos copias. Elige otra o crea una rama nueva.")
+	if not nombre_rama_valido(rama.nombre):
+		raise ErrorGit("El nombre de la rama no es válido.")
+	raiz = _raiz_o_error(carpeta)
+	destino = _destino_copia(raiz, rama.nombre)
+	if rama.remota:
+		argumentos = ["worktree", "add", "--track", "-b", rama.nombre, str(destino), f"refs/remotes/origin/{rama.nombre}"]
+	else:
+		argumentos = ["worktree", "add", str(destino), rama.nombre]
+	codigo, _salida, error = _git(raiz, *argumentos, tiempo=120)
+	if codigo != 0:
+		raise ErrorGit("Git no pudo crear la copia aislada: " + _ultima_linea(error))
+	_excluir(raiz, ".ctrlia/")
+	return destino
+
+
+# --------------------------------------------------------------------------
+# Cambios sin confirmar (Listas de la sesión, AIChat / BlindPilot)
+# --------------------------------------------------------------------------
+
+#: Bytes que se leen de un archivo nuevo para contar sus líneas y decir si es binario.
+MAX_ARCHIVO_NUEVO = 2 * 1024 * 1024
+
+
+@dataclass(slots=True)
+class CambioGit:
+	"""Un archivo con cambios sin confirmar respecto a ``HEAD``.
+
+	:param ruta: relativa a la raíz del repositorio, con ``/``.
+	:param anadidas: líneas añadidas (``None`` en un archivo binario).
+	:param quitadas: líneas quitadas (``None`` en un archivo binario).
+	:param nuevo: archivo que git aún no sigue.
+	:param movido_desde: nombre anterior si git lo ve como renombrado.
+	"""
+
+	ruta: str
+	anadidas: int | None = 0
+	quitadas: int | None = 0
+	nuevo: bool = False
+	movido_desde: str = ""
+
+	@property
+	def nombre(self) -> str:
+		return self.ruta.rsplit("/", 1)[-1]
+
+	@property
+	def carpeta(self) -> str:
+		return self.ruta.rsplit("/", 1)[0] if "/" in self.ruta else ""
+
+
+def _numero(texto: str) -> int | None:
+	return int(texto) if texto.isdigit() else None
+
+
+def analizar_numstat(salida: str) -> list[CambioGit]:
+	"""Lee la salida de ``git diff --numstat -z``.
+
+	Cada archivo es ``añadidas\\tquitadas\\truta\\0``; un renombrado llega con la ruta vacía y luego dos campos
+	más, el nombre antiguo y el nuevo: ``añadidas\\tquitadas\\t\\0antiguo\\0nuevo\\0``. Un binario trae ``-``.
+	"""
+	partes = salida.split("\0")
+	cambios: list[CambioGit] = []
+	indice = 0
+	while indice < len(partes):
+		campo = partes[indice].lstrip("\r\n")
+		indice += 1
+		if not campo:
+			continue
+		trozos = campo.split("\t", 2)
+		if len(trozos) != 3:
+			log.debug("Línea de numstat que no se entiende: %r", campo)
+			continue
+		anadidas, quitadas, ruta = _numero(trozos[0]), _numero(trozos[1]), trozos[2]
+		movido = ""
+		if not ruta:
+			if indice + 1 >= len(partes):
+				break
+			movido, ruta = partes[indice], partes[indice + 1]
+			indice += 2
+		cambios.append(CambioGit(ruta, anadidas, quitadas, movido_desde=movido))
+	return cambios
+
+
+def _contar_nuevo(ruta: Path) -> tuple[int | None, int | None]:
+	"""Líneas de un archivo nuevo (todas añadidas); ``(None, None)`` si es binario o no se puede leer."""
+	try:
+		with ruta.open("rb") as archivo:
+			datos = archivo.read(MAX_ARCHIVO_NUEVO)
+	except OSError:
+		return None, None
+	if b"\0" in datos[:8192]:
+		return None, None
+	lineas = datos.count(b"\n") + (1 if datos and not datos.endswith(b"\n") else 0)
+	return lineas, 0
+
+
+def cambios_sin_confirmar(carpeta: Path, tiempo: float = 30) -> tuple[Path, list[CambioGit]]:
+	"""``(raíz, cambios)``: los archivos de la carpeta de la sesión con cambios sin confirmar respecto a ``HEAD``.
+
+	Lo modificado, borrado y renombrado sale de ``git diff --numstat -z HEAD`` (sin ``HEAD`` todavía, contra el
+	árbol vacío); lo nuevo, de ``git ls-files -z --others --exclude-standard``. Con el git de la persona y su
+	configuración. Bloquea: llamar desde un hilo. Lanza ``ErrorGit`` con el motivo.
+	"""
+	raiz = _raiz_o_error(carpeta)
+	base = "HEAD" if _existe_ref(raiz, "HEAD") else ARBOL_VACIO
+	codigo, salida, error = _git(raiz, "-c", "core.quotepath=false", "diff", "--numstat", "-z", "--no-ext-diff",
+		"--no-color", base, "--", tiempo=tiempo)
+	if codigo != 0:
+		raise ErrorGit("Git no pudo comparar los cambios: " + _ultima_linea(error))
+	cambios = analizar_numstat(salida)
+	codigo, salida, error = _git(raiz, "-c", "core.quotepath=false", "ls-files", "-z", "--others", "--exclude-standard",
+		tiempo=tiempo)
+	if codigo != 0:
+		raise ErrorGit("Git no pudo listar los archivos nuevos: " + _ultima_linea(error))
+	for ruta in (parte for parte in salida.split("\0") if parte):
+		anadidas, quitadas = _contar_nuevo(raiz / ruta)
+		cambios.append(CambioGit(ruta, anadidas, quitadas, nuevo=True))
+	cambios.sort(key=lambda c: c.ruta.casefold())
+	return raiz, cambios
+
+
+def diff_de(raiz: Path, cambio: CambioGit, tiempo: float = 30) -> str:
+	"""El diff de un archivo respecto a ``HEAD`` (``git diff HEAD -- ruta``). De uno nuevo, su contenido.
+
+	Lanza ``ErrorGit`` si git falla.
+	"""
+	if cambio.nuevo:
+		ruta = raiz / cambio.ruta
+		if cambio.anadidas is None:
+			return ""
+		try:
+			with ruta.open("rb") as archivo:
+				return archivo.read(MAX_ARCHIVO_NUEVO).decode("utf-8", "replace").replace("\r\n", "\n")
+		except OSError as error:
+			raise ErrorGit(f"No se pudo leer {cambio.ruta}: {error.strerror or error}") from error
+	base = "HEAD" if _existe_ref(raiz, "HEAD") else ARBOL_VACIO
+	rutas = [cambio.movido_desde, cambio.ruta] if cambio.movido_desde else [cambio.ruta]
+	codigo, salida, error = _git(raiz, "-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-color", "--no-textconv",
+		base, "--", *rutas, tiempo=tiempo)
+	if codigo != 0:
+		raise ErrorGit("Git no pudo mostrar los cambios: " + _ultima_linea(error))
+	return salida

@@ -102,7 +102,7 @@ def test_listas_carga_los_datos(app):
 	try:
 		_comprobar_accesibilidad(dialogo)
 		assert dialogo.GetTitle() == "Listas de la sesión «Mi sesión»"
-		assert dialogo.libro.GetPageCount() == len(modulo_listas.PAGINAS) == 13
+		assert dialogo.libro.GetPageCount() == len(modulo_listas.PAGINAS) == 15  # 1.6.0: Aprobaciones y git
 		assert [dialogo.libro.GetPageText(i) for i in range(8)] == [
 			"Bloques de código", "Enlaces", "Archivos cambiados", "Órdenes ejecutadas",
 			"Tareas del agente", "Subagentes", "Hallazgos de la revisión", "Decisiones",

@@ -2,6 +2,72 @@
 
 Cada versión tiene su apartado, de la más reciente a la más antigua. Los cambios se cuentan con palabras de quien usa el programa: qué puedes hacer y dónde.
 
+## Versión 1.6.0 - 2026-11-14
+
+### Novedades
+
+- Atajos de teclado a tu gusto: Herramientas, «Atajos de teclado...». Elige tu propia tecla para cualquier acción de los menús, quítale la suya o vuelve a la de fábrica, una a una o todas a la vez. En «Cambiar tecla» solo tienes que pulsar la combinación: te dice al momento si nadie la tiene, qué acción la perderá o por qué no se puede usar. Los cambios valen al momento, sin reiniciar.
+- Ctrl+IA no te deja elegir teclas que estropearían algo: las que usa para enviar, moverte o copiar, las de tu lector de pantalla, las de edición ni un Ctrl+Alt que con tu teclado escriba un carácter (AltGr: €, @, #...). Siempre te dice el motivo.
+- Buscar una acción: Ayuda, «Buscar una acción...» (Ctrl+Mayús+F10). Escribe parte del nombre de cualquier acción, en cualquier orden y sin preocuparte de las tildes, o su tecla, y pulsa Intro para hacerla. Flecha abajo baja a los resultados, que dicen la tecla y el menú de cada una; las que usas a menudo salen primero.
+- La lista de teclas (Ctrl+F1) empieza por «Tus atajos cambiados» cuando has cambiado alguno.
+- Actividad en segundo plano (Sesión, Ctrl+Alt+A): los subagentes y las órdenes que el agente deja trabajando aparte, en vivo, cada uno con su estado, sus cifras, lo que hace ahora, cada paso que da y su resumen. Se pone al día sola sin moverte y Suprimir detiene la tarea elegida. Suena y se dice cuándo empieza y termina cada una.
+- Preguntar aparte (Sesión, Ctrl+Alt+S), con Claude Code y Codex: una pregunta rápida sobre la sesión que no se añade a ella, incluso mientras el agente trabaja. El agente no puede cambiar nada al contestarla, y puedes repreguntar.
+- Compactar la conversación cuando quieras (Sesión, Ctrl+Alt+K), con Claude Code y Codex.
+- Bifurcar o reintentar desde un mensaje (Archivo y menú contextual del mensaje), con Claude Code y Codex: una sesión nueva que recuerda la conversación solo hasta ese punto. Al reintentar, tu mensaje vuelve al cuadro de respuesta para cambiarlo. La original no cambia.
+- Vistas de la lista de mensajes (Ver, «Vista de los mensajes», F11 y Mayús+F11): todo, la conversación, solo las respuestas, solo lo tuyo, las acciones o los errores y avisos, sin perder el sitio.
+- F12 y Mayús+F12 saltan a la respuesta siguiente o anterior del agente; Ctrl+Alt+U lee la última respuesta sin moverte y Ctrl+Alt+C la copia.
+- Ver, «Leer la conversación entera como una página» (Ctrl+Alt+L): cada mensaje es un encabezado, para saltar de uno a otro.
+- Las respuestas se leen sin las marcas de formato (almohadillas, asteriscos, barras de las tablas, direcciones de los enlaces) y, si quieres, con «Bloque de código.» en lugar del código (Preferencias, Anuncios).
+- Nueva opción para oír la respuesta por frases mientras el agente la escribe, sin esperar a que termine (Preferencias, Anuncios; desactivada de fábrica).
+- Si el agente termina su respuesta preguntándote algo en vez de usar su herramienta de preguntas, la sesión pasa a «Te necesita» y Ctrl+Mayús+A abre la pregunta; lo que contestes le llega como tu siguiente mensaje. No cuentan los ofrecimientos de seguir («¿Quieres que ejecute las pruebas?»).
+- Lo que dictas con Windows+H en el cuadro de respuesta se lee al dejar de dictar.
+- Sonidos nuevos: un latido suave cada pocos segundos mientras el agente trabaja, problema del servicio del agente, y empieza o termina un subagente o una orden en segundo plano.
+- Pulsar una notificación de Windows de Ctrl+IA te lleva a la sesión que avisó.
+- Uso y límites (Ctrl+Mayús+U), con Claude Code: en qué se va el contexto, parte por parte.
+- Aviso importante si Claude Code empieza a gastar uso adicional de pago.
+- Los errores guardan lo que dijo el agente tal cual: el visor del mensaje lo muestra al final, en «Detalle técnico».
+- Servidores MCP de la sesión (Ctrl+Alt+M): Ctrl+D desactiva o activa un servidor solo en esta sesión, sin tocar la configuración del agente; Ctrl+Mayús+D lo hace en la configuración, preguntando antes. Iniciar sesión abre la página en el navegador cuando el agente la da.
+- Seguir una sesión de Claude Code desde claude.ai o el móvil: Sesión, «Seguir en claude.ai (control remoto)...».
+- Retirar de la cola un mensaje que aún no ha salido: Suprimir sobre él en la lista de mensajes; vuelve al cuadro de respuesta.
+- Adjuntar arrastrando archivos desde el Explorador a la ventana, y quitar un solo adjunto con Ctrl+Mayús+F, «Quitar uno...».
+- Estado del turno (Ctrl+Mayús+T) dice cuánto duró el último turno, qué subagentes y órdenes siguen en marcha y cuántas peticiones ha decidido Codex con su revisión automática.
+- Al salir, si el cuadro de respuesta tiene algo escrito sin enviar, Ctrl+IA te avisa.
+- Sin lector de pantalla, la tecla Control calla la voz de Windows de Ctrl+IA.
+- Instrucciones de la sesión y más carpetas de trabajo, en «Nueva sesión» y «Opciones de la sesión», con Claude Code y Codex: lo que el agente debe tener en cuenta en toda la sesión (hasta 8.000 caracteres) y otras carpetas donde puede trabajar (nunca una unidad entera).
+- Preferencias, General, «Carpeta base de proyectos»: en «Nueva sesión» basta con escribir el nombre del proyecto. También admite «~» y una ruta pegada entre comillas, y si la carpeta no existe, Ctrl+IA ofrece crearla.
+- La copia aislada de «Nueva sesión» puede empezar en lo que tiene la carpeta, en la última versión de la rama principal de origin, o usar una rama que ya existe, tuya o de origin.
+- «Agentes instalados»: columna «Versión disponible» (los agentes instalados con npm) y acción «Actualizar…», que abre en una consola `claude update`, `agy update` o `npm install -g` según cómo esté instalado, y nunca con una sesión de ese agente trabajando.
+- «Lo que el agente sabe de ti»: editar el archivo ahí mismo (F2, Ctrl+S guarda, con copia previa), añadir y borrar memorias de Claude Code y crear subagentes de Claude Code o de Codex, sin sustituir nunca nada.
+- «Listas de la sesión» tiene dos páginas nuevas: «Aprobaciones» (lo que decidió la revisión automática de Codex, con su motivo) y «Cambios sin confirmar en git» (los archivos que git ve cambiados o nuevos, también lo cambiado con órdenes de la terminal, con sus líneas).
+- Claude Code: avisos de cuándo empieza a compactar y cómo acaba (con las cifras), de cuándo cambia de modo por su cuenta (la sesión lo recuerda), de los problemas de su servicio con el motivo en palabras, de cuándo sigue con otro modelo y de lo que guarda en su memoria. Si llegas a un límite de uso, dice cuál y cuándo se reinicia, y ahora ve todas las ventanas de límite.
+- Claude Code: si un subagente pide permiso, la petición dice qué subagente es. Al detener el turno con Ctrl+. se detienen también los subagentes.
+- Claude Code: el razonamiento se guarda y se muestra (con la opción de Preferencias, Mensajes), también al abrir sesiones de la terminal o de la app.
+- Claude Code: cambiar el modelo se aplica al momento, sin reiniciarlo. Si no acepta un modo de permisos, se dice y la sesión vuelve al anterior.
+- Claude Code: los avisos de las acciones son más cortos: solo el nombre del archivo y, en las ediciones, cuántas líneas se añaden y se quitan.
+- Codex: comandos `/compact`, `/plan`, `/memories on|off` y `/goal` (también en Ctrl+/), y sus skills de la carpeta como `$nombre`.
+- Codex: mensajes de más de 32.000 caracteres: Ctrl+IA se los entrega en un archivo temporal que se borra al terminar la respuesta.
+- Codex: «Servidores MCP de la sesión», los comandos de sesión, bifurcar, preguntar aparte y la actividad en segundo plano (con la salida de las órdenes según llega) funcionan también con Codex.
+- Codex: «Permitir … con cualquier argumento» funciona también cuando Codex ejecuta la orden dentro de PowerShell; la regla queda atada a ese PowerShell.
+- Codex: si una conversación ya no existe en Codex, Ctrl+IA lo dice claramente. La lista incluye también las de `codex exec` y otros proveedores.
+- Preferencias, Agentes: «Pedir a Claude que pregunte con su herramienta de preguntas» y, experimental, «Dejar que Codex pregunte con su herramienta también fuera del modo Plan» (las dos, desactivadas).
+- Command Code se suma a los agentes ACP conocidos (Preferencias, Agentes, «Mostrar otros agentes ACP conocidos»).
+
+### Arreglos
+
+- Claude Code: los subagentes y las órdenes en segundo plano ya no se cortan a los 10 o 20 minutos; el turno espera a que acaben y, si Claude Code se cierra con alguno a medias, lo dice.
+- Claude Code: cambiar el estilo de las respuestas, las skills o las instrucciones a mitad de conversación no tenía efecto; ahora sí.
+- Claude Code: el aviso de compactación no decía cuánto contexto se había liberado.
+- Codex: las peticiones de permiso de sus subagentes se denegaban sin preguntarte; ahora te llegan.
+- Codex: «Buscar en todas las sesiones», el informe de sesiones y restaurar desde una copia apenas veían conversaciones de Codex, porque las versiones nuevas las guardan en bases de datos; ahora las leen (sin cambiar nada).
+- La letra de acceso de un campo desactivado de «Nueva sesión» u «Opciones de la sesión» ya no te lleva al campo siguiente.
+- NVDA ya no lee de golpe, al abrir un diálogo, las etiquetas de los campos con un nombre más completo, y una lista sencilla ya no se lee dos veces al llegar a ella con Tab.
+
+### Mejoras
+
+- Lo que Codex permite solo con su revisión automática ya no llena la conversación ni se anuncia uno a uno: se ve con «Mostrar las herramientas» (Ctrl+T) y el Estado del turno da los recuentos. Lo que no permite se dice siempre, una vez y sin cortar lo que estés oyendo.
+- Si tu lector de pantalla se reinicia, Ctrl+IA vuelve a hablar por él solo.
+- Al arrancar se borran los restos de copias de seguridad abiertas que pudo dejar un cierre a medias.
+
 ## Versión 1.5.3 - 2026-11-01
 
 ### Novedades

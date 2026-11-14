@@ -73,6 +73,43 @@ class TipoEvento(enum.StrEnum):
 	ESTADO = "estado"
 	#: Fin del turno; ``datos``: ``correcto``, ``interrumpido``, ``resumen``.
 	FIN_TURNO = "fin_turno"
+	#: Algo que corre junto a la conversación (subagente, orden en segundo plano...): ver :data:`CAMPOS_ACTIVIDAD`.
+	ACTIVIDAD = "actividad"
+
+
+#: Campos de ``datos`` de un evento ``ACTIVIDAD`` (FastChat «Activity», AIChat #468/#521, BlindPilot).
+#: Cada evento trae solo lo que cambia; la interfaz (``services/actividad.py``) los acumula por ``id``.
+#:
+#: - ``id`` (obligatorio): identificador estable de la tarea dentro de la sesión (``task_id`` de Claude Code,
+#:   ``processId`` o hilo hijo de Codex).
+#: - ``clase``: ``"subagente"``, ``"orden"`` (una orden o shell en segundo plano) u ``"otra"``.
+#: - ``estado``: ``"en_marcha"``, ``"completada"``, ``"fallida"`` o ``"detenida"``.
+#: - ``titulo``: lo que hace, en una línea (``description``).
+#: - ``tipo_agente``: tipo del subagente (``general-purpose``, uno propio...).
+#: - ``encargo``: lo que se le pidió (``prompt``).
+#: - ``orden``: la orden de una ``"orden"``.
+#: - ``paso``: lo que hace ahora (sustituye al anterior).
+#: - ``paso_nuevo``: un paso que se añade a su historial («Lee x.py», «Dice: ...», «Resultado: ...»).
+#: - ``salida``: trozo de salida que se añade (las órdenes); ``archivo_salida``: archivo donde escribe su salida.
+#: - ``tokens``, ``usos_herramientas``, ``duracion_ms``: números, si el agente los da.
+#: - ``resumen``: su resumen final.
+#: - ``segundo_plano``: si corre en segundo plano (la conversación sigue sin esperarla).
+#: - ``detenible``: si ``Conversacion.detener_tarea`` puede pararla.
+CAMPOS_ACTIVIDAD = ("id", "clase", "estado", "titulo", "tipo_agente", "encargo", "orden", "paso", "paso_nuevo",
+	"salida", "archivo_salida", "tokens", "usos_herramientas", "duracion_ms", "resumen", "segundo_plano", "detenible")
+
+#: Claves de ``datos`` de un ``AVISO`` que la interfaz trata de forma especial (además de las que ya existían):
+#:
+#: - ``servicio=True``: problema del servicio del agente (reintentos, sobrecarga); suena «problema del servicio».
+#: - ``uso_extra=True``: el agente está gastando uso adicional DE PAGO (Claude ``isUsingOverage``): aviso importante.
+#: - ``modo_cambiado="<id del modo>"``: el agente ha cambiado su modo de permisos por su cuenta (al aprobar un plan,
+#:   EnterPlanMode...); el gestor lo guarda en la sesión.
+#: - ``modelo_cambiado="<modelo>"``: el turno sigue con otro modelo (``model_fallback``).
+#: - ``compactando=True``: empieza a compactar la conversación; ``compactado=True``: ha terminado.
+#: - ``memoria_guardada=True``: el agente ha guardado algo en su memoria (solo se dice con la narración completa).
+#: - ``detalle_tecnico="..."``: lo que dijo el agente tal cual (también en ``ERROR``), para leerlo con Intro.
+AVISOS_ESPECIALES = ("servicio", "uso_extra", "modo_cambiado", "modelo_cambiado", "compactando", "compactado",
+	"memoria_guardada", "detalle_tecnico")
 
 
 class Estado(enum.StrEnum):
@@ -206,8 +243,19 @@ class AjustesSesion:
 	bifurcar_de: str = ""
 	#: Reglas «permitir durante esta sesión» ya concedidas.
 	reglas_permitidas: list[str] = field(default_factory=list)
-	#: Opciones propias de cada agente.
+	#: Opciones propias de cada agente. Claves comunes (ver ``Capacidades``):
+	#:
+	#: - ``instrucciones``: instrucciones de la sesión (texto, como mucho :data:`MAX_INSTRUCCIONES` caracteres).
+	#: - ``carpetas_adicionales``: otras carpetas en las que puede trabajar (nunca una unidad entera).
+	#: - ``cortar_en``: con ``bifurcar_de``, ``{"modo": "bifurcar"|"reintentar", "ancla": "..."}``: la sesión nueva
+	#:   recuerda la de origen solo hasta ese mensaje. ``ancla`` es la de ``datos["ancla"]`` del mensaje (Claude:
+	#:   ``uuid`` del registro; Codex: ``"<turnId>:<itemId>"``). «bifurcar» incluye el mensaje; «reintentar», que se
+	#:   hace sobre un mensaje TUYO, corta justo antes de él.
 	extra: dict[str, Any] = field(default_factory=dict)
+
+
+#: Máximo de caracteres de ``extra["instrucciones"]`` (AIChat #527).
+MAX_INSTRUCCIONES = 8000
 
 
 @dataclass(slots=True)
@@ -250,6 +298,18 @@ class Capacidades:
 	#: Carga las skills del catálogo como habilidades propias (si no, se le presentan en el mensaje).
 	skills_nativas: bool = False
 	leer_historial_externo: bool = False
+	#: ``Conversacion.compactar`` resume la conversación para liberar contexto.
+	compactar: bool = False
+	#: ``Conversacion.detener_tarea`` para una sola tarea en segundo plano (subagente u orden).
+	detener_tareas: bool = False
+	#: ``Proveedor.preguntar_aparte``: una pregunta rápida sobre la sesión que no se añade a ella.
+	preguntar_aparte: bool = False
+	#: Sabe empezar una conversación nueva que recuerda otra solo hasta un mensaje (``extra["cortar_en"]``).
+	bifurcar_en_mensaje: bool = False
+	#: Admite ``extra["instrucciones"]`` (instrucciones de la sesión) y ``extra["carpetas_adicionales"]``.
+	instrucciones_sesion: bool = False
+	#: ``Conversacion.uso_contexto`` da el desglose del contexto por partes.
+	desglose_contexto: bool = False
 
 
 ReceptorEventos = Callable[[Evento], None]
@@ -322,13 +382,54 @@ class Conversacion(ABC):
 		"""Reconecta un servidor MCP. Puede bloquear; ``RuntimeError`` con el motivo si no se puede."""
 		raise NotImplementedError("Este agente no reconecta sus servidores MCP desde Ctrl+IA")
 
-	def activar_mcp(self, nombre: str, activo: bool) -> None:
-		"""Activa o desactiva un servidor MCP. Puede bloquear; ``RuntimeError`` con el motivo si no se puede."""
+	def activar_mcp(self, nombre: str, activo: bool, solo_sesion: bool = False) -> None:
+		"""Activa o desactiva un servidor MCP. Puede bloquear; ``RuntimeError`` con el motivo si no se puede.
+
+		Con ``solo_sesion`` el cambio vale solo para esta sesión de Ctrl+IA y no se escribe en la configuración
+		del agente (Claude Code ``deniedMcpServers`` por ``--settings``); sin él, el agente lo guarda en la suya.
+		"""
 		raise NotImplementedError("Este agente no activa ni desactiva sus servidores MCP desde Ctrl+IA")
 
 	def orden_inicio_sesion_mcp(self, nombre: str) -> list[str] | None:
 		"""Orden para iniciar sesión en un servidor MCP en una consola, o ``None`` si no se puede desde aquí."""
 		return None
+
+	def url_inicio_sesion_mcp(self, nombre: str) -> str | None:
+		"""Dirección web para iniciar sesión en un servidor MCP o conector (la abre la persona en su navegador).
+
+		``None`` si este agente no la da (entonces se usa ``orden_inicio_sesion_mcp``). Puede bloquear: llamar
+		desde un hilo. ``RuntimeError`` con el motivo si debería darla y no puede.
+		"""
+		return None
+
+	def compactar(self) -> None:
+		"""Resume la conversación para liberar contexto (solo si ``Capacidades.compactar``).
+
+		Lo que pase llega como eventos normales (``AVISO`` con ``compactando``/``compactado``, ``FIN_TURNO``).
+		"""
+		raise NotImplementedError("Este agente no sabe compactar la conversación desde Ctrl+IA")
+
+	def detener_tarea(self, id_tarea: str) -> None:
+		"""Para una sola tarea en segundo plano (``ACTIVIDAD`` con ``detenible``). ``RuntimeError`` si no se puede.
+
+		Puede bloquear un momento: llamar desde un hilo. El final llega como un ``ACTIVIDAD`` con su estado.
+		"""
+		raise NotImplementedError("Este agente no detiene tareas sueltas")
+
+	def uso_contexto(self) -> list[tuple[str, int, str]] | None:
+		"""Desglose del contexto: ``[(parte, tokens, nota)]`` o ``None`` si no se sabe ahora.
+
+		``nota`` es «» o una aclaración («se carga cuando hace falta», «reservado para compactar»). Bloquea:
+		llamar desde un hilo.
+		"""
+		return None
+
+	def control_remoto(self, activar: bool) -> str:
+		"""Activa o quita el control remoto del agente (Claude Remote Control). Devuelve la dirección para seguirla.
+
+		Bloquea: llamar desde un hilo. ``RuntimeError`` con el motivo si no se puede.
+		"""
+		raise NotImplementedError("Este agente no tiene control remoto")
 
 	def anadir_al_turno(self, texto: str) -> None:
 		"""Mete el mensaje en el turno en marcha sin detenerlo (solo si ``Capacidades.anadir_al_turno``).
@@ -354,6 +455,29 @@ class Conversacion(ABC):
 	def pendientes(self) -> list[str]:
 		"""Mensajes en cola que aún no se han enviado (para devolverlos al cuadro)."""
 		return []
+
+	def retirar_de_cola(self, texto: str) -> bool:
+		"""Saca de la cola un mensaje que aún no ha salido (FastChat: Suprimir en un mensaje en cola). ``True`` si estaba.
+
+		Vale para los adaptadores cuya cola es ``self._cola`` (textos, o tuplas con el texto primero) protegida por
+		``self._candado``; Claude Code lleva además ``_uuids_cola`` en paralelo. El texto de la cola puede llevar
+		delante lo que añade el gestor (skills, la conversación anterior), así que basta con que acabe igual.
+		"""
+		candado = getattr(self, "_candado", None)
+		cola = getattr(self, "_cola", None)
+		if candado is None or cola is None or not texto.strip():
+			return False
+		with candado:
+			for indice, elemento in enumerate(list(cola)):
+				en_cola = elemento[0] if isinstance(elemento, tuple) else elemento
+				if not isinstance(en_cola, str) or not (en_cola == texto or en_cola.endswith("\n\n" + texto)):
+					continue
+				del cola[indice]
+				paralela = getattr(self, "_uuids_cola", None)
+				if isinstance(paralela, list) and indice < len(paralela):
+					del paralela[indice]
+				return True
+		return False
 
 	def deshacer_archivos(self, uuid_mensaje: str, prueba: bool = False) -> dict[str, Any] | None:
 		"""Devuelve los archivos al estado de antes del mensaje ``uuid_mensaje`` (Claude Code).
@@ -487,6 +611,17 @@ class Proveedor(ABC):
 	def modo_sin_dialogo(self, carpeta: Path | None = None) -> str:
 		"""Modo de una sesión que se crea sin enseñar el modo a la persona («Continuar aquí»)."""
 		return self.modo_predeterminado(carpeta)
+
+	def preguntar_aparte(self, ajustes: AjustesSesion, pregunta: str, al_texto: Callable[[str], None] | None = None,
+			cancelar: threading.Event | None = None) -> str:
+		"""Pregunta rápida sobre la sesión de ``ajustes`` que NO se añade a ella (solo si ``Capacidades.preguntar_aparte``).
+
+		Usa una copia de solo lectura de la conversación hasta su última respuesta terminada, sin herramientas
+		que cambien nada ni servidores MCP, y que no se guarda. ``al_texto`` recibe los trozos según llegan.
+		Devuelve la respuesta completa. Bloquea: llamar desde un hilo. ``RuntimeError`` con el motivo para la
+		persona si no se puede (nada terminado todavía, el agente no responde...). ``cancelar`` la corta.
+		"""
+		raise NotImplementedError("Este agente no admite preguntas aparte")
 
 	def leer_limites(self) -> Any:
 		"""Límites de uso de la cuenta (5 horas y semanal) sin enviar mensajes ni gastar cuota.

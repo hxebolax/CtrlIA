@@ -71,6 +71,29 @@ ROL_ASISTENTE = "asistente"
 ROL_HERRAMIENTA = "herramienta"
 ROL_SISTEMA = "sistema"
 ROL_ERROR = "error"
+#: Razonamiento del modelo (solo con «mensajes.razonamiento», como en vivo).
+ROL_RAZONAMIENTO = "razonamiento"
+_RE_UUID_REGISTRO = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _ancla(registro: dict) -> str:
+	"""El uuid de un registro del transcript, si tiene la forma de uno («» si no)."""
+	valor = registro.get("uuid")
+	return valor if isinstance(valor, str) and _RE_UUID_REGISTRO.match(valor) else ""
+
+
+def mostrar_razonamiento() -> bool:
+	"""Preferencias, «Guardar y mostrar el razonamiento» (``mensajes.razonamiento``), sin crear la configuración."""
+	from app.core import configuracion
+
+	instancia = getattr(configuracion, "_instancia", None)
+	if instancia is None:
+		return False
+	try:
+		return bool(instancia.obtener("mensajes.razonamiento", False))
+	except Exception:  # noqa: BLE001 - una opción ilegible deja el razonamiento oculto, como de fábrica
+		log.debug("No se pudo leer mensajes.razonamiento", exc_info=True)
+		return False
 
 
 @dataclass(slots=True)
@@ -108,6 +131,9 @@ class Mensaje:
 	herramienta: str = ""  # nombre si rol herramienta
 	detalle: str = ""  # entrada/salida de la herramienta, legible
 	cambios: list[dict] = field(default_factory=list)  # [{"ruta":..,"diff":..}]
+	#: ``ancla``: uuid del registro del transcript (mensajes del usuario y del asistente): con él se bifurca o se
+	#: reintenta desde este mensaje (``AjustesSesion.extra["cortar_en"]``).
+	datos: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -646,8 +672,10 @@ class _Analizador:
 	(``isSidechain``): los transcripts de ``subagents/`` solo tienen esos.
 	"""
 
-	def __init__(self, laterales: bool = False) -> None:
+	def __init__(self, laterales: bool = False, razonamiento: bool = False) -> None:
 		self.laterales = laterales
+		#: Mostrar el razonamiento con texto (bloques ``thinking``), como en vivo con «mensajes.razonamiento».
+		self.razonamiento = razonamiento
 		self.mensajes: list[Mensaje] = []
 		self.errores = 0
 		self.uso_contexto: int | None = None
@@ -836,7 +864,10 @@ class _Analizador:
 			# Ya se mostró al llegar encolado.
 			self._en_cola.remove(normal)
 			return
-		self._anadir(ROL_USUARIO, limpio, registro)
+		mensaje = self._anadir(ROL_USUARIO, limpio, registro)
+		ancla = _ancla(registro)
+		if ancla:
+			mensaje.datos["ancla"] = ancla
 
 	def _evento(self, etiqueta: str, texto: str, registro: dict) -> None:
 		"""Texto que escribe el arnés de Claude Code, no la persona."""
@@ -926,10 +957,21 @@ class _Analizador:
 					self._modificados.append(ultimo)
 				else:
 					self._asistente = self._anadir(ROL_ASISTENTE, texto, registro, ident)
+					ultimo = self._asistente
+				ancla = _ancla(registro)
+				if ancla:
+					# El último registro con texto de la respuesta: cortar ahí la incluye entera.
+					ultimo.datos["ancla"] = ancla
 			elif tipo == "tool_use":
 				self._llamada(bloque, registro)
 				self._asistente = None
-			# thinking, redacted_thinking y bloques desconocidos: no se muestran
+			elif tipo == "thinking" and self.razonamiento:
+				# Como en vivo: solo el razonamiento con texto (los firmados vacíos no dicen nada).
+				pensado = str(bloque.get("thinking") or "").strip()
+				if pensado:
+					self._anadir(ROL_RAZONAMIENTO, pensado, registro, ident + ":razonamiento" if ident else "")
+					self._asistente = None
+			# redacted_thinking y bloques desconocidos: no se muestran
 
 	def _llamada(self, bloque: dict, registro: dict) -> None:
 		nombre = str(bloque.get("name") or "herramienta")
@@ -976,9 +1018,11 @@ class LectorTranscript:
 	modo lectura.
 	"""
 
-	def __init__(self, ruta: Path, laterales: bool = False) -> None:
+	def __init__(self, ruta: Path, laterales: bool = False, razonamiento: bool | None = None) -> None:
 		self.ruta = Path(ruta)
 		self._laterales = laterales
+		#: Si se muestra el razonamiento; ``None``: lo que diga «mensajes.razonamiento» en Preferencias.
+		self._razonamiento = mostrar_razonamiento() if razonamiento is None else bool(razonamiento)
 		self.reiniciado = False
 		#: Mensajes ya devueltos que la última ``leer_nuevo`` cambió (el
 		#: resultado de una herramienta, un bloque más de una respuesta).
@@ -988,7 +1032,7 @@ class LectorTranscript:
 	def _reiniciar(self) -> None:
 		self._posicion = 0
 		self._ancla = b""
-		self._analizador = _Analizador(self._laterales)
+		self._analizador = _Analizador(self._laterales, self._razonamiento)
 
 	@property
 	def errores(self) -> int:
@@ -1057,9 +1101,9 @@ class LectorTranscript:
 		return self.mensajes
 
 
-def leer_mensajes(ruta: Path) -> list[Mensaje]:
+def leer_mensajes(ruta: Path, razonamiento: bool | None = None) -> list[Mensaje]:
 	"""Todos los mensajes de un transcript (lectura única)."""
-	return LectorTranscript(ruta).leer_todo()
+	return LectorTranscript(ruta, razonamiento=razonamiento).leer_todo()
 
 
 @dataclass(slots=True)

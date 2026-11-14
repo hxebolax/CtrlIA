@@ -238,9 +238,11 @@ def test_trece_paginas_con_atajos_y_letras_propias(app_wx, dichos):
 
 	dialogo = _dialogo(_conversacion())
 	try:
-		assert dialogo.libro.GetPageCount() == 13
-		assert [dialogo.libro.GetPageText(i) for i in range(8, 13)] == [
-			"Errores", "Commits", "Incidencias y PR", "Archivos leídos", "Tus mensajes",
+		# 1.6.0: «Aprobaciones» y «Cambios sin confirmar en git», al final (no cambian los atajos de las demás).
+		assert dialogo.libro.GetPageCount() == 15
+		assert [dialogo.libro.GetPageText(i) for i in range(8, 15)] == [
+			"Errores", "Commits", "Incidencias y PR", "Archivos leídos", "Tus mensajes", "Aprobaciones",
+			"Cambios sin confirmar en git",
 		]
 		# Ninguna letra se repite en el diálogo: etiquetas de las listas, «Mostrar», «Filtrar» y «Cerrar».
 		letras = [_letra(e.GetLabel()) for e in dialogo.etiquetas.values()]
