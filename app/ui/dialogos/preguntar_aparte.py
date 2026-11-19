@@ -1,7 +1,7 @@
 """«Preguntar aparte» (Ctrl+Alt+S): una pregunta rápida sobre la sesión que no se añade a ella.
 
 El agente contesta con una copia de solo lectura de la conversación hasta su
-última respuesta terminada (AIChat #467/#468/#559): sin herramientas que
+última respuesta terminada: sin herramientas que
 cambien nada, sin servidores MCP y sin guardar nada. Se puede preguntar
 mientras el agente trabaja en la sesión. Las preguntas siguientes llevan
 delante las anteriores con sus respuestas, para poder repreguntar.

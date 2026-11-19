@@ -11,7 +11,7 @@ import wx
 
 from app.services.agentes import codex
 from app.services.agentes.claude import ConversacionClaude, _ProcesoClaude
-from tests.test_aichat_codex import _MODELOS, ServidorFalso, _conversacion
+from tests.test_codex_incidencias import _MODELOS, ServidorFalso, _conversacion
 
 # ── Coste de Claude Code: acumulado de la sesión y de cada respuesta ─────────
 

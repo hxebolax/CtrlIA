@@ -4,7 +4,7 @@ Intro en la lista envía; en el mensaje, Intro empieza una línea nueva y
 Ctrl+Intro envía, como en el cuadro de respuesta. Si el mensaje no puede ir a
 esa sesión, el diálogo sigue abierto con el motivo: nada de lo escrito se pierde.
 
-La última entrada de la lista es «Nueva sesión...» (AIChat #379): la abre con el
+La última entrada de la lista es «Nueva sesión...»: la abre con el
 mensaje puesto. Una casilla ofrece además arrancar con la respuesta una
 conversación automática entre las dos sesiones; si no se puede con la sesión
 elegida, su etiqueta dice por qué en lugar de desaparecer o quedar inaccesible.

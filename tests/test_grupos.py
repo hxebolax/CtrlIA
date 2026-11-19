@@ -167,7 +167,7 @@ def test_orden_mover_y_datos_de_los_grupos(almacen):
 def test_indicadores_de_los_mensajes():
 	todo = _opcion_desde({})
 	texto = "Mira https://a.es y https://b.es (otra vez https://a.es).\n```py\nx = 1\n```\n¿Lo publico?"
-	# Un «?» al final no es una pregunta: solo cuentan las peticiones reales (ver test_aichat_listas).
+	# Un «?» al final no es una pregunta: solo cuentan las peticiones reales (ver test_listas_incidencias).
 	assert lectura_listas.indicadores_mensaje(texto, "asistente", 2, todo) == (
 		"1 bloque de código, 2 enlaces, 2 archivos cambiados"
 	)

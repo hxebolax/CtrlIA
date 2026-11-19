@@ -225,7 +225,7 @@ class DialogoServidoresMcp(wx.Dialog):
 	def alternar(self, solo_sesion: bool = True) -> bool:
 		"""Ctrl+D: desactiva el servidor o lo vuelve a activar SOLO en esta sesión; Ctrl+Mayús+D, en la configuración del agente.
 
-		AIChat (#554, ``claude_mcp.py``): el cambio que guarda Claude Code (``mcp_toggle``) apaga el servidor también en
+		El cambio que guarda Claude Code (``mcp_toggle``) apaga el servidor también en
 		la terminal y en la app de escritorio, y para siempre en esa carpeta. Por eso lo de fábrica es solo esta sesión, y
 		lo otro pregunta antes.
 		"""

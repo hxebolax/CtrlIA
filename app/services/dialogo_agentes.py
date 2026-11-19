@@ -1,4 +1,4 @@
-"""Conversación automática entre dos sesiones de Ctrl+IA (AIChat #248, segunda parte), sin wx.
+"""Conversación automática entre dos sesiones de Ctrl+IA, sin wx.
 
 Dos sesiones propias, de cualquier agente (Claude, Codex, Antigravity...), se
 hablan solas durante unos turnos: por ejemplo, Claude escribe y Codex revisa.
@@ -8,7 +8,7 @@ terminado», lo que ya tienen todos los agentes:
 
 1. Se envía la tarea a la primera sesión (A), con una presentación que le dice
    con quién habla, su papel y cómo decir que ha terminado (``MARCA_FIN``). Si
-   nace de una respuesta reenviada (AIChat #379), A recibe esa respuesta.
+   nace de una respuesta reenviada, A recibe esa respuesta.
 2. Cuando A termina su turno (``TipoEvento.FIN_TURNO`` de esa sesión), su
    última respuesta va a B con la etiqueta de ``reenviar`` (de qué agente es) y
    la lista de archivos que cambió en ese turno, para que quien revisa sepa qué mirar.
@@ -413,7 +413,7 @@ class ConversacionEntreSesiones:
 		return self.activa
 
 	def empezar_con_respuesta(self, texto: str, respuesta: str = "", de_la_persona: str = "") -> bool:
-		"""Arranca con una respuesta ya escrita por B: A la recibe y contesta primero (AIChat #379).
+		"""Arranca con una respuesta ya escrita por B: A la recibe y contesta primero.
 
 		:param texto: lo que recibe A, sin la presentación; va ya con su etiqueta.
 		:param respuesta: la respuesta de B, para la vista y para comparar con lo que conteste A.

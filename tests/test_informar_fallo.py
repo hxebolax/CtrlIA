@@ -1,4 +1,4 @@
-"""Informar de un fallo (AIChat #465): qué se incluye, qué no sale nunca y la dirección de GitHub.
+"""Informar de un fallo: qué se incluye, qué no sale nunca y la dirección de GitHub.
 
 Sin red ni navegador: ``webbrowser.open`` se sustituye y nunca se muestra el diálogo.
 """

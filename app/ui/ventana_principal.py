@@ -468,7 +468,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 		tecla, mods = evento.GetKeyCode(), evento.GetModifiers()
 		foco = wx.Window.FindFocus()
 		if tecla == wx.WXK_CONTROL:
-			# Como con un lector de pantalla: Control calla la voz de Windows de Ctrl+IA (FastChat).
+			# Como con un lector de pantalla: Control calla la voz de Windows de Ctrl+IA.
 			voz.callar()
 			evento.Skip()
 			return
@@ -703,7 +703,7 @@ class VentanaPrincipal(MixinDisposicion, MixinSesiones, MixinMensajes, MixinConv
 			from app.ui.accesibilidad.dialogos import confirmar
 
 			if self.respuesta.GetValue().strip() and self.opcion("general.avisar_texto_sin_enviar", True):
-				# BlindPilot: lo escrito y no enviado se perdería al cerrar.
+				# Lo escrito y no enviado se perdería al cerrar.
 				if confirmar(self, _("Tienes un mensaje escrito sin enviar en el cuadro de respuesta. Si sales, se perderá. "
 						"¿Salir de todas formas?"), _("Salir de Ctrl+IA"), peligroso=True) != wx.ID_YES:
 					evento.Veto()

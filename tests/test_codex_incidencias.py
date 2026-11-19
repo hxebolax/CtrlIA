@@ -1,4 +1,4 @@
-"""Incidencias de AIChat sobre Codex (#333, #338, #298, #302, #297, #305 y #173).
+"""Incidencias sobre Codex (#333, #338, #298, #302, #297, #305 y #173).
 
 - Reglas «Permitir … con cualquier argumento durante esta sesión»: solo en la carpeta
   raíz, nunca con opciones destructivas de git ni órdenes encadenadas, ni con un

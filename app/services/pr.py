@@ -1,4 +1,4 @@
-"""Estado de la PR de una sesión y de sus comprobaciones automáticas (CI), sin interfaz (AIChat #236).
+"""Estado de la PR de una sesión y de sus comprobaciones automáticas (CI), sin interfaz.
 
 Se usa la herramienta oficial ``gh`` con la sesión que la persona ya tenga
 iniciada, solo para LEER: Ctrl+IA nunca cambia nada en GitHub.
@@ -10,7 +10,7 @@ iniciada, solo para LEER: Ctrl+IA nunca cambia nada en GitHub.
   las líneas de alrededor de cada ``##[error]``.
 
 Formato real de ``statusCheckRollup`` (gh 2.100, comprobado con PR de
-TheIdeaPlace/AIChat, cli/cli y vercel/next.js)::
+varios proyectos, como cli/cli y vercel/next.js)::
 
 	{"__typename": "CheckRun", "name": "lint", "workflowName": "Lint",
 	 "status": "COMPLETED", "conclusion": "FAILURE",

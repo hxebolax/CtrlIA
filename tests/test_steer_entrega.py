@@ -1,4 +1,4 @@
-"""«Añadir al turno»: qué le pasa al mensaje si el agente no lo confirma (AIChat #238, #239, #402, #410).
+"""«Añadir al turno»: qué le pasa al mensaje si el agente no lo confirma.
 
 Tres finales posibles, y solo tres:
 

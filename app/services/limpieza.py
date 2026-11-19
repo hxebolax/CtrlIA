@@ -1,4 +1,4 @@
-"""Restos que una sesión anterior de Ctrl+IA pudo dejar en ``data/temp`` (AIChat #494).
+"""Restos que una sesión anterior de Ctrl+IA pudo dejar en ``data/temp``.
 
 Restaurar o comprobar una copia de seguridad saca archivos a ``data/temp``
 (``copia-abierta-*``, ``copia-*``, ``restaurar-*``) y los borra al terminar;

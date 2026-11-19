@@ -8,8 +8,8 @@ Las reglas son solo de esta sesión y solo las guarda Ctrl+IA: nunca se
 escriben en los archivos de configuración de Claude Code ni de Codex. Con
 Claude Code, «Permitir durante esta sesión» guarda también la carpeta que
 sugiere (``Carpeta(ruta)``). Debajo, solo para leer, las reglas de la propia
-configuración del agente para esa carpeta (AIChat #336) y, en los modos de Codex
-con revisión automática, lo que Codex ha decidido sin preguntarte (AIChat #374).
+configuración del agente para esa carpeta y, en los modos de Codex
+con revisión automática, lo que Codex ha decidido sin preguntarte.
 
 - Claude Code las recibe al empezar cada turno: quitar una surte efecto desde
   el próximo mensaje (el turno en marcha conserva lo que tenía).
@@ -62,7 +62,7 @@ def describir_regla(regla: str) -> str:
 	if regla.startswith("Orden(") and regla.endswith(")"):
 		orden, separador, interprete = regla[6:-1].partition("; ")
 		if separador and interprete:
-			# Codex: regla atada al intérprete que envuelve la orden (PowerShell, AIChat #478).
+			# Codex: regla atada al intérprete que envuelve la orden (PowerShell).
 			return _("Ejecutar «{orden}» con cualquier argumento, solo dentro de {i}").format(orden=orden, i=interprete)
 		return _("Ejecutar «{orden}» con cualquier argumento").format(orden=regla[6:-1])
 	if regla.startswith("Carpeta(") and regla.endswith(")"):
@@ -145,7 +145,7 @@ class DialogoPermisosSesion(wx.Dialog):
 
 		self.reglas_agente: wx.TextCtrl | None = None
 		if reglas_agente:
-			# Solo lectura (AIChat #336): lo que el propio agente permite o deniega en esta carpeta.
+			# Solo lectura: lo que el propio agente permite o deniega en esta carpeta.
 			_e, self.reglas_agente = crear_campo(panel, _("&Reglas de la configuración de {a}:").format(a=nombre_agente),
 				wx.TextCtrl, value=reglas_agente, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
 				ayuda=_("Lo que la propia configuración de {a} permite, pregunta siempre o no permite nunca en esta "
@@ -155,7 +155,7 @@ class DialogoPermisosSesion(wx.Dialog):
 
 		self.decisiones: wx.TextCtrl | None = None
 		if decisiones:
-			# Solo lectura (AIChat #374): lo que Codex decidió sin preguntarte, porque elegiste ese modo.
+			# Solo lectura: lo que Codex decidió sin preguntarte, porque elegiste ese modo.
 			_e, self.decisiones = crear_campo(panel, _("&Decisiones de la revisión automática:"), wx.TextCtrl, value=decisiones,
 				style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
 				ayuda=_("Lo que {a} ha permitido o denegado por sí mismo en esta sesión, una decisión por línea, la más "

@@ -157,7 +157,7 @@ def test_aprobacion_de_orden(entorno, opcion, error):
 	assert solicitud.tipo is TipoSolicitud.HERRAMIENTA
 	assert solicitud.titulo == "Codex quiere ejecutar una orden"
 	assert "dir" in solicitud.detalle and "Necesito ver los archivos" in solicitud.detalle
-	# El «durante esta sesión» de Codex no se ofrece en órdenes: sigue valiendo aunque cambies de modo (AIChat #298).
+	# El «durante esta sesión» de Codex no se ofrece en órdenes: sigue valiendo aunque cambies de modo.
 	assert [(o.id, o.clase) for o in solicitud.opciones] == [
 		("accept", ClaseOpcion.PERMITIR),
 		("decline", ClaseOpcion.DENEGAR),
@@ -334,7 +334,7 @@ def test_enviar_ahora_detiene_y_envia(entorno):
 
 
 def test_permitir_orden_durante_la_sesion_lo_recuerda_ctrl_ia(entorno, tmp_path):
-	(tmp_path / ".git").mkdir()  # las reglas de git solo valen en la raíz de un repositorio (AIChat #333)
+	(tmp_path / ".git").mkdir()  # las reglas de git solo valen en la raíz de un repositorio
 	_proveedor, conversacion, eventos, registro = entorno("regla")
 	conversacion.enviar("git commit -m primero")
 	solicitud = eventos.esperar(TipoEvento.PERMISO)[0].datos["solicitud"]
@@ -399,7 +399,7 @@ def test_regla_no_cubre_otra_carpeta_ni_necesidades_extra(entorno, tmp_path):
 	(tmp_path / ".git").mkdir()
 	base = {"command": "git commit -m x", "cwd": str(tmp_path)}
 	assert conversacion._regla_que_permite(base) == "Orden(git commit)"  # noqa: SLF001
-	# Solo en la carpeta raíz de la sesión, no en una subcarpeta (AIChat #333).
+	# Solo en la carpeta raíz de la sesión, no en una subcarpeta.
 	assert not conversacion._regla_que_permite(dict(base, cwd=str(tmp_path / "sub")))  # noqa: SLF001
 	assert not conversacion._regla_que_permite(dict(base, cwd=str(tmp_path.parent)))  # noqa: SLF001
 	assert not conversacion._regla_que_permite({"command": "git commit -m x"})  # noqa: SLF001 - sin carpeta, se pregunta

@@ -229,7 +229,7 @@ def test_pregunta_sin_texto_previo_no_tiene_contexto(tmp_path, entorno, monkeypa
 
 
 def test_claude_ofrece_anadir_al_turno():
-	# Comprobado con Claude Code 2.1.238: lee el mensaje a mitad de turno sin interrumpir (AIChat #238).
+	# Comprobado con Claude Code 2.1.238: lee el mensaje a mitad de turno sin interrumpir.
 	assert ProveedorClaude().capacidades.anadir_al_turno is True
 
 

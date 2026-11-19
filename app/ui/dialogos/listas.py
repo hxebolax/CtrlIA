@@ -21,7 +21,7 @@ Quince páginas (``wx.Notebook``), cada una con una lista accesible:
 - **Incidencias y PR**: Referencia, Tipo, Dónde se cita (GitHub).
 - **Archivos leídos**: Archivo, Veces, Con (herramienta u orden).
 - **Tus mensajes**: Mensaje, Fecha.
-- **Aprobaciones** (1.6.0, AIChat #564): Acción, Decisión, Riesgo, Fecha: lo
+- **Aprobaciones** (1.6.0): Acción, Decisión, Riesgo, Fecha: lo
   que decidió la revisión automática de Codex, la más reciente primero.
 - **Cambios sin confirmar en git** (1.6.0): Archivo, Cambios, Carpeta: lo que
   ``git`` ve cambiado en la carpeta de la sesión respecto al último commit (y

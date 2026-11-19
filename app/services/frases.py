@@ -2,9 +2,9 @@
 
 - :func:`para_voz` quita lo que el lector diría como símbolos (``#``, ``*``,
   ``|``, vallas de código...) y, si se pide, cambia cada bloque de código por
-  «Bloque de código.» (FastChat ``StripMarkdownForSpeech`` y ``PrepareForSpeech``).
+  «Bloque de código.».
 - :class:`LectorFrases` suelta frases enteras según llega la respuesta, para
-  oír las primeras sin esperar a que termine (BlindPilot ``SentenceStreamer``):
+  oír las primeras sin esperar a que termine:
   una frase solo sale cuando ya ha llegado lo que va detrás de su signo de
   cierre, así nunca se lee media palabra («*.» seguido de «txt»), y un bloque
   de código abierto espera a cerrarse. Solo guarda lo pendiente: el coste no

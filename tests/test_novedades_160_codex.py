@@ -3,19 +3,19 @@
 Contra el ``codex app-server`` falso (``tests/fakes/fake_codex.py``) y bases SQLite de
 prueba: sin Codex real, sin red, sin ventanas y sin tocar ``~/.codex`` de quien las pasa.
 
-1. Peticiones de subagentes (AIChat #521).
-2. Historial de Codex en SQLite (BlindPilot).
-3. Mensajes largos en un archivo (AIChat #625).
-4. Hilo que Codex ya no tiene (AIChat codex_owned).
-5. «Permitir con cualquier argumento» con PowerShell envolviendo la orden (AIChat #478).
-6. Comandos de barra y skills de Codex (AIChat #600 y #467).
+1. Peticiones de subagentes.
+2. Historial de Codex en SQLite.
+3. Mensajes largos en un archivo.
+4. Hilo que Codex ya no tiene.
+5. «Permitir con cualquier argumento» con PowerShell envolviendo la orden.
+6. Comandos de barra y skills de Codex.
 7. Actividad en vivo: salida de órdenes, subagentes y terminales en segundo plano.
-8. Instrucciones y carpetas adicionales (AIChat #527).
-9. Servidores MCP de Codex (AIChat #554 y #626).
-10. Comandos de sesión (ccd_session_mgmt) también para Codex (AIChat #557).
+8. Instrucciones y carpetas adicionales.
+9. Servidores MCP de Codex.
+10. Comandos de sesión (ccd_session_mgmt) también para Codex.
 11. Bifurcar o reintentar desde un mensaje.
-12. Preguntar aparte (AIChat codex_aside).
-13. Preguntas de Codex fuera del modo Plan (BlindPilot).
+12. Preguntar aparte.
+13. Preguntas de Codex fuera del modo Plan.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def respuestas_cliente(registro: Path) -> list[dict]:
 	return [m for m in leer_registro(registro) if "method" not in m and "id" in m]
 
 
-# ── 1. Peticiones de subagentes (AIChat #521) ────────────────────────────────
+# ── 1. Peticiones de subagentes ────────────────────────────────
 
 
 def test_la_peticion_de_un_subagente_llega_a_la_conversacion_que_lo_lanzo(entorno):
@@ -252,7 +252,7 @@ def test_restaurar_codex_de_una_copia_con_sus_bases_sqlite(tmp_path, monkeypatch
 		almacen.cerrar()
 
 
-# ── 3. Mensajes largos (AIChat #625) ─────────────────────────────────────────
+# ── 3. Mensajes largos ─────────────────────────────────────────
 
 
 def test_modulo_de_mensajes_largos(data_temporal):
@@ -335,7 +335,7 @@ def test_listar_hilos_pide_todos_los_origenes_y_proveedores(entorno):
 	assert params["modelProviders"] == [] and params["sourceKinds"] == ["cli", "vscode", "exec", "appServer", "unknown"]
 
 
-# ── 5. PowerShell envolviendo la orden (AIChat #478) ─────────────────────────
+# ── 5. PowerShell envolviendo la orden ─────────────────────────
 
 POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
 
@@ -480,7 +480,7 @@ def test_compactar(entorno):
 	assert peticiones(registro, "thread/compact/start")[0]["params"] == {"threadId": "hilo-1"}
 	assert any(e.datos.get("compactando") for e in eventos.de_tipo(TipoEvento.AVISO))
 	assert any(e.datos.get("compactado") for e in eventos.de_tipo(TipoEvento.AVISO))
-	# Con un ajuste cambiado que Codex aún no tiene, primero un mensaje normal (AIChat).
+	# Con un ajuste cambiado que Codex aún no tiene, primero un mensaje normal.
 	conversacion.cambiar_ajustes(modelo="otro")
 	with pytest.raises(RuntimeError, match="envía antes un mensaje normal"):
 		conversacion.compactar()
@@ -625,7 +625,7 @@ def test_inicio_de_sesion_mcp_que_falla(entorno):
 	esperar_que(eventos, lambda e: e.tipo is TipoEvento.AVISO and "No se ha completado" in e.texto and "denegado" in e.texto)
 
 
-# ── 10. Comandos de sesión también para Codex (AIChat #557) ──────────────────
+# ── 10. Comandos de sesión también para Codex ──────────────────
 
 
 class SesionesFalsas:

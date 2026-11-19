@@ -63,7 +63,7 @@ NOTA_CITAS = ("Te respondo por partes: debajo de cada fragmento citado (las lín
 
 
 #: Avisos que Ctrl+IA deja cuando contesta por ti con una regla que ya diste: no son lo último que
-#: quieres oír al abrir la sesión (AIChat #338).
+#: quieres oír al abrir la sesión.
 _AVISOS_DE_REGLA = ("Permitido «", "También se ha permitido", "También se han permitido")
 
 
@@ -565,7 +565,7 @@ class MixinMensajes:
 			else:
 				texto += "\n\n---\n\n```\n" + mensaje.detalle + "\n```"
 		if mensaje.datos.get("detalle_tecnico"):
-			# Lo que dijo el agente tal cual (FastChat): para entender un error o pasarlo en un informe.
+			# Lo que dijo el agente tal cual: para entender un error o pasarlo en un informe.
 			texto += "\n\n---\n\n" + _("Detalle técnico:") + "\n\n```\n" + str(mensaje.datos["detalle_tecnico"]) + "\n```"
 		if formato:
 			texto = markdown_seguro(texto)
@@ -640,7 +640,7 @@ class MixinMensajes:
 		self.nueva_sesion_desde_mensaje(mensaje, seleccion)
 
 	def accion_reenviar(self) -> None:
-		"""Ctrl+Alt+R: enviar la respuesta elegida (o la última del agente) a otra sesión (AIChat #248)."""
+		"""Ctrl+Alt+R: enviar la respuesta elegida (o la última del agente) a otra sesión."""
 		elegido = self.mensaje_actual() if wx.Window.FindFocus() is self.lista_mensajes else None
 		self.reenviar_a_otra_sesion(elegido)
 
@@ -708,7 +708,7 @@ class MixinMensajes:
 
 	def _reenviar_a_sesion_nueva(self, fila: FilaSesion, mensaje: MensajeVista, texto: str, conversar: bool, max_turnos: int,
 			aprobar: bool) -> bool:
-		"""Abre «Nueva sesión» con la respuesta como primer mensaje (AIChat #379): agente y carpeta los elige la persona.
+		"""Abre «Nueva sesión» con la respuesta como primer mensaje: agente y carpeta los elige la persona.
 
 		Propone lo mismo que la sesión de origen. Con ``conversar``, la nueva arranca con ella una
 		conversación automática en lugar de recibir un mensaje suelto.
@@ -743,7 +743,7 @@ class MixinMensajes:
 		return self.accion_nueva_sesion(carpeta=carpeta, mensaje=texto, agente=agente, titulo=titulo, preparar=preparar,
 			enviar_primero=enviar_primero)
 
-	# Conversación automática entre dos sesiones (AIChat #248, segunda parte): app/ui/dialogos/dialogo_agentes.py.
+	# Conversación automática entre dos sesiones: app/ui/dialogos/dialogo_agentes.py.
 
 	def accion_conversacion_sesiones(self) -> None:
 		from app.ui.dialogos import dialogo_agentes
@@ -911,7 +911,7 @@ class MixinMensajes:
 		return menu
 
 	def retirar_mensaje_en_cola(self, mensaje: MensajeVista | None) -> bool:
-		"""Suprimir en un mensaje tuyo que espera en la cola: no sale y vuelve al cuadro de respuesta (FastChat)."""
+		"""Suprimir en un mensaje tuyo que espera en la cola: no sale y vuelve al cuadro de respuesta."""
 		if mensaje is None or mensaje.rol != "usuario" or not self.sesion_actual.startswith("ctrlia:"):
 			avisos.anunciar(_("Suprimir solo retira de la cola un mensaje tuyo que aún no ha salido."), interrumpir=True)
 			return False

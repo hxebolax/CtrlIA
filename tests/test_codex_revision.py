@@ -1,11 +1,11 @@
 """Codex: lo que se relee con ``thread/read``, la revisión automática de aprobaciones, sus reglas y su memoria.
 
 - Un cambio de archivos rechazado o fallido no cuenta como hecho al releer el hilo.
-- «Revisión automática» (AIChat #358, #374): dos modos más; quien aprueba es Codex porque la
+- «Revisión automática»: dos modos más; quien aprueba es Codex porque la
   persona lo eligió para esa sesión. Las notificaciones ``item/autoApprovalReview/*`` son solo
   para mostrar: nunca responden nada por su cuenta.
-- Reglas guardadas (AIChat #343): los ``.rules`` se analizan con ``ast`` y nunca se ejecutan.
-- Lo que Codex sabe de ti (AIChat #371): la carpeta ``memories``.
+- Reglas guardadas: los ``.rules`` se analizan con ``ast`` y nunca se ejecutan.
+- Lo que Codex sabe de ti: la carpeta ``memories``.
 
 Nada se muestra ni habla.
 """
@@ -212,7 +212,7 @@ def test_el_gestor_guarda_la_decision_con_su_aviso_y_el_en_curso_no(tmp_path):
 
 
 def test_la_ventana_dice_solo_lo_no_permitido_aunque_sea_de_otra_sesion(monkeypatch):
-	"""AIChat #564: lo permitido es rutina (solo con «Mostrar las herramientas» y anunciar acciones); lo demás, una vez."""
+	"""Lo permitido es rutina (solo con «Mostrar las herramientas» y anunciar acciones); lo demás, una vez."""
 	from types import SimpleNamespace
 
 	from app.ui import avisos

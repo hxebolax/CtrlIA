@@ -424,7 +424,7 @@ def aplicacion_activa() -> bool:
 	return bool(aplicacion and aplicacion.IsActive())
 
 
-#: Notificaciones que siguen en pantalla: si se soltaran, se perdería lo que hace pulsarlas (BlindPilot).
+#: Notificaciones que siguen en pantalla: si se soltaran, se perdería lo que hace pulsarlas.
 _notificaciones: list[Any] = []
 _MAX_NOTIFICACIONES = 20
 

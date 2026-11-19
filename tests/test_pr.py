@@ -1,7 +1,7 @@
-"""Estado de la PR y de las comprobaciones (CI) de una sesión (AIChat #236).
+"""Estado de la PR y de las comprobaciones (CI) de una sesión.
 
 gh nunca se ejecuta de verdad: se simula con el formato real de ``gh pr view
---json`` y de ``gh run view --log-failed`` (gh 2.100, PR de TheIdeaPlace/AIChat
+--json`` y de ``gh run view --log-failed`` (gh 2.100, PR de ejemplo/proyecto
 y de cli/cli). Nada de red ni de ventanas a la vista.
 """
 
@@ -17,28 +17,28 @@ from app.services import pr
 
 # ── JSON reales (recortados) ─────────────────────────────────────────────────
 
-#: TheIdeaPlace/AIChat PR 340 (fusionada, todo correcto; CodeQL sin /actions/ y un trabajo omitido).
+#: ejemplo/proyecto PR 340 (fusionada, todo correcto; CodeQL sin /actions/ y un trabajo omitido).
 PR_CORRECTA = {
 	"headRefName": "relay-waiting-on-exit", "isDraft": False, "mergeable": "UNKNOWN", "number": 340,
 	"reviewDecision": "", "state": "MERGED",
 	"statusCheckRollup": [
 		{"__typename": "CheckRun", "completedAt": "2026-10-21T13:16:04Z", "conclusion": "SUCCESS",
-			"detailsUrl": "https://github.com/TheIdeaPlace/AIChat/actions/runs/39606383244/job/119243535343",
+			"detailsUrl": "https://github.com/ejemplo/proyecto/actions/runs/39606383244/job/119243535343",
 			"name": "Analyze (actions)", "startedAt": "2026-10-21T13:15:23Z", "status": "COMPLETED", "workflowName": "CodeQL"},
 		{"__typename": "CheckRun", "completedAt": "2026-10-21T13:18:28Z", "conclusion": "SUCCESS",
-			"detailsUrl": "https://github.com/TheIdeaPlace/AIChat/actions/runs/39606392393/job/119243564699",
+			"detailsUrl": "https://github.com/ejemplo/proyecto/actions/runs/39606392393/job/119243564699",
 			"name": "pytest (Windows)", "startedAt": "2026-10-21T13:15:27Z", "status": "COMPLETED",
-			"workflowName": "The Chat Place tests"},
+			"workflowName": "Pruebas del proyecto"},
 		{"__typename": "CheckRun", "completedAt": "2026-10-21T13:26:34Z", "conclusion": "SKIPPED",
-			"detailsUrl": "https://github.com/TheIdeaPlace/AIChat/actions/runs/39606392429/job/119249216287",
+			"detailsUrl": "https://github.com/ejemplo/proyecto/actions/runs/39606392429/job/119249216287",
 			"name": "Publish the release", "startedAt": "2026-10-21T13:26:34Z", "status": "COMPLETED",
-			"workflowName": "Release The Chat Place"},
+			"workflowName": "Publicar el proyecto"},
 		{"__typename": "CheckRun", "completedAt": "2026-10-21T13:15:57Z", "conclusion": "SUCCESS",
-			"detailsUrl": "https://github.com/TheIdeaPlace/AIChat/runs/119243823798", "name": "CodeQL",
+			"detailsUrl": "https://github.com/ejemplo/proyecto/runs/119243823798", "name": "CodeQL",
 			"startedAt": "2026-10-21T13:15:55Z", "status": "COMPLETED", "workflowName": ""},
 	],
 	"title": "Quitting or updating counts a reply still waiting for a Codex chat to be ready (#248)",
-	"url": "https://github.com/TheIdeaPlace/AIChat/pull/340",
+	"url": "https://github.com/ejemplo/proyecto/pull/340",
 }
 
 #: cli/cli PR 14035 (borrador con conflictos; falla «lint»).
@@ -117,7 +117,7 @@ def test_pr_correcta_con_el_json_real():
 	assert estado.resultado == pr.RESULTADO_CORRECTAS
 	analizar = estado.comprobaciones[0]
 	assert (analizar.repositorio, analizar.id_ejecucion, analizar.id_trabajo) == (
-		"TheIdeaPlace/AIChat", "39606383244", "119243535343")
+		"ejemplo/proyecto", "39606383244", "119243535343")
 	codeql = estado.comprobaciones[-1]
 	assert codeql.id_trabajo == "" and codeql.flujo == ""
 	assert [c.estado for c in estado.comprobaciones].count(pr.OMITIDA) == 1

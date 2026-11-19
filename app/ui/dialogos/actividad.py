@@ -2,8 +2,7 @@
 
 Cada subagente y cada orden en segundo plano de la sesión, con su estado, sus
 cifras y lo que hace ahora; debajo, todo su detalle (el encargo, cada paso,
-el resumen y el final de su salida). Idea de FastChat («Activity»), AIChat
-(#468, #521, #600) y BlindPilot.
+el resumen y el final de su salida).
 
 - Se pone al día cada segundo SIN moverte: solo se reescriben las filas cuyo
   texto ha cambiado (el lector no relee la fila elegida si no cambia) y el

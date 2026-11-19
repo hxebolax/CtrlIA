@@ -87,7 +87,7 @@ Los ``system`` ``task_started``, ``task_progress``, ``task_updated`` y
 ``task_notification`` se convierten en ``ACTIVIDAD``; lo que llega con
 ``parent_tool_use_id`` (con ``--forward-subagent-text`` también su texto) son los
 pasos del subagente que lo lanzó y nunca entra en la conversación principal.
-Mientras hay tareas en segundo plano no hay tope tras el resultado (AIChat #485);
+Mientras hay tareas en segundo plano no hay tope tras el resultado;
 si el proceso muere con ellas vivas, el turno acaba como fallo. Detener el turno
 pide ``stop_task`` de cada subagente antes del ``interrupt``.
 
@@ -211,7 +211,7 @@ HERRAMIENTAS_SIN_REGLA = frozenset({HERRAMIENTA_ELICITACION, "AskUserQuestion", 
 DESTINOS_PERSISTENTES = frozenset({"localSettings", "projectSettings", "userSettings"})
 #: Opciones de una petición que conceden reglas (y con las que se resuelven las peticiones iguales pendientes).
 OPCIONES_CON_REGLA = frozenset({"permitir_sesion", "permitir_servidor_sesion", "permitir_siempre", "permitir_servidor_siempre"})
-#: Carpeta conservada con «Permitir durante esta sesión» (AIChat #334): va en ``reglas_permitidas``
+#: Carpeta conservada con «Permitir durante esta sesión»: va en ``reglas_permitidas``
 #: como ``Carpeta(ruta)``, igual que las reglas (se ve y se quita en «Permisos de la sesión»), y a
 #: Claude Code como ``--add-dir``, no como regla.
 PREFIJO_CARPETA = "Carpeta("
@@ -227,10 +227,10 @@ MINUTOS_ABIERTO_POR_DEFECTO = 15
 SEGUNDOS_POR_MINUTO = 60.0
 #: Segundos que se espera a que un proceso retirado (cambio de ajustes, sin uso) termine solo.
 ESPERA_RETIRAR = 5.0
-#: Margen tras la hora de una comprobación programada antes de poder cerrar el proceso (AIChat #233).
+#: Margen tras la hora de una comprobación programada antes de poder cerrar el proceso.
 MARGEN_PROGRAMADO = 120.0
 #: Si tras el resultado nunca llega «inactiva» (y nada más), se da el turno por terminado. No cuenta mientras hay
-#: tareas en segundo plano (AIChat #485: cerrar la entrada solo les deja 600 s más, y los subagentes morían a los
+#: tareas en segundo plano (cerrar la entrada solo les deja 600 s más, y los subagentes morían a los
 #: 10 o 20 minutos), y lo que llega después del resultado lo vuelve a empezar.
 ESPERA_TRAS_RESULTADO = 600.0
 #: Cuando la última tarea en segundo plano acaba con Claude Code ya inactivo, se espera esto antes de cerrar el turno
@@ -259,7 +259,7 @@ CLAVE_PROMPT_FRESCO = "prompt_fresco"
 CLAVE_HUELLA_PROMPT = "huella_prompt"
 #: ``extra`` de la sesión (opción que pone la interfaz): pedir a Claude que pregunte con AskUserQuestion.
 CLAVE_PREGUNTAS_HERRAMIENTA = "pedir_preguntas_con_herramienta"
-#: Lo que se añade al prompt de sistema con esa opción (BlindPilot claude_session.py).
+#: Lo que se añade al prompt de sistema con esa opción.
 TEXTO_PREGUNTAS_HERRAMIENTA = (
 	"Esta persona te usa desde Ctrl+IA, una aplicación pensada para manejarse con lector de pantalla. Cuando necesites "
 	"que te responda algo, pregúntalo con la herramienta AskUserQuestion en lugar de escribir la pregunta en tu "
@@ -316,7 +316,7 @@ def nombre_archivo(ruta: str) -> str:
 
 
 def lineas_cambiadas(antes: str, despues: str) -> tuple[int, int]:
-	"""``(añadidas, quitadas)`` entre dos versiones de un trozo, con un diff de verdad (BlindPilot)."""
+	"""``(añadidas, quitadas)`` entre dos versiones de un trozo, con un diff de verdad."""
 	if len(antes) + len(despues) > _MAX_COMPARAR:
 		return 0, 0
 	anadidas = quitadas = 0
@@ -366,7 +366,7 @@ def _cambio_de_edicion(nombre: str, entrada: dict[str, Any]) -> str:
 def describir_herramienta(nombre: str, entrada: dict[str, Any] | None) -> str:
 	"""Frase corta y legible: «Ejecutar orden: git status», «Editar archivo: app.py (2 líneas añadidas)».
 
-	De los archivos solo va el nombre (BlindPilot): la ruta entera sigue en el detalle.
+	De los archivos solo va el nombre: la ruta entera sigue en el detalle.
 	"""
 	entrada = entrada or {}
 	titulo = NOMBRES_HERRAMIENTAS.get(nombre)
@@ -704,7 +704,7 @@ class ProveedorClaude(Proveedor):
 		cambiar_modelo_en_marcha=True,
 		comandos_barra=True,
 		enviar_ahora=True,
-		# Comprobado con Claude Code 2.1.238 (AIChat #238): un mensaje escrito en la entrada a mitad
+		# Comprobado con Claude Code 2.1.238: un mensaje escrito en la entrada a mitad
 		# de turno, sin «interrupt», lo recoge en ese mismo turno, que acaba con un solo resultado.
 		anadir_al_turno=True,
 		# Las skills del catálogo van como complemento propio de la sesión (--plugin-dir).
@@ -744,7 +744,7 @@ class ProveedorClaude(Proveedor):
 		self._estilos: list[str] = []
 
 	def usar_chrome(self) -> bool:
-		"""Si Claude Code arranca con «Claude en Chrome» (AIChat #319)."""
+		"""Si Claude Code arranca con «Claude en Chrome»."""
 		try:
 			return bool(self._chrome() if callable(self._chrome) else self._chrome)
 		except Exception:  # noqa: BLE001 - una preferencia ilegible la deja desactivada, como de fábrica
@@ -832,7 +832,7 @@ class ProveedorClaude(Proveedor):
 		return limites.LimitesCuenta([], nota="Claude Code dice (en inglés): " + " ".join(texto.split()))
 
 	def estilos(self) -> list[OpcionLista]:
-		"""«Predeterminado» y los estilos de respuesta de Claude Code (AIChat #235)."""
+		"""«Predeterminado» y los estilos de respuesta de Claude Code."""
 		nombres = [e for e in (self._estilos or list(ESTILOS_CONOCIDOS)) if e and e.lower() != "default"]
 		opciones = [OpcionLista("", "Predeterminado de Claude Code", "El estilo de tu configuración de Claude Code.")]
 		for nombre in nombres:
@@ -851,7 +851,7 @@ class ProveedorClaude(Proveedor):
 		if not orden:
 			from app.services.agentes import instalacion
 
-			# Solo con npm (claude.cmd, la instalación antigua) no se puede usar: se explica qué hacer (AIChat #309).
+			# Solo con npm (claude.cmd, la instalación antigua) no se puede usar: se explica qué hacer.
 			return EstadoProveedor(
 				False,
 				mensaje=instalacion.aviso_claude_npm(lambda: None)
@@ -975,7 +975,7 @@ class ProveedorClaude(Proveedor):
 			self._comandos = comandos
 		return comandos
 
-	# -- Preguntar aparte (AIChat aside.py) --------------------------------------
+	# -- Preguntar aparte --------------------------------------
 
 	def orden_aparte(self, ajustes: AjustesSesion, origen: str, corte: str) -> list[str]:
 		"""La orden de una pregunta aparte: una copia de solo lectura de ``origen`` hasta ``corte``, que no se guarda.
@@ -1123,7 +1123,7 @@ class _ProcesoClaude:
 		self.relanzar = False
 
 	def tiene_programado(self, ahora: float) -> bool:
-		"""Si cerrar ahora perdería algo que Claude dejó programado (AIChat #233)."""
+		"""Si cerrar ahora perdería algo que Claude dejó programado."""
 		return self.tareas_cron > 0 or (self.despertar > 0 and ahora < self.despertar + MARGEN_PROGRAMADO)
 
 	def vivo(self) -> bool:
@@ -1201,7 +1201,7 @@ class ConversacionClaude(Conversacion):
 		self._reglas_siempre: set[str] = set()
 		#: Nombre de cada servidor MCP como va en sus herramientas (``claude_ai_Gmail``) → como se muestra.
 		self._servidores_mcp: dict[str, str] = {}
-		#: Lo que Claude Code dijo que tenía cargado en su último ``system/init`` (AIChat #311).
+		#: Lo que Claude Code dijo que tenía cargado en su último ``system/init``.
 		self._init: dict[str, Any] = {}
 		#: Servidores MCP de los que ya se ha avisado, con el estado avisado (nombre → estado).
 		self._mcp_avisados: dict[str, str] = {}
@@ -1266,7 +1266,7 @@ class ConversacionClaude(Conversacion):
 			uuid_mensaje = self.ultimo_uuid_usuario = str(uuid.uuid4())
 			if not turno.mensaje_escrito:
 				# Claude Code aún arranca y no tiene el primer mensaje: interrumpir ahora haría que este
-				# llegase antes que aquel (AIChat #83). Va a la cola y sale en cuanto termine el turno.
+				# llegase antes que aquel. Va a la cola y sale en cuanto termine el turno.
 				self._encolar(texto, [], uuid_mensaje)
 				self._emitir(TipoEvento.AVISO, "Claude todavía está empezando: tu mensaje queda en cola y se enviará "
 					"en cuanto termine este turno.", en_cola=len(self._cola))
@@ -1407,7 +1407,7 @@ class ConversacionClaude(Conversacion):
 		"""Pide a Claude Code que compacte la conversación: «/compact» como un mensaje normal.
 
 		El siguiente mensaje va siempre aparte (la cola manda uno por turno) y durante ese turno no se admite
-		«Añadir al turno»: lo tomaría por instrucciones para el resumen (FastChat 689da57).
+		«Añadir al turno»: lo tomaría por instrucciones para el resumen.
 		"""
 		self.enviar(ORDEN_COMPACTAR)
 
@@ -1618,7 +1618,7 @@ class ConversacionClaude(Conversacion):
 			listo = (turno is not None and not turno.terminado and turno.mensaje_escrito and not turno.interrumpido
 				and turno.proceso is not None and turno.proceso.vivo and not self._cerrada)
 			if listo and turno is not None and turno.compactar:
-				# Lo escrito durante «/compact» lo tomaría por instrucciones para el resumen (FastChat 689da57).
+				# Lo escrito durante «/compact» lo tomaría por instrucciones para el resumen.
 				self._emitir(TipoEvento.AVISO, "Claude está compactando la conversación: tu mensaje no se ha enviado para "
 					"que no se mezcle con el resumen. El texto vuelve al cuadro de respuesta; envíalo cuando termine.",
 					devolver_texto=texto)
@@ -1657,7 +1657,7 @@ class ConversacionClaude(Conversacion):
 			turno.interrumpido = True
 			proceso = turno.proceso
 			vivo = turno.vivo
-			# Un «interrupt» acaba el turno pero deja trabajando a sus subagentes (BlindPilot claude_session.py):
+			# Un «interrupt» acaba el turno pero deja trabajando a sus subagentes:
 			# detener tiene que pararlos también. Las órdenes en segundo plano siguen, como en Claude Code.
 			subagentes = [identificador for identificador, tarea in (vivo.tareas.items() if vivo is not None else ())
 				if tarea.get("clase") == "subagente" and tarea.get("estado") == "en_marcha"]
@@ -1985,7 +1985,7 @@ class ConversacionClaude(Conversacion):
 			textos_sistema.append(TEXTO_PREGUNTAS_HERRAMIENTA)
 		texto_sistema = "\n\n".join(textos_sistema)
 		if texto_sistema:
-			# Con «=»: un texto que empieza por «-» no se puede leer como otra opción (AIChat chat_options.py).
+			# Con «=»: un texto que empieza por «-» no se puede leer como otra opción.
 			orden.append("--append-system-prompt=" + texto_sistema)
 		if self._prompt_fresco(texto_sistema + "\0" + json.dumps(self._ajustes_cli().get("outputStyle") or "")):
 			# Claude Code guarda el prompt de sistema del primer turno y lo reutiliza tal cual (2.1.308): sin esto,
@@ -2066,7 +2066,7 @@ class ConversacionClaude(Conversacion):
 		"""Si hay que pasar ``--system-prompt-snapshot off`` porque el prompt de sistema cambió tras el primer turno.
 
 		La huella del primer proceso se guarda en ``extra["huella_prompt"]``; si después cambia (o la sesión ya existía
-		sin huella y lleva algo propio), ``extra["prompt_fresco"]`` queda a ``True`` para siempre (AIChat #468).
+		sin huella y lleva algo propio), ``extra["prompt_fresco"]`` queda a ``True`` para siempre.
 		"""
 		extra = self.ajustes.extra
 		if extra.get(CLAVE_PROMPT_FRESCO):
@@ -2585,7 +2585,7 @@ class ConversacionClaude(Conversacion):
 				self.ajustes.modo_permiso = self.ajustes.modo_permiso or nuevo
 
 	def _al_reintento(self, datos: dict[str, Any]) -> None:
-		"""``api_retry``: el servicio ha fallado y Claude Code lo reintenta (AIChat live_turn.py)."""
+		"""``api_retry``: el servicio ha fallado y Claude Code lo reintenta."""
 		intento, maximo = datos.get("attempt"), datos.get("max_retries")
 		motivo = ERRORES_SERVICIO.get(str(datos.get("error") or ""), "")
 		if not motivo and isinstance(datos.get("error_status"), int):
@@ -2626,7 +2626,7 @@ class ConversacionClaude(Conversacion):
 		turno.tareas_descritas = descritas
 		if tareas:
 			if turno.temporizador is not None:
-				# Sin tope mientras hay trabajo en segundo plano (AIChat #485).
+				# Sin tope mientras hay trabajo en segundo plano.
 				turno.temporizador.cancel()
 				turno.temporizador = None
 			self._cambiar_estado(Estado.SEGUNDO_PLANO)
@@ -2840,7 +2840,7 @@ class ConversacionClaude(Conversacion):
 				self._emitir(TipoEvento.USO, contexto_usado=usado, contexto_total=turno.contexto_total or None)
 
 	def _al_programar(self, turno: _Turno, nombre: str, entrada: dict[str, Any]) -> None:
-		"""Claude programa trabajo para más tarde dentro de su proceso: que no se cierre antes (AIChat #233)."""
+		"""Claude programa trabajo para más tarde dentro de su proceso: que no se cierre antes."""
 		vivo = turno.vivo
 		if vivo is None:
 			return
@@ -2982,7 +2982,7 @@ class ConversacionClaude(Conversacion):
 			self._armar_espera(turno)
 
 	def _armar_espera(self, turno: _Turno, corta: bool = False) -> None:
-		"""Tope tras el resultado si nunca llega «inactiva». Nunca con tareas en segundo plano (AIChat #485).
+		"""Tope tras el resultado si nunca llega «inactiva». Nunca con tareas en segundo plano.
 
 		:param corta: la última tarea en segundo plano acaba de terminar con Claude Code inactivo (``ESPERA_TRAS_FONDO``).
 		"""
@@ -3580,7 +3580,7 @@ def carpeta_concreta(carpeta: str, posix: bool = False) -> bool:
 
 	Nunca una unidad entera (``C:\\``), la raíz de un recurso compartido, la raíz
 	de un Mac o Linux ni una ruta de dispositivo (``\\\\?\\``): darían mucho más que
-	una carpeta (AIChat #334). Tampoco algo que se pueda leer como una opción.
+	una carpeta. Tampoco algo que se pueda leer como una opción.
 	"""
 	if not isinstance(carpeta, str) or not 0 < len(carpeta) <= 1024 or carpeta.startswith("-") \
 			or any(c in carpeta for c in "\r\n\0"):
@@ -3702,13 +3702,13 @@ CORTE_COMPACTADA = "<compactada>"
 MAX_CONTEXTO_APARTE = 20000
 #: Segundos sin recibir nada de una pregunta aparte tras los que se da por perdida.
 ESPERA_APARTE = 300.0
-#: Cuánto se lee del final del transcript para buscar el corte (AIChat ``CUT_STEPS``).
+#: Cuánto se lee del final del transcript para buscar el corte.
 _PASOS_CORTE = (64 * 1024, 1024 * 1024, 16 * 1024 * 1024)
 _RE_ORDEN_LOCAL = re.compile(r"\s*<(command-name|local-command-(stdout|stderr|caveat))>")
 
 
 def es_respuesta_terminada(registro: Any) -> bool:
-	"""Si un registro del transcript es texto de Claude que cerró un turno (AIChat #559).
+	"""Si un registro del transcript es texto de Claude que cerró un turno.
 
 	Del asistente, no de un subagente (``isSidechain``), no el texto sintético con el que Claude Code cierra
 	un turno fallido (``isApiErrorMessage``, modelo ``<synthetic>``), sin llamar a ninguna herramienta y con texto.
@@ -3763,7 +3763,7 @@ def corte_terminado(lineas: Sequence[str]) -> str:
 
 	«» si no hay ninguna; ``CORTE_COMPACTADA`` si la conversación se compactó después y la compactación no la
 	conservó. Siempre se corta, aunque la conversación acabe ahí: un turno en marcha o detenido a medias haría
-	que Claude respondiera también a ese mensaje (AIChat aside.py ``finished_cut``).
+	que Claude respondiera también a ese mensaje.
 	"""
 	compactacion: Any = None
 	turno_despues = False

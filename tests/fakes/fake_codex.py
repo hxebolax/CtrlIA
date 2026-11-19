@@ -288,7 +288,7 @@ def atender_peticion(metodo: str, identificador, params: dict) -> None:
 		estado["hilo"] = params["threadId"]
 		respuesta = {"thread": hilo(params["threadId"]), "model": "gpt-falso"}
 		if ESCENARIO == "revisor_pegado":
-			# Un hilo ya cargado ignora lo que se le pida al retomarlo (AIChat, codex-auto-review.md).
+			# Un hilo ya cargado ignora lo que se le pida al retomarlo.
 			respuesta["approvalsReviewer"] = "auto_review"
 		responder(identificador, respuesta)
 	elif metodo == "thread/fork":

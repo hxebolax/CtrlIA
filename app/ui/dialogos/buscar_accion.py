@@ -1,9 +1,9 @@
 """Ayuda, «Buscar una acción...»: encontrar cualquier orden del programa por su nombre y ejecutarla.
 
 Es la «paleta de órdenes» hecha con foco REAL, para que el lector de pantalla
-sepa siempre dónde está (la que tuvo AIChat dejaba el foco en el cuadro y movía
-con las flechas una lista sin foco que leía con su propia voz: sin «3 de 40», sin
-braille y chocando con el eco del cuadro):
+sepa siempre dónde está (una paleta que deja el foco en el cuadro y mueve con
+las flechas una lista sin foco que lee con su propia voz no da «3 de 40» ni
+braille, y choca con el eco del cuadro):
 
 - Un cuadro «Buscar» y debajo una lista normal. Flecha abajo en el cuadro lleva
   el foco a la lista; escribir una letra en la lista vuelve al cuadro con esa

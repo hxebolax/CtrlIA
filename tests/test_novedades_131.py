@@ -1,4 +1,4 @@
-"""Novedades traídas de AIChat 0.1.8 y 0.1.9 (versión 1.3.1 de Ctrl+IA).
+"""Novedades de la versión 1.3.1 de Ctrl+IA.
 
 - La lista de tareas de Claude con todos los modelos (``CLAUDE_CODE_ENABLE_TODO_TOOLS``),
   con su opción en Preferencias.
@@ -116,7 +116,7 @@ def test_abrir_en_consola_sin_programa_no_avisa():
 
 
 def test_memoria_en_la_carpeta_personal_no_repite(tmp_path, monkeypatch):
-	"""Sesión en la carpeta personal: su .claude es la tuya y no se lista dos veces (AIChat #315)."""
+	"""Sesión en la carpeta personal: su .claude es la tuya y no se lista dos veces."""
 	casa = tmp_path / "Casa"
 	raiz = casa / ".claude"
 	(raiz / "skills" / "resumir").mkdir(parents=True)

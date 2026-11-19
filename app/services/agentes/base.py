@@ -77,7 +77,7 @@ class TipoEvento(enum.StrEnum):
 	ACTIVIDAD = "actividad"
 
 
-#: Campos de ``datos`` de un evento ``ACTIVIDAD`` (FastChat «Activity», AIChat #468/#521, BlindPilot).
+#: Campos de ``datos`` de un evento ``ACTIVIDAD``.
 #: Cada evento trae solo lo que cambia; la interfaz (``services/actividad.py``) los acumula por ``id``.
 #:
 #: - ``id`` (obligatorio): identificador estable de la tarea dentro de la sesión (``task_id`` de Claude Code,
@@ -175,7 +175,7 @@ class Pregunta:
 	multiple: bool = False
 	admite_otra: bool = True
 	secreta: bool = False
-	#: Vista previa de cada opción (un borrador, código...), en el mismo orden; «» si no tiene (AIChat #276).
+	#: Vista previa de cada opción (un borrador, código...), en el mismo orden; «» si no tiene.
 	vistas_previas: list[str] = field(default_factory=list)
 
 
@@ -254,7 +254,7 @@ class AjustesSesion:
 	extra: dict[str, Any] = field(default_factory=dict)
 
 
-#: Máximo de caracteres de ``extra["instrucciones"]`` (AIChat #527).
+#: Máximo de caracteres de ``extra["instrucciones"]``.
 MAX_INSTRUCCIONES = 8000
 
 
@@ -457,7 +457,7 @@ class Conversacion(ABC):
 		return []
 
 	def retirar_de_cola(self, texto: str) -> bool:
-		"""Saca de la cola un mensaje que aún no ha salido (FastChat: Suprimir en un mensaje en cola). ``True`` si estaba.
+		"""Saca de la cola un mensaje que aún no ha salido. ``True`` si estaba.
 
 		Vale para los adaptadores cuya cola es ``self._cola`` (textos, o tuplas con el texto primero) protegida por
 		``self._candado``; Claude Code lleva además ``_uuids_cola`` en paralelo. El texto de la cola puede llevar

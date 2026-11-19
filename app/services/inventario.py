@@ -1,4 +1,4 @@
-"""Qué herramientas, servidores MCP, complementos y habilidades tiene cargadas una sesión (AIChat #311).
+"""Qué herramientas, servidores MCP, complementos y habilidades tiene cargadas una sesión.
 
 Cada agente lo da a su manera; aquí se une en un formato común y se describe en
 español, para leerlo en el visor de texto. Solo se lee: no se cambia nada.

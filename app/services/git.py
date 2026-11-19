@@ -288,7 +288,7 @@ def clonar(repositorio: str, carpeta_padre: Path) -> Path:
 
 
 # --------------------------------------------------------------------------
-# Copia aislada: desde dónde empieza la rama (1.6.0, AIChat #561, #587, #622)
+# Copia aislada: desde dónde empieza la rama (1.6.0)
 # --------------------------------------------------------------------------
 
 #: Segundos que se espera a ``git fetch`` (puede ir por la red).
@@ -479,7 +479,7 @@ def crear_worktree_rama_existente(carpeta: Path, rama: RamaGit) -> Path:
 
 
 # --------------------------------------------------------------------------
-# Cambios sin confirmar (Listas de la sesión, AIChat / BlindPilot)
+# Cambios sin confirmar (Listas de la sesión)
 # --------------------------------------------------------------------------
 
 #: Bytes que se leen de un archivo nuevo para contar sus líneas y decir si es binario.

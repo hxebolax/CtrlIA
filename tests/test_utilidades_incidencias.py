@@ -1,4 +1,4 @@
-"""Incidencias de AIChat: repositorios de organizaciones (#216), rama y copia aislada en Propiedades (#331),
+"""Incidencias: repositorios de organizaciones (#216), rama y copia aislada en Propiedades (#331),
 lectura lineal de la salida de los agentes (#258), Claude Code instalado solo con npm (#309) y sesiones
 cuya conversación ya no está en el disco (#111).
 

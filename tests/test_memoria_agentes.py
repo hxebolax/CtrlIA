@@ -170,7 +170,7 @@ def test_descubre_archivos_de_todos_los_agentes(entorno):
 	assert por_nombre[("Tus instrucciones privadas de este proyecto", "claude")].creable
 	assert por_nombre[("Agente personalizado: probador", "claude")].ambito == memoria.PROYECTO
 	assert ("Comando: /desplegar", "claude") in por_nombre
-	# .agents/skills lo leen Codex y Antigravity: sale una vez, en el primer grupo que lo lee (AIChat #305).
+	# .agents/skills lo leen Codex y Antigravity: sale una vez, en el primer grupo que lo lee.
 	assert por_nombre[("Habilidad: web", "codex")].ambito == memoria.PROYECTO
 	assert ("Habilidad: web", "antigravity") not in por_nombre
 	assert por_nombre[("Ajustes de Codex", "codex")].existe
@@ -235,7 +235,7 @@ def test_dialogo_memoria_construccion(app, entorno, sin_efectos):
 		assert dialogo.GetTitle() == "Lo que el agente sabe de ti"
 		_comprobar_accesibilidad(dialogo)
 		assert dialogo.lista.numero_filas() == len(dialogo.archivos) > 5
-		assert dialogo.lista.GetColumnCount() == 6  # con «Modificado» (AIChat #173)
+		assert dialogo.lista.GetColumnCount() == 6  # con «Modificado»
 		assert dialogo.lista.texto_celda(0, 0) == "Tus instrucciones generales para Claude"
 		assert dialogo.lista.texto_celda(0, 3) == "Sí"
 		assert dialogo.GetEscapeId() == wx.ID_CANCEL
@@ -536,7 +536,7 @@ def test_dialogo_agentes_acciones(app, entorno, gestor_falso, sin_efectos):
 
 
 def test_dialogo_agentes_comprueba_solo_al_cerrar_la_consola(app, entorno, gestor_falso, sin_efectos, monkeypatch):
-	"""Como en AIChat 0.1.8: al cerrar la consola de iniciar sesión se vuelve a comprobar y se dice cómo quedó."""
+	"""Al cerrar la consola de iniciar sesión se vuelve a comprobar y se dice cómo quedó."""
 	avisos_fin = []
 	monkeypatch.setattr(procesos, "abrir_en_consola",
 		lambda orden, carpeta=None, al_terminar=None: avisos_fin.append(al_terminar) or True)

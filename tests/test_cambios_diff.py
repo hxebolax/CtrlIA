@@ -1,4 +1,4 @@
-"""Leer un diff por sus recuentos ``@@`` (AIChat #405, #406) y el cuarto estilo, ``!-`` y ``!+``.
+"""Leer un diff por sus recuentos ``@@`` y el cuarto estilo, ``!-`` y ``!+``.
 
 Dentro de un trozo, la cabecera ``@@ -1,2 +1,2 @@`` dice cuántas líneas quedan: ``--- x`` ahí
 es una línea quitada que empieza por ``-- `` (un comentario de SQL), nunca la cabecera de un archivo.

@@ -1,4 +1,4 @@
-"""Palabras curiosas para la barra de estado mientras el agente escribe (AIChat #314).
+"""Palabras curiosas para la barra de estado mientras el agente escribe.
 
 Solo por gusto y desactivado de fábrica (Preferencias, Anuncios): en lugar de
 «Claude está escribiendo...», la barra de estado dice «Claude: Cavilando…» y la

@@ -59,7 +59,7 @@ def _insertado(antes: str, despues: str) -> str:
 
 
 class SoltarArchivos(wx.FileDropTarget):
-	"""Archivos arrastrados del Explorador a la ventana: se adjuntan al próximo mensaje (FastChat)."""
+	"""Archivos arrastrados del Explorador a la ventana: se adjuntan al próximo mensaje."""
 
 	def __init__(self, ventana: Any) -> None:
 		super().__init__()
@@ -96,12 +96,12 @@ class MixinConversacion:
 		self.Bind(wx.EVT_TIMER, lambda _e: self._cambiar_palabra_curiosa(), self._temporizador_palabras)
 		#: Lectura por frases de cada respuesta que llega: (sesión, id del mensaje) → ``frases.LectorFrases``.
 		self._lectores_frases: dict[tuple[str, Any], Any] = {}
-		#: Sonido «trabajando» (BlindPilot): se mira cada segundo; suena cada «sonidos.segundos_trabajando».
+		#: Sonido «trabajando»: se mira cada segundo; suena cada «sonidos.segundos_trabajando».
 		self._ultimo_latido = 0.0
 		self._temporizador_trabajando = wx.Timer(self)
 		self.Bind(wx.EVT_TIMER, lambda _e: self._latido_trabajando(), self._temporizador_trabajando)
 		# Arranca en ``mostrar`` (como los demás temporizadores): una ventana que nunca se muestra no late.
-		#: Lo dictado o insertado de golpe en el cuadro de respuesta se lee al dejar de dictar (BlindPilot).
+		#: Lo dictado o insertado de golpe en el cuadro de respuesta se lee al dejar de dictar.
 		self._valor_respuesta = ""
 		self._dictado = ""
 		self._temporizador_dictado = wx.Timer(self)
@@ -663,7 +663,7 @@ class MixinConversacion:
 		return texto
 
 	def _reglas_del_agente(self, fila: FilaSesion, modo: str = "") -> str:
-		"""Las reglas de la propia configuración del agente para la carpeta de la sesión, para leerlas (AIChat #336, #343)."""
+		"""Las reglas de la propia configuración del agente para la carpeta de la sesión, para leerlas."""
 		try:
 			if fila.proveedor == "claude":
 				if fila.remota:
@@ -741,7 +741,7 @@ class MixinConversacion:
 		avisos.anunciar(_("Opciones guardadas. Se aplican desde el próximo mensaje."), interrumpir=True)
 
 	def accion_herramientas_agente(self) -> None:
-		"""Ctrl+Alt+H: lo que tiene cargado el agente de la sesión (AIChat #311). Pregunta en segundo plano."""
+		"""Ctrl+Alt+H: lo que tiene cargado el agente de la sesión. Pregunta en segundo plano."""
 		fila = self.fila_de(self.sesion_actual) if self.sesion_actual else None
 		if fila is None or not fila.propia:
 			mostrar_mensaje(self, _("Abre primero una sesión de Ctrl+IA: las de otros programas no se pueden consultar desde "
@@ -955,7 +955,7 @@ class MixinConversacion:
 		def mostrar(desglose: Any = None) -> None:
 			texto = list(lineas)
 			if desglose:
-				# AIChat #555: en qué se va el contexto, parte por parte (Claude Code ``get_context_usage``).
+				# En qué se va el contexto, parte por parte (Claude Code ``get_context_usage``).
 				parte = ["", "## " + _("En qué se va el contexto"), ""]
 				for nombre, tokens, nota in desglose:
 					parte.append(_("- {n}: {t} unidades de texto{a}.").format(n=nombre, t=tokens, a=f" ({nota})" if nota else ""))
@@ -1279,7 +1279,7 @@ class MixinConversacion:
 	def _decision_revision(self, clave: str, fila: FilaSesion | None, texto: str, revision: dict[str, Any]) -> None:
 		"""Codex ha decidido una petición por sí mismo porque así lo eligió la persona.
 
-		Lo permitido es rutina (AIChat #564: un turno con 30 órdenes daba 30 anuncios y la respuesta quedaba
+		Lo permitido es rutina (un turno con 30 órdenes daba 30 anuncios y la respuesta quedaba
 		enterrada): solo se dice con «Mostrar las herramientas» (Ctrl+T), como una acción más, y el Estado del
 		turno da los recuentos. Lo que no se permitió se dice siempre, una vez y sin cortar lo que estés oyendo:
 		el agente se queda sin hacer algo que quizá esperabas (se puede cambiar de modo y pedírselo otra vez).
@@ -1351,7 +1351,7 @@ class MixinConversacion:
 		return para_voz(texto, self.opcion("anuncios.codigo_en_voz", "leer") == "avisar") or texto
 
 	def _leer_por_frases(self, clave: str, fila: FilaSesion | None, identificador: Any, trozo: str) -> None:
-		"""Con «Leer la respuesta mientras llega», dice cada frase en cuanto está completa (BlindPilot)."""
+		"""Con «Leer la respuesta mientras llega», dice cada frase en cuanto está completa."""
 		if (not trozo or not self.opcion("anuncios.leer_mientras_llega", False) or not self._debe_anunciar(clave)
 				or self.opcion("anuncios.nivel", "completo") != "completo"):
 			return
@@ -1430,7 +1430,7 @@ class MixinConversacion:
 		avisos.sonar("trabajando")
 
 	def _llevar_a(self, clave: str):
-		"""Lo que hace pulsar una notificación de Windows: trae Ctrl+IA y abre la sesión que avisó (BlindPilot)."""
+		"""Lo que hace pulsar una notificación de Windows: trae Ctrl+IA y abre la sesión que avisó."""
 
 		def ir() -> None:
 			if not self or getattr(self, "_saliendo", False):
@@ -1465,7 +1465,7 @@ class MixinConversacion:
 		else:
 			self._soltar_frases(clave, fila)
 		if turno.get("inicio"):
-			# «Hecho en 12 segundos» (FastChat): en el Estado del turno y en la barra de estado.
+			# «Hecho en 12 segundos»: en el Estado del turno y en la barra de estado.
 			turno["duracion"] = time.time() - float(turno["inicio"])
 			turno["fin"] = time.time()
 		self._texto_reciente.pop(clave, None)

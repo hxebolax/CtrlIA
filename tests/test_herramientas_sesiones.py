@@ -1,4 +1,4 @@
-"""Comandos de sesión de Claude Code: servidor MCP «en proceso» ``ccd_session_mgmt`` (AIChat #431).
+"""Comandos de sesión de Claude Code: servidor MCP «en proceso» ``ccd_session_mgmt``.
 
 Sin red y sin el programa real: con ``GestorSesiones`` de verdad sobre una base temporal y,
 para el recorrido entero, el CLI falso ``tests/fakes/fake_claude.py``.

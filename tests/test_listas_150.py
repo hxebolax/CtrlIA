@@ -1,4 +1,4 @@
-"""Listas de la sesión: filtro, ámbito y páginas nuevas (AIChat #279 y #303).
+"""Listas de la sesión: filtro, ámbito y páginas nuevas.
 
 Extracción sin interfaz (errores, commits, incidencias y PR, archivos leídos,
 tus mensajes y el turno de un mensaje) y el diálogo creado SIN mostrarse:
@@ -37,16 +37,16 @@ def _conversacion(carpeta=None) -> list[MensajeVista]:
 	"""Dos turnos: el primero con enlaces, órdenes y un error; el segundo con commits, lecturas e incidencias."""
 	leido = "C:\\proyecto\\app\\leido.py" if carpeta is None else str(carpeta / "leido.py")
 	return [
-		_m("usuario", "Mira la incidencia #279 y https://github.com/TheIdeaPlace/AIChat/pull/310", fecha=AHORA - 100),
+		_m("usuario", "Mira la incidencia #279 y https://github.com/ejemplo/proyecto/pull/310", fecha=AHORA - 100),
 		_m("asistente", "Veo https://ejemplo.es/uno y [la guía](https://ejemplo.es/guia)."),
-		_orden("git remote -v", "origin\tgit@github.com:TheIdeaPlace/AIChat.git (fetch)"),
+		_orden("git remote -v", "origin\tgit@github.com:ejemplo/proyecto.git (fetch)"),
 		_orden("pytest -q", "=== FAILURES ===\nE assert 1 == 2\n1 failed in 0.2s", error=True),
 		_m("error", "Claude se cerró sin responder"),
 		_m("usuario", "Ahora haz el commit", fecha=AHORA - 50),
-		_m("asistente", "Lo subo. Mira https://ejemplo.es/dos y la PR TheIdeaPlace/Otro#7."),
+		_m("asistente", "Lo subo. Mira https://ejemplo.es/dos y la PR ejemplo/otro#7."),
 		_m("herramienta", "Leer archivo: " + leido, "file_path: " + leido + "\noffset: 12\n\nResultado:\nprint(1)", "Read"),
 		_orden(COMMIT_HEREDOC, "[main 1a2b3c4] Arregla el filtro de las listas\n 2 files changed"),
-		_orden("git push origin main", "To github.com:TheIdeaPlace/AIChat.git\n   1a2b3c4..5d6e7f8  main -> main"),
+		_orden("git push origin main", "To github.com:ejemplo/proyecto.git\n   1a2b3c4..5d6e7f8  main -> main"),
 		_m("herramienta", "Ejecutar: Get-Content", "Ejecutar: \"C:\\WINDOWS\\powershell.exe\" -Command "
 			"\"Get-Content -Path README.md -TotalCount 40\"\n\nResultado:\n# Ctrl+IA", "Ejecutar"),
 	]
@@ -118,17 +118,17 @@ def test_commits_subidas_y_hashes_de_otras_ordenes():
 def test_incidencias_y_pr_con_su_repositorio():
 	mensajes = _conversacion() + [
 		_m("asistente", "En el código no cuenta: `#55` ni\n```\n#66\n```\nPero sí #12."),
-		_orden("gh pr view 310 --repo TheIdeaPlace/AIChat"),
+		_orden("gh pr view 310 --repo ejemplo/proyecto"),
 		_orden("gh issue view 8 -R otra/cosa"),
 	]
 	referencias = extraccion.incidencias(mensajes)
 	assert [(r.referencia, r.tipo) for r in referencias] == [
-		("TheIdeaPlace/AIChat#279", ""), ("TheIdeaPlace/AIChat#310", "pr"), ("TheIdeaPlace/Otro#7", ""),
-		("TheIdeaPlace/AIChat#12", ""), ("otra/cosa#8", "incidencia"),
+		("ejemplo/proyecto#279", ""), ("ejemplo/proyecto#310", "pr"), ("ejemplo/otro#7", ""),
+		("ejemplo/proyecto#12", ""), ("otra/cosa#8", "incidencia"),
 	]
 	# El #279 suelto es del repositorio del remoto de git; el enlace a la PR lleva a /pull/.
-	assert referencias[0].url == "https://github.com/TheIdeaPlace/AIChat/issues/279"
-	assert referencias[1].url == "https://github.com/TheIdeaPlace/AIChat/pull/310"
+	assert referencias[0].url == "https://github.com/ejemplo/proyecto/issues/279"
+	assert referencias[1].url == "https://github.com/ejemplo/proyecto/pull/310"
 	assert referencias[0].indice == 0 and "Mira la incidencia #279" in referencias[0].contexto
 	# Sin repositorio conocido, el #N queda sin enlace.
 	sueltas = extraccion.incidencias([_m("usuario", "Mira #4, por favor")])
@@ -142,19 +142,19 @@ def test_repositorio_de_la_carpeta(tmp_path):
 	(tmp_path / ".git").mkdir()
 	(tmp_path / ".git" / "config").write_text(
 		"[core]\n\tbare = false\n[remote \"copia\"]\n\turl = https://github.com/yo/copia.git\n"
-		"[remote \"origin\"]\n\turl = git@github.com:TheIdeaPlace/AIChat.git\n", encoding="utf-8")
-	assert extraccion.repositorio_de_carpeta(str(tmp_path)) == "TheIdeaPlace/AIChat"
+		"[remote \"origin\"]\n\turl = git@github.com:ejemplo/proyecto.git\n", encoding="utf-8")
+	assert extraccion.repositorio_de_carpeta(str(tmp_path)) == "ejemplo/proyecto"
 	# Copia de trabajo extra: «.git» es un archivo que lleva a la carpeta común.
 	extra = tmp_path / "extra"
 	extra.mkdir()
 	(tmp_path / ".git" / "worktrees" / "extra").mkdir(parents=True)
 	(tmp_path / ".git" / "worktrees" / "extra" / "commondir").write_text("../..\n", encoding="utf-8")
 	(extra / ".git").write_text("gitdir: " + str(tmp_path / ".git" / "worktrees" / "extra") + "\n", encoding="utf-8")
-	assert extraccion.repositorio_de_carpeta(str(extra)) == "TheIdeaPlace/AIChat"
+	assert extraccion.repositorio_de_carpeta(str(extra)) == "ejemplo/proyecto"
 	assert extraccion.repositorio_de_carpeta(str(tmp_path / "no_existe")) == ""
 	assert extraccion.repositorio_de_carpeta("\\\\servidor\\recurso") == ""
 	# Sin remotos en las órdenes, manda la carpeta.
-	assert extraccion.repositorio_de_sesion([_m("usuario", "Hola")], str(tmp_path)) == "TheIdeaPlace/AIChat"
+	assert extraccion.repositorio_de_sesion([_m("usuario", "Hola")], str(tmp_path)) == "ejemplo/proyecto"
 
 
 def test_archivos_leidos_con_herramientas_y_ordenes():
@@ -394,7 +394,7 @@ def test_ambito_del_segundo_turno_recalcula_lo_agrupado(app_wx, dichos):
 		]
 		# Las incidencias del turno son las que se citan en él; el repositorio sigue siendo el de la sesión.
 		incidencias = dialogo.listas["incidencias"]
-		assert [incidencias.valores_fila(i)[0] for i in range(incidencias.numero_filas())] == ["TheIdeaPlace/Otro#7"]
+		assert [incidencias.valores_fila(i)[0] for i in range(incidencias.numero_filas())] == ["ejemplo/otro#7"]
 		assert dialogo.listas["leidos"].numero_filas() == 2
 		assert dialogo.listas["errores"].numero_filas() == 0
 		# Los bloques y los enlaces son los del mensaje elegido (una orden: no tiene).
@@ -515,9 +515,9 @@ def test_acciones_de_errores_commits_e_incidencias(app_wx, dichos, documentos, c
 		# Incidencias: Intro abre en el navegador; sin repositorio conocido, lo dice.
 		dialogo.ir_a_pagina(10)
 		dialogo.activar()
-		assert abiertos == ["https://github.com/TheIdeaPlace/AIChat/issues/279"]
+		assert abiertos == ["https://github.com/ejemplo/proyecto/issues/279"]
 		dialogo.copiar()
-		assert copiados[-1] == "https://github.com/TheIdeaPlace/AIChat/issues/279"
+		assert copiados[-1] == "https://github.com/ejemplo/proyecto/issues/279"
 	finally:
 		_cerrar(dialogo)
 	sin_repo = _dialogo([_m("usuario", "Mira #4")], pestana="incidencias")

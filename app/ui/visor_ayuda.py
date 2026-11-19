@@ -183,7 +183,7 @@ def markdown_a_html(texto: str, titulo: str, teclas: dict[str, str] | None = Non
 
 	:param teclas: si se da, la página recoge esas teclas y se las pasa al visor.
 	:param autor: quién escribió el mensaje. Va como encabezado 1 y los del mensaje bajan
-		un nivel (AIChat #346): la tecla H lleva al principio y el esquema dice quién habla
+		un nivel: la tecla H lleva al principio y el esquema dice quién habla
 		y luego las secciones del mensaje. Sin él, si la página no trae un encabezado 1, se
 		le pone el título.
 	"""

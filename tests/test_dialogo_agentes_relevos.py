@@ -1,4 +1,4 @@
-"""Pruebas de lo que se añadió a los relevos entre sesiones (AIChat #379 y las fases 2 y 3 de #248).
+"""Pruebas de lo que se añadió a los relevos entre sesiones.
 
 Sesión nueva y conversación que nace de una respuesta reenviada, archivos cambiados
 junto a cada respuesta, parar por repetición o cortesía, aprobar a mano, plantillas,

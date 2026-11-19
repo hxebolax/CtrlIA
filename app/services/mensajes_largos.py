@@ -1,4 +1,4 @@
-"""Mensajes demasiado largos para Codex, entregados en un archivo (AIChat #625).
+"""Mensajes demasiado largos para Codex, entregados en un archivo.
 
 Codex no admite mensajes de más de :data:`LIMITE` caracteres. En lugar de
 rechazarlos, Ctrl+IA escribe el mensaje entero en un archivo de ``data/temp``

@@ -107,7 +107,7 @@ ERROR_NO_ADMITIDO = -32601
 TEXTO_NO_ADMITIDO = "Ctrl+IA no admite esta petición"
 #: «Petición no válida»: el único error que dice que Codex NO tomó un ``turn/steer``. Comprobado con
 #: codex-cli 0.163: lo devuelve sin turno activo y con un hilo que no existe; un turno equivocado o
-#: terminado, según AIChat #402. Cualquier otro error, o ninguna respuesta, deja la duda.
+#: terminado, también. Cualquier otro error, o ninguna respuesta, deja la duda.
 ERROR_PETICION_INVALIDA = -32600
 #: Peticiones del servidor que no son para la persona: se rechazan sin avisar.
 PETICIONES_SIN_PERSONA = frozenset({"item/tool/call", "account/chatgptAuthTokens/refresh", "attestation/generate"})
@@ -116,7 +116,7 @@ PETICIONES_PERSONA = frozenset({
 	"item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/tool/requestUserInput",
 	"item/permissions/requestApproval", "mcpServer/elicitation/request", "execCommandApproval", "applyPatchApproval",
 })
-#: Saltos como mucho al subir de un subagente a la conversación que lo lanzó (AIChat #521).
+#: Saltos como mucho al subir de un subagente a la conversación que lo lanzó.
 MAX_SALTOS_SUBAGENTE = 32
 #: Peticiones de subagentes que se comprueban a la vez (cada una en su hilo; las demás se rechazan).
 MAX_TRABAJADORES_SUBAGENTES = 8
@@ -142,9 +142,9 @@ def _opcion_global(clave: str, defecto: bool = False) -> bool:
 	except Exception:  # noqa: BLE001 - una clave ilegible deja la opción como de fábrica
 		log.debug("No se pudo leer %s", clave, exc_info=True)
 		return defecto
-#: Lo que se dice de un hilo que Codex ya no tiene (AIChat, codex_owned ``_thread_gone``).
+#: Lo que se dice de un hilo que Codex ya no tiene.
 MENSAJE_HILO_DESAPARECIDO = "Codex ya no tiene esta conversación; puedes borrarla de la lista."
-#: Clave de las instrucciones de la sesión en ``additionalContext`` de ``turn/start`` (AIChat usa ``tcp_chat_instructions``).
+#: Clave de las instrucciones de la sesión en ``additionalContext`` de ``turn/start``.
 CLAVE_INSTRUCCIONES = "ctrlia_instrucciones"
 #: Segundos mínimos entre dos trozos de salida de una misma orden en marcha (``ACTIVIDAD``).
 INTERVALO_SALIDA = 0.5
@@ -162,7 +162,7 @@ TIEMPO_APARTE = 300.0
 MAX_ELEMENTOS_ENTRADA = 21
 #: Segundos que se espera el inicio de sesión de un servidor MCP (``mcpServer/oauth/login``).
 SEGUNDOS_OAUTH_MCP = 180
-#: Lo que se dice si se pide compactar con ajustes cambiados que aún no ha recibido Codex (AIChat).
+#: Lo que se dice si se pide compactar con ajustes cambiados que aún no ha recibido Codex.
 MENSAJE_AJUSTES_PENDIENTES = ("Has cambiado los ajustes de esta sesión: envía antes un mensaje normal para que Codex los "
 	"reciba y luego compacta.")
 #: Comandos de barra que Ctrl+IA atiende para Codex (nombre, descripción).
@@ -216,7 +216,7 @@ class _Modo:
 
 
 #: Lo que cuentan los modos con revisión automática. La persona los elige expresamente para cada sesión;
-#: nunca son los de fábrica (AIChat #358).
+#: nunca son los de fábrica.
 _AYUDA_REVISION = (
 	"Las peticiones que te haría las decide Codex, con un subagente que valora el riesgo: puede permitirlas o "
 	"denegarlas. No da acceso sin límites, y cada decisión se anuncia y queda en «Permisos de la sesión»."
@@ -321,7 +321,7 @@ INTERPRETES = frozenset({
 })
 #: Lo que hace que una orden no sea «una sola orden sencilla».
 _RE_ORDEN_COMPUESTA = re.compile(r"&&|\|\||[;|&<>`\r\n$^]|%[A-Za-z_]+%")
-#: Opciones de git que una regla «con cualquier argumento» nunca cubre (AIChat #333 y #338): fuerzan,
+#: Opciones de git que una regla «con cualquier argumento» nunca cubre: fuerzan,
 #: borran o reflejan ramas, o cambian el repositorio, la configuración o el programa que se ejecuta.
 _GIT_OPCIONES_PELIGROSAS = (
 	"--force", "--force-with-lease", "--force-if-includes", "--delete", "--mirror", "--prune", "--prune-tags",
@@ -339,7 +339,7 @@ _GIT_SUBORDENES_REMOTAS = frozenset({"push", "fetch", "pull"})
 _GIT_BORRAN_CON_D = frozenset({"push", "branch", "tag"})
 #: Entradas que se revisan como mucho al buscar repositorios git anidados (más: se pregunta).
 LIMITE_EXPLORACION_GIT = 20000
-#: Ayuda de «Permitir durante esta sesión» de Codex, que Codex recuerda él mismo (AIChat #298).
+#: Ayuda de «Permitir durante esta sesión» de Codex, que Codex recuerda él mismo.
 AYUDA_SESION_CODEX = (
 	"Codex lo recordará hasta que cierres esta sesión o se reinicie Codex, aunque mientras tanto cambies a un "
 	"modo de permisos más restrictivo: cambiar el modo no lo retira."
@@ -389,7 +389,7 @@ _MENSAJES_ERROR = {
 }
 
 
-#: Error de un modelo retirado o que la cuenta ya no puede usar (AIChat #302).
+#: Error de un modelo retirado o que la cuenta ya no puede usar.
 MENSAJE_MODELO_NO_DISPONIBLE = (
 	"El modelo de esta conversación ya no está disponible en Codex para tu cuenta. Elige otro modelo en "
 	"Opciones de la sesión (Ctrl+Mayús+O) y vuelve a enviar el mensaje."
@@ -665,7 +665,7 @@ class _ServidorCodex:
 			conversacion._al_peticion(identificador, metodo, params)  # noqa: SLF001
 			return
 		if isinstance(id_hilo, str) and id_hilo and metodo in PETICIONES_PERSONA and self._trabajadores.acquire(blocking=False):
-			# Puede ser de un subagente: se comprueba en otro hilo, porque hay que preguntar a Codex (AIChat #521).
+			# Puede ser de un subagente: se comprueba en otro hilo, porque hay que preguntar a Codex.
 			with self._candado:
 				self._hijas_pendientes[str(identificador)] = id_hilo
 			_en_hilo(self._dirigir_hija, identificador, metodo, params, id_hilo, nombre="codex-subagente")
@@ -673,7 +673,7 @@ class _ServidorCodex:
 		log.warning("Codex pidió %s para un hilo desconocido; se rechaza", metodo)
 		self.responder_error(identificador, ERROR_NO_ADMITIDO, TEXTO_NO_ADMITIDO)
 
-	# -- Subagentes (AIChat #521) ---------------------------------------------
+	# -- Subagentes ---------------------------------------------
 
 	def _antepasado(self, id_hilo: str) -> ConversacionCodex | None:
 		"""La conversación nuestra de la que desciende ``id_hilo`` (``thread/read`` → ``parentThreadId``).
@@ -835,13 +835,13 @@ class ConversacionCodex(Conversacion):
 		self._sandbox_efectivo = ""
 		#: ``networkAccess`` del sandbox que Codex aplica con su configuración; ``None`` si aún no se sabe.
 		self._red_sandbox: bool | None = None
-		#: Ya se avisó de que Codex aplica un sandbox más restrictivo que el pedido (una vez por sesión, AIChat #297).
+		#: Ya se avisó de que Codex aplica un sandbox más restrictivo que el pedido (una vez por sesión).
 		self._aviso_sandbox_dado = False
 		#: Ya se avisó de que el revisor del hilo no es el del modo elegido (una vez por sesión).
 		self._aviso_revisor_dado = False
 		#: Solo un hilo abre o retoma el *thread* a la vez (un turno y un comando de barra pueden coincidir).
 		self._candado_hilo = threading.Lock()
-		#: Mensajes largos del turno en marcha, en ``data/temp``; se borran al acabarlo (AIChat #625).
+		#: Mensajes largos del turno en marcha, en ``data/temp``; se borran al acabarlo.
 		self._archivos_largos: list[Path] = []
 		#: Órdenes en marcha (id del elemento → salida pendiente, último envío y caracteres pasados).
 		self._ordenes_vivas: dict[str, dict[str, Any]] = {}
@@ -854,7 +854,7 @@ class ConversacionCodex(Conversacion):
 		self._colaboracion: str | None = None
 		#: Modelo con el que Codex abrió el hilo (``collaborationMode`` lo necesita si la sesión no fija uno).
 		self._modelo_hilo = ""
-		#: Ajustes con los que se envió el último turno: compactar exige que no hayan cambiado (AIChat).
+		#: Ajustes con los que se envió el último turno: compactar exige que no hayan cambiado.
 		self._firma_aplicada: tuple[Any, ...] | None = None
 		#: Política de sandbox que tiene Codex: la del hilo al abrirlo o la del último turno que la cambió.
 		self._politica_aplicada: dict[str, Any] | None = None
@@ -1035,7 +1035,7 @@ class ConversacionCodex(Conversacion):
 			_en_hilo(self._despedirse, srv, hilo, turno, nombre="codex-cerrar")
 		self._cambiar_estado(Estado.CERRADA)
 
-	# -- Comandos de barra (AIChat ui/codex_extras.py, #600 y #467) -----------
+	# -- Comandos de barra -----------
 
 	def _atender_comando(self, nombre: str, argumento: str) -> None:
 		"""``/compact``, ``/plan``, ``/memories on|off`` y ``/goal [pause|clear]``: nunca van como texto a Codex."""
@@ -1099,7 +1099,7 @@ class ConversacionCodex(Conversacion):
 				modo_colaboracion=nuevo)
 
 	def compactar(self) -> None:
-		"""Resume la conversación con ``thread/compact/start`` (AIChat). ``RuntimeError`` si ahora no se puede.
+		"""Resume la conversación con ``thread/compact/start``. ``RuntimeError`` si ahora no se puede.
 
 		No bloquea: lo que pase llega como eventos (``AVISO`` con ``compactando`` y ``compactado``, ``FIN_TURNO``).
 		"""
@@ -1319,7 +1319,7 @@ class ConversacionCodex(Conversacion):
 			return
 		self._emitir(TipoEvento.ACTIVIDAD, "", id=id_tarea, estado="detenida", detenible=False)
 
-	# -- Servidores MCP (AIChat #554 y #626) ----------------------------------------
+	# -- Servidores MCP ----------------------------------------
 
 	def servidores_mcp(self) -> Any:
 		"""Servidores MCP de la sesión según ``mcpServerStatus/list`` (con los del hilo, si está abierto). Bloquea."""
@@ -1438,7 +1438,7 @@ class ConversacionCodex(Conversacion):
 			metodo = "thread/resume"
 		else:
 			metodo = "thread/start"
-		# «Continuar aquí» (copia u original): nunca se propone a Codex un modelo que ya no está en su lista (AIChat #302).
+		# «Continuar aquí» (copia u original): nunca se propone a Codex un modelo que ya no está en su lista.
 		continuacion = metodo == "thread/fork" or (metodo == "thread/resume" and bool(ajustes.extra.get("original")))
 		disponibles = self._proveedor.modelos_disponibles(srv) if continuacion else None
 		aviso_modelo = ""
@@ -1452,7 +1452,7 @@ class ConversacionCodex(Conversacion):
 			comunes["model"] = ajustes.modelo
 		comunes.update(self._params_herramientas_ctrlia())
 		configuracion = comunes.setdefault("config", {})
-		# Los objetivos (/goal) seguirían solos sin pasar por Ctrl+IA: se quedan en pausa (AIChat).
+		# Los objetivos (/goal) seguirían solos sin pasar por Ctrl+IA: se quedan en pausa.
 		configuracion["features.goals"] = False
 		carpetas = self._carpetas_adicionales()
 		if carpetas and modo.sandbox == "workspace-write":
@@ -1607,7 +1607,7 @@ class ConversacionCodex(Conversacion):
 			return {}
 		from app.services import herramientas_propias
 
-		# Los comandos de sesión (ccd_session_mgmt, AIChat #557) van por el mismo servidor y con el mismo token.
+		# Los comandos de sesión (ccd_session_mgmt) van por el mismo servidor y con el mismo token.
 		herramientas.sesiones = self.herramientas_sesiones
 		try:
 			return {"config": herramientas_propias.config_codex(herramientas, sesiones=self.herramientas_sesiones is not None)}
@@ -1619,7 +1619,7 @@ class ConversacionCodex(Conversacion):
 		"""Apunta el sandbox que Codex aplica y avisa (una vez por sesión) si es más restrictivo que el pedido.
 
 		Codex en Windows rebaja a solo lectura una sesión con permiso de escritura si
-		su aislamiento no está preparado (AIChat #297). La respuesta de ``thread/start``,
+		su aislamiento no está preparado. La respuesta de ``thread/start``,
 		``thread/resume`` y ``thread/fork`` y la notificación ``thread/settings/updated``
 		dicen el sandbox efectivo. Con ``preguntar`` (nunca desde el hilo lector) se
 		consulta además ``windowsSandbox/readiness`` para explicar el porqué.
@@ -1663,7 +1663,7 @@ class ConversacionCodex(Conversacion):
 		"""Avisa (una vez por sesión) si quien revisa las peticiones no es quien eligió la persona.
 
 		Un hilo que Codex ya tiene cargado ignora lo que se le pide al retomarlo, y su
-		configuración puede no admitir la revisión automática (AIChat #374). Cada
+		configuración puede no admitir la revisión automática. Cada
 		``turn/start`` fija el revisor del modo, pero Codex puede no hacer caso. Lo que
 		nunca se hace es callar: en un sentido deja a Codex decidiendo sin que lo sepas.
 		"""
@@ -1722,7 +1722,7 @@ class ConversacionCodex(Conversacion):
 				params["approvalPolicy"] = modo.aprobacion
 			instrucciones = self._instrucciones()
 			if instrucciones:
-				# AIChat #527: van con cada turno, como contexto de la aplicación (no como palabras de la persona).
+				# Van con cada turno, como contexto de la aplicación (no como palabras de la persona).
 				params["additionalContext"] = {CLAVE_INSTRUCCIONES: {"kind": "application", "value": instrucciones}}
 			modelo_colaboracion = self.ajustes.modelo or self._modelo_hilo
 			if self._colaboracion and modelo_colaboracion:
@@ -1759,7 +1759,7 @@ class ConversacionCodex(Conversacion):
 			self._interrumpir(id_turno)
 
 	def _anadir_al_turno(self, texto: str, turno: str) -> None:
-		"""Envía el ``turn/steer``. Solo «no enviado» si no salió de aquí o Codex lo rechazó con -32600 (AIChat #402)."""
+		"""Envía el ``turn/steer``. Solo «no enviado» si no salió de aquí o Codex lo rechazó con -32600."""
 		with self._candado:
 			srv = self._srv
 			hilo = self._hilo_id
@@ -2140,7 +2140,7 @@ class ConversacionCodex(Conversacion):
 		if tipo == "agentMessage":
 			datos: dict[str, Any] = {"id": id_item, "fase": item.get("phase") or ""}
 			if isinstance(id_turno, str) and id_turno and id_item:
-				# Para bifurcar o reintentar desde este mensaje (AIChat, codex_features ``verify_anchor``).
+				# Para bifurcar o reintentar desde este mensaje.
 				datos["ancla"] = "%s:%s" % (id_turno, id_item)
 			self._emitir(TipoEvento.MENSAJE, str(item.get("text") or ""), **datos)
 		elif tipo == "commandExecution":
@@ -2316,7 +2316,7 @@ class ConversacionCodex(Conversacion):
 				"Si se repite, crea un paquete de diagnóstico en Herramientas y envíalo al autor." % metodo, metodo=metodo)
 			return
 		if origen:
-			# AIChat #521: la pide un subagente que lanzó esta conversación; se dice así.
+			# La pide un subagente que lanzó esta conversación; se dice así.
 			titulo = solicitud.titulo.removeprefix("Codex ")
 			solicitud.titulo = "Petición de un subagente de Codex: " + titulo[:1].lower() + titulo[1:]
 			solicitud.detalle = ("La pide un subagente que Codex ha lanzado en esta conversación.\n" + solicitud.detalle).rstrip()
@@ -2375,7 +2375,7 @@ class ConversacionCodex(Conversacion):
 			lineas.append(fuera)
 		# El «Permitir durante esta sesión» de Codex no se ofrece en las órdenes: Codex lo
 		# recuerda él mismo, no se puede retirar y sigue valiendo aunque cambies a un modo
-		# más restrictivo (AIChat #298). Ctrl+IA ofrece en su lugar su propia regla.
+		# más restrictivo. Ctrl+IA ofrece en su lugar su propia regla.
 		opciones = _opciones_decision(p.get("availableDecisions"), sesion=False)
 		datos: dict[str, Any] = {"orden": orden or "", "carpeta": p.get("cwd") or "", "item": p.get("itemId", "")}
 		permitible = self._prefijo_permitible(p)
@@ -2407,7 +2407,7 @@ class ConversacionCodex(Conversacion):
 		"""Palabras de la orden y su intérprete (:func:`orden_y_contexto`) si es una sola orden sencilla, en la
 		carpeta raíz de la sesión y sin más necesidades.
 
-		Solo vale la carpeta raíz, no una subcarpeta (AIChat #333): en una subcarpeta puede
+		Solo vale la carpeta raíz, no una subcarpeta: en una subcarpeta puede
 		haber otro repositorio con su propia configuración. Tampoco valen las órdenes git
 		que fuerzan, borran o cambian de repositorio (:func:`orden_git_peligrosa`).
 		"""
@@ -2587,7 +2587,7 @@ def _entrada(texto: str, adjuntos: Sequence[Adjunto], remota: bool = False,
 	desde el disco (el protocolo no tiene un tipo «archivo»). En otro equipo
 	(``remota``), Codex no ve los archivos de Windows: se dice que no se han enviado.
 	Las skills (``$nombre`` en el texto) van además como ``{"type": "skill"}``; en total,
-	como mucho :data:`MAX_ELEMENTOS_ENTRADA` elementos (AIChat, codex_input.py).
+	como mucho :data:`MAX_ELEMENTOS_ENTRADA` elementos.
 	"""
 	if remota and adjuntos:
 		nombres = ", ".join(adjunto.ruta.name for adjunto in adjuntos)
@@ -2605,7 +2605,7 @@ def _entrada(texto: str, adjuntos: Sequence[Adjunto], remota: bool = False,
 	return elementos
 
 
-#: Una palabra literal del guion de un intérprete (AIChat #478, codex_permissions ``command_words``): sin
+#: Una palabra literal del guion de un intérprete: sin
 #: variables, subexpresiones, comodines, llaves ni nada que el intérprete pueda interpretar.
 _PALABRA_LITERAL = r"""(?:[A-Za-z0-9_./:=+-]+|'[A-Za-z0-9_./:=+ -]+'|"[A-Za-z0-9_./:=+ -]+")"""
 _RE_PALABRA_LITERAL = re.compile(_PALABRA_LITERAL)
@@ -2626,7 +2626,7 @@ def _es_alias_tienda(ruta: str) -> bool:
 def interprete_de_confianza(ejecutable: str) -> str:
 	"""``"powershell"`` o ``"posix"`` si ``ejecutable`` es un intérprete cuya orden se puede desenvolver; ``""`` si no.
 
-	Solo rutas exactas (AIChat #478, platform_paths ``codex_approval_shell``): el PowerShell de Windows,
+	Solo rutas exactas: el PowerShell de Windows,
 	PowerShell 7 y 7-preview de ``%ProgramFiles%``, el alias de la Store (si de verdad lo es) y los
 	``sh``, ``bash`` y ``zsh`` de ``/bin`` y ``/usr/bin``.
 	"""
@@ -2797,7 +2797,7 @@ def repositorio_sin_anidados(carpeta: Path, limite: int = LIMITE_EXPLORACION_GIT
 	"""Si ``carpeta`` es la raíz de un repositorio git (con su carpeta ``.git``) sin otro ``.git`` dentro.
 
 	Un repositorio anidado tiene su propia configuración (``core.fsmonitor``, *hooks*...)
-	que git puede ejecutar desde la raíz (AIChat #333). No se siguen enlaces ni uniones
+	que git puede ejecutar desde la raíz. No se siguen enlaces ni uniones
 	de carpetas. Si hay más de ``limite`` entradas o algo no se puede leer, ``False``:
 	ante la duda, se pregunta.
 	"""
@@ -2847,7 +2847,7 @@ def prefijo_permitible(prefijo: Sequence[str]) -> bool:
 def regla_de_orden(prefijo: Sequence[str], contexto: str = "") -> str:
 	"""Regla con la que Ctrl+IA recuerda un prefijo permitido: ``Orden(git switch)``.
 
-	Con intérprete (AIChat #478), atada a él: ``Orden(git switch; C:\\…\\powershell.exe -command)``.
+	Con intérprete, atada a él: ``Orden(git switch; C:\\…\\powershell.exe -command)``.
 	El ``;`` no puede estar en el prefijo (las órdenes compuestas no se permiten nunca).
 	"""
 	return "Orden(%s)" % (" ".join(prefijo) + ("; " + contexto if contexto else ""))
@@ -2900,7 +2900,7 @@ def _opciones_decision(disponibles: Any, *, sesion: bool = True) -> list[OpcionP
 
 	Con ``sesion=False`` se quita «Permitir durante esta sesión» de Codex (si queda otra
 	forma de permitir): Codex lo recuerda hasta cerrar la sesión aunque cambies de modo.
-	Cuando se ofrece, su ayuda lo dice (AIChat #298).
+	Cuando se ofrece, su ayuda lo dice.
 	"""
 	ids = [d for d in disponibles if isinstance(d, str)] if isinstance(disponibles, list) else []
 	ids = [d for d in ids if d in _DECISIONES] or list(_DECISIONES_POR_DEFECTO)
@@ -3221,7 +3221,7 @@ def _paginas_turnos(srv: _ServidorCodex, hilo: str, limite: int) -> Any:
 
 
 def verificar_turno(srv: _ServidorCodex, hilo: str, turno: str, *, antes: bool = False) -> None:
-	"""Comprueba con ``thread/turns/list`` que ``turno`` sigue en ``hilo`` (AIChat ``verify_anchor``).
+	"""Comprueba con ``thread/turns/list`` que ``turno`` sigue en ``hilo``.
 
 	Para bifurcar (``antes`` falso) el turno no puede estar en marcha. Lanza :class:`ErrorCodex`.
 	"""
@@ -3401,7 +3401,7 @@ def lista_mcp_desde_codex(filas: Any) -> list[Any]:
 
 
 def argumentos_preguntas(casa: Path | None = None) -> list[str]:
-	"""Argumentos de ``codex app-server`` para que Codex pregunte con ``request_user_input`` (BlindPilot).
+	"""Argumentos de ``codex app-server`` para que Codex pregunte con ``request_user_input``.
 
 	Codex la trae apagada y solo en modo Plan; con esto llega también en el predeterminado
 	(``default_mode_request_user_input``, «en desarrollo» en codex-cli 0.167). ``-c`` sustituye
@@ -3421,7 +3421,7 @@ def argumentos_preguntas(casa: Path | None = None) -> list[str]:
 		"-c", "developer_instructions=" + json.dumps(instrucciones, ensure_ascii=False)]
 
 
-#: Por qué preguntar con la herramienta y no en el texto de la respuesta (BlindPilot ``ask_through_the_tool``).
+#: Por qué preguntar con la herramienta y no en el texto de la respuesta.
 INSTRUCCIONES_PREGUNTAS = (
 	"Trabajas dentro de Ctrl+IA, que una persona ciega maneja con un lector de pantalla. Cuando quieras que te "
 	"responda algo, pregúntaselo con la herramienta request_user_input en lugar de escribir la pregunta en tu "
@@ -3555,7 +3555,7 @@ def _item_a_mensaje(item: dict[str, Any], fecha: float | None) -> dict[str, Any]
 				continue
 			clase = entrada.get("type")
 			if clase == "text":
-				# Un mensaje largo enviado como archivo (AIChat #625) se enseña como tal, no con el texto fijo.
+				# Un mensaje largo enviado como archivo se enseña como tal, no con el texto fijo.
 				partes.append(mensajes_largos.texto_visible(str(entrada.get("text") or "")))
 			elif clase in ("localImage", "image"):
 				partes.append("[Imagen: %s]" % (entrada.get("path") or entrada.get("url") or ""))
@@ -3975,7 +3975,7 @@ class ProveedorCodex(Proveedor):
 		return modo_inicial.elegir(modo_inicial.modo_codex(carpeta), self.modos_permiso(), self.modo_de_serie())
 
 	def modo_sin_dialogo(self, carpeta: Path | None = None) -> str:
-		"""El mismo modo, pero preguntándote a ti: la revisión automática solo vale elegida para la sesión (AIChat #358)."""
+		"""El mismo modo, pero preguntándote a ti: la revisión automática solo vale elegida para la sesión."""
 		return self.modo_predeterminado(carpeta).removesuffix("_auto")
 
 	def modos_permiso(self) -> list[OpcionLista]:
@@ -3993,7 +3993,7 @@ class ProveedorCodex(Proveedor):
 
 	def preguntar_aparte(self, ajustes: AjustesSesion, pregunta: str, al_texto: Callable[[str], None] | None = None,
 			cancelar: threading.Event | None = None) -> str:
-		"""Pregunta sobre la sesión en una copia efímera y de solo lectura, en OTRO proceso (AIChat codex_aside.py).
+		"""Pregunta sobre la sesión en una copia efímera y de solo lectura, en OTRO proceso.
 
 		La copia llega hasta el último turno terminado (``thread/turns/list``), con ``sandbox`` de solo
 		lectura, ``approvalPolicy: never``, sin hooks, objetivos, memorias, órdenes, subagentes ni
@@ -4092,7 +4092,7 @@ class ProveedorCodex(Proveedor):
 		servidor = self.servidor(extra)
 		for _pagina in range(MAX_PAGINAS):
 			# Sin «sourceKinds» Codex solo lista los interactivos, y sin «modelProviders: []» solo los del proveedor
-			# que tiene puesto ahora: se perderían los de «codex exec» y los de otro proveedor (AIChat).
+			# que tiene puesto ahora: se perderían los de «codex exec» y los de otro proveedor.
 			params: dict[str, Any] = {"limit": 100, "sortKey": "updated_at", "archived": archivados,
 				"sourceKinds": list(FUENTES_HILOS), "modelProviders": []}
 			if cursor:

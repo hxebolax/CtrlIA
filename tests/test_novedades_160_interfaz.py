@@ -1,4 +1,4 @@
-"""Novedades de la 1.6.0 en la interfaz y el gestor (AIChat 0.4-0.6, BlindPilot y FastChat).
+"""Novedades de la 1.6.0 en la interfaz y el gestor.
 
 Actividad en segundo plano, voz sin Markdown y por frases, preguntas escritas en la
 respuesta, bifurcar o reintentar desde un mensaje, aprobaciones automáticas como

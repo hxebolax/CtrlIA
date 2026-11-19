@@ -76,7 +76,7 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"abrir_ultima_sesion": True,
 		"ultima_sesion": "",
 		"comprobar_actualizaciones": True,
-		# Al salir, avisar también si el cuadro de respuesta tiene texto sin enviar (BlindPilot).
+		# Al salir, avisar también si el cuadro de respuesta tiene texto sin enviar.
 		"avisar_texto_sin_enviar": True,
 		# Carpeta base de proyectos (1.6.0): en «Nueva sesión», un nombre o una ruta relativa se busca dentro de ella.
 		"carpeta_proyectos": "",
@@ -90,7 +90,7 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"esperar_mcp_claude": True,
 		# Segundos de esa espera, por servidor (MCP_TIMEOUT y los demás tiempos de claude.VARIABLES_ESPERA_MCP).
 		"segundos_mcp_claude": 30,
-		# Claude Code con «Claude en Chrome» (--chrome): sus herramientas del navegador (AIChat #319).
+		# Claude Code con «Claude en Chrome» (--chrome): sus herramientas del navegador.
 		# Activada desde la 1.4.4: sin ella, las sesiones de Ctrl+IA no tenían las herramientas de Chrome
 		# que sí tienen las de la app de escritorio; cada acción en el navegador sigue pidiendo permiso.
 		"chrome_claude": True,
@@ -114,9 +114,9 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		# OpenCode, Goose, GitHub Copilot CLI y otros agentes ACP conocidos.
 		"otros_acp": False,
 		# Un turno que acaba con una pregunta escrita en la respuesta (no con su herramienta) pasa a «Te necesita»
-		# y se contesta con Ctrl+Mayús+A (BlindPilot; app/services/preguntas_escritas.py).
+		# y se contesta con Ctrl+Mayús+A (app/services/preguntas_escritas.py).
 		"preguntas_escritas": True,
-		# Pedir a Claude Code que pregunte con su herramienta (AskUserQuestion) en vez de escribir la pregunta (BlindPilot).
+		# Pedir a Claude Code que pregunte con su herramienta (AskUserQuestion) en vez de escribir la pregunta.
 		"preguntas_con_herramienta": False,
 		# Codex pregunta con su herramienta (request_user_input) también fuera del modo Plan (en desarrollo en Codex).
 		"preguntas_codex": False,
@@ -207,7 +207,7 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"retardo_voz_ms": 120,
 		"aviso_contexto": 80,
 		"aviso_limite": 90,
-		# Vigilar la PR de las sesiones con rama en GitHub y avisar cuando sus comprobaciones fallan o pasan (AIChat #236).
+		# Vigilar la PR de las sesiones con rama en GitHub y avisar cuando sus comprobaciones fallan o pasan.
 		"comprobaciones_pr": True,
 		# Nada solo como voz: braille, barra de estado e historial.
 		"braille": True,
@@ -215,13 +215,13 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"barra_estado": True,
 		# Palabras curiosas («Cavilando…») en la barra de estado mientras el agente escribe; nunca por voz (#314).
 		"palabras_curiosas": False,
-		# Leer las respuestas sin las marcas de Markdown (#, *, |...) (FastChat; app/services/frases.py).
+		# Leer las respuestas sin las marcas de Markdown (#, *, |...) (app/services/frases.py).
 		"quitar_formato": True,
 		# Bloques de código en la voz: «leer» o «avisar» («Bloque de código.»).
 		"codigo_en_voz": "leer",
-		# Leer la respuesta por frases según llega, sin esperar a que termine (BlindPilot).
+		# Leer la respuesta por frases según llega, sin esperar a que termine.
 		"leer_mientras_llega": False,
-		# Leer lo dictado (Windows+H) o insertado de golpe en el cuadro de respuesta al dejar de dictar (BlindPilot).
+		# Leer lo dictado (Windows+H) o insertado de golpe en el cuadro de respuesta al dejar de dictar.
 		"releer_dictado": True,
 		# Anunciar cuando empieza y termina un subagente o una orden en segundo plano.
 		"actividad": True,
@@ -241,7 +241,7 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"detenido": True,
 		"compactado": True,
 		"limite": True,
-		# Un toque suave cada «segundos_trabajando» mientras el agente trabaja (BlindPilot). Sin modo continuo:
+		# Un toque suave cada «segundos_trabajando» mientras el agente trabaja. Sin modo continuo:
 		# Windows suena un sonido a la vez y un bucle cortaría los demás avisos.
 		"trabajando": True,
 		"segundos_trabajando": 10,

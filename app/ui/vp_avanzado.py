@@ -2,11 +2,11 @@
 
 - Actividad en segundo plano (Ctrl+Alt+A), compactar (Ctrl+Alt+K), preguntar aparte (Ctrl+Alt+S),
   control remoto de Claude y detener una tarea suelta.
-- Bifurcar o reintentar desde un mensaje (AIChat #467/#468): una sesión nueva que recuerda la
+- Bifurcar o reintentar desde un mensaje: una sesión nueva que recuerda la
   conversación solo hasta ahí; la original no cambia.
-- Vistas de la lista de mensajes (FastChat): todo, la conversación, solo las respuestas, solo lo tuyo,
+- Vistas de la lista de mensajes: todo, la conversación, solo las respuestas, solo lo tuyo,
   las acciones o los errores y avisos (F11 y Mayús+F11).
-- Leer la conversación entera como una página (AIChat #538), ir a la respuesta anterior o siguiente del
+- Leer la conversación entera como una página, ir a la respuesta anterior o siguiente del
   agente (F12 y Mayús+F12) y leer o copiar la última respuesta desde cualquier sitio.
 """
 

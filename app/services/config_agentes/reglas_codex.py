@@ -1,4 +1,4 @@
-"""Las reglas guardadas de Codex (``~/.codex/rules/*.rules``), para «Permisos de la sesión» (AIChat #307, #343).
+"""Las reglas guardadas de Codex (``~/.codex/rules/*.rules``), para «Permisos de la sesión».
 
 Cuando le dices a Codex que permita siempre una orden, añade a un archivo
 ``.rules`` una línea como ``prefix_rule(pattern=["git", "commit"],

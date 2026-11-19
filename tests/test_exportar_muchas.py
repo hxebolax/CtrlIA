@@ -1,4 +1,4 @@
-"""Exportar muchas sesiones, cada una en su archivo (AIChat #462).
+"""Exportar muchas sesiones, cada una en su archivo.
 
 Nunca se sustituye nada, un fallo no detiene el resto y hay resumen final. Sin mostrar ventanas.
 """

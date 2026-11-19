@@ -1,4 +1,4 @@
-"""PR y comprobaciones automáticas (CI) de las sesiones (AIChat #236): mixin de la ventana principal.
+"""PR y comprobaciones automáticas (CI) de las sesiones: mixin de la ventana principal.
 
 - Menú Sesión, «PR y comprobaciones» (y el mismo submenú en el menú contextual
   de la lista de sesiones): estado de la PR (Ctrl+Alt+P), abrirla en el

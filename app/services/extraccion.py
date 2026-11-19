@@ -591,7 +591,7 @@ def _clasificar_diff(lineas: Sequence[str]) -> Iterator[tuple[str, str, re.Match
 	Dentro de un trozo mandan los recuentos de su ``@@``: lo que le queda por leer son
 	líneas aunque empiecen como una cabecera. Una línea quitada que empieza por ``-- ``
 	(un comentario de SQL) queda ``--- ...``, y una añadida que empieza por ``++ ``,
-	``+++ ...`` (AIChat #405). Fuera de un trozo, una cabecera es siempre la pareja
+	``+++ ...``. Fuera de un trozo, una cabecera es siempre la pareja
 	``--- ``, ``+++ ``; suelta, es una línea más. Si los recuentos se quedan cortos
 	(algún agente cuenta de menos), lo que siga con signo sigue siendo una línea.
 	"""
@@ -2002,7 +2002,7 @@ def mensajes_usuario(mensajes: Sequence[MensajeVista]) -> list[MensajeUsuario]:
 
 
 # --------------------------------------------------------------------------
-# Aprobaciones: decisiones de la revisión automática de Codex (AIChat #564)
+# Aprobaciones: decisiones de la revisión automática de Codex
 # --------------------------------------------------------------------------
 
 #: Decisiones de la revisión automática (``revision_automatica["estado"]``), en palabras.

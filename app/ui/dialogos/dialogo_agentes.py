@@ -449,7 +449,7 @@ def empezar(ventana: Any) -> None:
 
 def empezar_con_respuesta(ventana: Any, origen: FilaSesion, clave_destino: str, texto: str, respuesta: str,
 		max_turnos: int, aprobar: bool = False, adjuntos: Sequence[Adjunto] = ()) -> None:
-	"""Arranca una conversación con una respuesta reenviada: contesta primero la sesión que la recibe (AIChat #379).
+	"""Arranca una conversación con una respuesta reenviada: contesta primero la sesión que la recibe.
 
 	:param texto: lo que dejó la persona en el mensaje, con la etiqueta del reenvío.
 	:param respuesta: la respuesta del agente, para separarla de lo que haya añadido la persona.

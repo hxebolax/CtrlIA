@@ -1,4 +1,4 @@
-"""El visor de un mensaje dice quién lo escribió: el autor es siempre el encabezado 1 (AIChat #346).
+"""El visor de un mensaje dice quién lo escribió: el autor es siempre el encabezado 1.
 
 Antes solo se añadía un encabezado 1 si el mensaje no traía ninguno, y entonces era el título de
 la ventana: con encabezados propios no se decía quién hablaba. Nada se muestra ni habla.

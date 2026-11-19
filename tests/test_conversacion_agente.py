@@ -309,7 +309,7 @@ def test_permisos_de_la_sesion_desde_el_menu(ventana, tmp_path, monkeypatch):
 		def __init__(self, padre, titulo, agente, modo, ayuda, reglas, fechas=None, trabajando=False, cuando="",
 				reglas_agente="", decisiones=""):
 			vistos.append((titulo, agente, modo, list(reglas)))
-			# Las reglas de la propia configuración de Claude Code, para leer (AIChat #336).
+			# Las reglas de la propia configuración de Claude Code, para leer.
 			assert reglas_agente.startswith("De la propia configuración de Claude Code")
 			assert decisiones == ""  # la revisión automática solo existe en Codex
 			self.reglas, self.fechas, self.cambiado = [], {}, True
@@ -528,7 +528,7 @@ def test_fin_de_turno_resume_los_hallazgos_de_la_revision(ventana, tmp_path, anu
 	assert not any("Revisión" in texto for texto in anuncios)
 
 
-# ── Enviar la respuesta a otra sesión (AIChat #248) ─────────────────────────────
+# ── Enviar la respuesta a otra sesión ─────────────────────────────
 
 
 def test_enviar_la_respuesta_a_otra_sesion(ventana, tmp_path, monkeypatch, anuncios):

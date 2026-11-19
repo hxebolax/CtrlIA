@@ -11,15 +11,14 @@ también si se cambian después en «Opciones de la sesión».
   ``Capacidades.instrucciones_sesion``; van en ``extra["instrucciones"]`` y
   ``extra["carpetas_adicionales"]`` (nunca una unidad entera ni la raíz de un
   recurso compartido: ``claude.carpeta_concreta``).
-- **Carpeta base de proyectos** (``general.carpeta_proyectos``, FastChat
-  ``ResolveFolder``): un nombre o una ruta relativa se busca dentro de ella;
+- **Carpeta base de proyectos** (``general.carpeta_proyectos``): un nombre o una ruta relativa se busca dentro de ella;
   admite ``~`` y quita las comillas de una ruta pegada (``resolver_carpeta``).
   Si la carpeta no existe, se ofrece crearla.
-- **Copia aislada** (AIChat #561, #587, #622): la rama nueva empieza en lo que
+- **Copia aislada**: la rama nueva empieza en lo que
   tiene la carpeta o en la rama principal de ``origin`` (que se trae antes, en
   segundo plano); o se usa una rama que ya existe (``git.ramas_disponibles``).
 - Las etiquetas de los controles desactivados pierden su ``&`` mientras lo
-  están (``nombres.habilitar``, AIChat #515).
+  están (``nombres.habilitar``).
 """
 
 from __future__ import annotations
@@ -64,7 +63,7 @@ class ErrorCarpeta(ValueError):
 
 
 def resolver_carpeta(texto: str, base: str = "") -> Path:
-	"""La carpeta de trabajo que quiere decir ``texto`` (FastChat ``ResolveFolder``).
+	"""La carpeta de trabajo que quiere decir ``texto``.
 
 	Quita espacios y las comillas de una ruta pegada, admite ``~`` (tu carpeta personal) y, si no es una ruta
 	completa, la busca dentro de la carpeta base de proyectos ``base``. Sin base, una ruta que no es completa

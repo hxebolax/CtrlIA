@@ -1,4 +1,4 @@
-"""Pruebas de la conversación automática entre dos sesiones (AIChat #248, segunda parte).
+"""Pruebas de la conversación automática entre dos sesiones.
 
 El relevo se prueba sin wx con sesiones falsas, con el gestor de verdad y
 agentes simulados, y unido a la ventana principal sin mostrarla.

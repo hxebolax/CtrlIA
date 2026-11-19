@@ -1,4 +1,4 @@
-"""Enviar la respuesta de un agente a otra sesión (AIChat #248), sin wx.
+"""Enviar la respuesta de un agente a otra sesión, sin wx.
 
 Una respuesta de una sesión va a otra sesión de Ctrl+IA, de cualquier agente,
 para que un agente revise o conteste el trabajo de otro. Lleva delante una
@@ -8,7 +8,7 @@ La persona lee y puede cambiar el mensaje entero antes de enviarlo, y va como
 un mensaje normal: nunca responde una pregunta ni aprueba una herramienta, que
 siguen llegando a la persona en cada sesión.
 
-También puede ir a una sesión nueva (AIChat #379) y arrancar con ella una
+También puede ir a una sesión nueva y arrancar con ella una
 conversación automática entre las dos: aquí está lo que no depende de la
 ventana, como por qué no se puede empezar o qué parte del mensaje es la
 respuesta del otro agente y qué parte son palabras de la persona.

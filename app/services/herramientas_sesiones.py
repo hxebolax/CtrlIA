@@ -4,7 +4,7 @@ La app de escritorio de Claude da a sus sesiones un servidor MCP llamado
 ``ccd_session_mgmt``, y hay comandos y habilidades (``/wrap`` y otros) que llaman
 a sus herramientas por el nombre completo: ``mcp__ccd_session_mgmt__list_sessions``.
 ``claude -p`` no lo trae, así que en Ctrl+IA esos comandos se paraban en su primer
-paso (AIChat #431). Ctrl+IA declara otro servidor con el mismo nombre, junto a
+paso. Ctrl+IA declara otro servidor con el mismo nombre, junto a
 «ctrlia» (``sdkMcpServers`` en ``initialize``), y le contesta con lo que sabe
 :class:`~app.services.gestor.GestorSesiones`. Nombres y parámetros son los de
 Claude Code 2.1.308 (``session_id``, ``include_archived``, ``limit``, ``query``,
@@ -30,7 +30,7 @@ Invariantes
   tiene sentido: borrar, enviar mensajes a otra sesión, detenerla o cambiar su
   modelo o sus permisos.
 
-Codex los recibe también (AIChat #557), por el servidor HTTP local de
+Codex los recibe también, por el servidor HTTP local de
 :mod:`app.services.herramientas_propias` en ``/mcp/ccd_session_mgmt`` y con el
 mismo token de su sesión; lo que no está en :data:`SIN_PREGUNTAR` lo pregunta
 Codex antes de usarlo (``approval_mode``). Las reglas son las mismas.

@@ -28,10 +28,10 @@ Este módulo ofrece:
   ``FilePickerCtrl`` y botón «Seleccionar...» en español.
 - ``nombre_limpio``: quita ``&`` y los dos puntos finales de una etiqueta.
 - ``habilitar``: activa o desactiva un control y quita el ``&`` de su etiqueta
-  mientras está desactivado (AIChat #515: si no, Alt+letra salta al control
+  mientras está desactivado (si no, Alt+letra salta al control
   siguiente).
 
-Dos arreglos para NVDA (AIChat #616), que se aplican solos en
+Dos arreglos para NVDA, que se aplican solos en
 ``asignar_nombre_accesible``:
 
 - Al abrir un diálogo, NVDA lee de golpe todos sus textos estáticos salvo los
@@ -261,7 +261,7 @@ def asignar_nombre_accesible(
 	atar_etiqueta_anterior(control, nombre)
 
 
-# ── Etiquetas de controles desactivados (AIChat #515) ─────────────────────────
+# ── Etiquetas de controles desactivados ─────────────────────────
 
 def sin_acelerador(texto: str) -> str:
 	"""«&Modelo:» → «Modelo:» (un «&&», que es un «&» escrito, se conserva)."""

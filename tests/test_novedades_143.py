@@ -422,11 +422,11 @@ def test_copiar_texto_lo_deja_tras_cerrar(app_wx, monkeypatch):
 	assert not teclado.copiar_texto("hola")
 
 
-# -- De AIChat 0.1.9 y 0.1.10 ----------------------------------------------------
+# -- Reglas, configuración y reenviar ------------------------------------------
 
 
 def test_permitir_en_la_sesion_conserva_la_carpeta_sugerida(claude_falso, tmp_path, monkeypatch):
-	"""AIChat #334: con la regla va la carpeta que sugiere Claude Code, nunca una unidad entera."""
+	"""Con la regla va la carpeta que sugiere Claude Code, nunca una unidad entera."""
 	crear, registro = claude_falso
 	fuera = str(tmp_path / "fuera")
 	monkeypatch.setenv("FAKE_CLAUDE_FUERA", fuera)
@@ -469,7 +469,7 @@ def test_carpeta_concreta(carpeta, posix, esperado):
 
 
 def test_reglas_de_la_configuracion_de_claude(tmp_path, monkeypatch):
-	"""AIChat #336: las reglas de Claude Code para la carpeta, solo para leer; las compartidas esperan a la confianza."""
+	"""Las reglas de Claude Code para la carpeta, solo para leer; las compartidas esperan a la confianza."""
 	from app.services.config_agentes import reglas_claude
 	from app.ui.dialogos.permisos_sesion import describir_regla
 
@@ -513,7 +513,7 @@ def test_archivos_de_reglas_de_codex(tmp_path, monkeypatch):
 
 
 def test_reenviar_elige_la_respuesta_y_los_destinos():
-	"""AIChat #248: la respuesta elegida o la última, con su etiqueta, a otra sesión propia."""
+	"""La respuesta elegida o la última, con su etiqueta, a otra sesión propia."""
 	from app.services import reenviar
 	from app.services.gestor import FilaSesion, MensajeVista
 

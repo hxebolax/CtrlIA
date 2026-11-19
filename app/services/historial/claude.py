@@ -1577,7 +1577,7 @@ def listar_sesiones(ids_propios: set[str] = frozenset(), incluir_archivadas: boo
 
 
 # ---------------------------------------------------------------------------
-# Chats conservados (AIChat #438): la copia de data/conservadas cuando falta el original
+# Chats conservados: la copia de data/conservadas cuando falta el original
 # ---------------------------------------------------------------------------
 
 #: Lo que se guarda de cada sesión junto a su copia; basta para volver a listarla sin el original.

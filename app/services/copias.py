@@ -1,7 +1,6 @@
 """Copias de seguridad: un ZIP con el historial, la memoria y los ajustes de los agentes y los datos de Ctrl+IA.
 
-Sin interfaz (no importa wx). Portado de AIChat (#433 a #452) y ampliado a los
-agentes de Ctrl+IA. Si se pierde o se cambia el equipo, lo que los agentes guardan
+Sin interfaz (no importa wx), para todos los agentes de Ctrl+IA. Si se pierde o se cambia el equipo, lo que los agentes guardan
 en local se perdería con él: iniciar sesión en otro equipo no lo trae de vuelta.
 
 Formato del archivo (``CtrlIA-copia-<equipo>-<fecha>.zip``), versión 1
@@ -28,7 +27,7 @@ Formato del archivo (``CtrlIA-copia-<equipo>-<fecha>.zip``), versión 1
   ``claude/casa``, ``claude/escritorio-N``, ``claude/cowork-N``, ``codex/casa``,
   ``codex/sqlite``, ``codex/skills``, ``gemini/casa`` y ``antigravity/<carpeta>``.
 
-Cifrado (AIChat #435): la copia se hace igual, en ``data/temp``, y entra entera, como
+Cifrado: la copia se hace igual, en ``data/temp``, y entra entera, como
 ``copia.zip``, en un ZIP cuya única entrada va cifrada con AES-256 al estilo WinZip
 (``pyzipper``). Cifrar las entradas de la propia copia dejaría a la vista sus nombres,
 y las carpetas de proyectos de Claude llevan la ruta entera en el nombre. Así no se ve
@@ -117,7 +116,7 @@ _SUFIJOS_SQLITE = (".sqlite", ".sqlite3", ".db")
 #: Archivos a medio escribir que los programas renombran después: nunca son historial.
 _TEMPORALES = ("*.tmp", "*.tmp.*", "*.partial", "*.parcial", "*~")
 
-# ── Claude Code (AIChat, providers/claude_backup.py) ─────────────────────────
+# ── Claude Code ─────────────────────────
 # Lo reconstruye Claude Code, o solo vale mientras se ejecuta. «.claude.json» lleva la cuenta iniciada
 # y puede llevar claves de servidores MCP; lo útil que tiene (carpetas de confianza) se rehace enseguida.
 CLAUDE_SIN_CARPETAS = (
@@ -136,7 +135,7 @@ CLAUDE_OMITIDO = [
 	".credentials.json, .claude.json y sus copias en backups/ (inicio de sesión y cuenta: vuelve a iniciar sesión)",
 ]
 
-# ── Codex (AIChat, providers/codex_backup.py) ────────────────────────────────
+# ── Codex ────────────────────────────────
 CODEX_SIN_CARPETAS = (
 	"cache", ".cache", "tmp", ".tmp", "packages", "app-server-control", "app-server-daemon", "thread-writer-locks",
 	"tui-thread-reference-capabilities", "log", "logs", "plugins/cache", "plugins/openai-curated*", "skills/.system",
@@ -375,7 +374,7 @@ CTRLIA_CARPETAS = ("db", "config", "skills", "conservadas", "ollama", "sounds/pr
 
 
 def _conservadas_repetidas(raiz: Path) -> set[str]:
-	"""Copias conservadas cuyo original sigue en la carpeta de Claude Code, que se copia igualmente (AIChat #451).
+	"""Copias conservadas cuyo original sigue en la carpeta de Claude Code, que se copia igualmente.
 
 	Se dejan fuera para que la copia no ocupe el doble. Las que guardan versiones
 	anteriores tienen historial que el original ya no tiene: esas van.
@@ -1189,7 +1188,7 @@ def registrar(resultado: ResultadoCopia) -> None:
 	_actualizar_estado(lambda estado: estado.update(datos))
 
 
-# ── Copias programadas (AIChat #437) ─────────────────────────────────────────
+# ── Copias programadas ─────────────────────────────────────────
 
 FRECUENCIAS = ("no", "diaria", "semanal")
 NOMBRES_FRECUENCIA = {"no": "No hacer copias programadas", "diaria": "Cada día", "semanal": "Cada semana"}

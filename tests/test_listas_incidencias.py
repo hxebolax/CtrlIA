@@ -1,4 +1,4 @@
-"""Incidencias de AIChat sobre las listas: cambios legibles (#174), indicadores sin adivinar (#273)
+"""Incidencias sobre las listas: cambios legibles (#174), indicadores sin adivinar (#273)
 y la página «Decisiones» de las listas de la sesión (#279 y #303).
 
 Sin ventanas visibles (nunca ``Show``, ``ShowModal`` real, ``MainLoop`` ni ``SetFocus``), sin voz y sin

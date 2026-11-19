@@ -20,7 +20,7 @@ Cómo llegan a cada agente
   (:func:`url_servidor`), con un token por sesión en ``Authorization: Bearer``.
   Con el mismo token, Codex recibe también los comandos de sesión
   (``ccd_session_mgmt``, :mod:`app.services.herramientas_sesiones`) en
-  ``/mcp/ccd_session_mgmt`` (AIChat #557): listar va sin preguntar
+  ``/mcp/ccd_session_mgmt``: listar va sin preguntar
   (``approval_mode = "approve"`` por herramienta) y lo demás, con permiso.
 - Los agentes ACP sin HTTP y Antigravity (``agy``): el puente stdio
   ``app/puente_mcp.py`` (``ctrlia-mcp.exe`` en la versión compilada), que
@@ -587,7 +587,7 @@ def orden_puente() -> list[str]:
 def config_codex(sesion: SesionHerramientas, sesiones: bool = False) -> dict[str, Any]:
 	"""Claves ``config`` de ``thread/start``, ``thread/resume`` y ``thread/fork`` de Codex (servidor HTTP).
 
-	Con ``sesiones``, también el servidor ``ccd_session_mgmt`` (comandos de sesión, AIChat #557): sus
+	Con ``sesiones``, también el servidor ``ccd_session_mgmt`` (comandos de sesión): sus
 	herramientas que solo dicen qué sesiones hay van sin preguntar (``approval_mode = "approve"``, comprobado
 	con codex-cli 0.167) y las demás piden permiso (``prompt``), como en Claude Code.
 	"""

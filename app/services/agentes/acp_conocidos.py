@@ -132,7 +132,7 @@ AGENTES: tuple[AgenteConocido, ...] = (
 	# 1.6.0. Paquete y nombres de sus programas comprobados con «npm view command-code» (1.89.1): trae cuatro
 	# (cmd, cmdc, command-code y commandcode) y se usa SIEMPRE command-code, porque «cmd» en Windows es el
 	# Símbolo del sistema. El modo ACP («command-code acp») y el inicio de sesión con cuenta («login», en el
-	# navegador) salen de BlindPilot (adjuntos/blindpilot/commandcode_backend.py); no se ha lanzado aquí.
+	# navegador) no se han lanzado aquí.
 	AgenteConocido(
 		"command-code",
 		"Command Code",

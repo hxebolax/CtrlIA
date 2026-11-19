@@ -197,7 +197,7 @@ class MensajeVista:
 
 def es_de_herramientas(rol: str, datos: dict[str, Any] | None) -> bool:
 	"""Si un mensaje solo se ve con «Mostrar las herramientas» (Ctrl+T): acciones, razonamiento y lo que Codex
-	permitió solo con su revisión automática (rutina, AIChat #564; lo no permitido se ve siempre)."""
+	permitió solo con su revisión automática (rutina; lo no permitido se ve siempre)."""
 	if rol in ("herramienta", "razonamiento"):
 		return True
 	revision = (datos or {}).get("revision_automatica") if isinstance(datos, dict) else None

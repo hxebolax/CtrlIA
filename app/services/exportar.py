@@ -17,7 +17,7 @@ La escritura es atómica: se escribe un temporal en la misma carpeta y se
 sustituye el destino con ``os.replace`` (un fallo a medias no deja el
 archivo cortado). Siempre en UTF-8.
 
-:func:`exportar_muchas` (AIChat #462) escribe cada sesión en su propio archivo
+:func:`exportar_muchas` escribe cada sesión en su propio archivo
 dentro de una carpeta. Ahí nunca se sustituye nada: cada archivo se crea en
 exclusiva y, si el nombre ya existe, se le pone un número; una sesión que falla
 se apunta y no detiene las demás.

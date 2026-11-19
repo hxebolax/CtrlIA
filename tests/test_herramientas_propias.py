@@ -455,7 +455,7 @@ def test_codex_lleva_el_servidor_en_el_hilo(tmp_path):
 		assert config == {"mcp_servers.ctrlia.url": hp.url_servidor(),
 			"mcp_servers.ctrlia.http_headers": {"Authorization": "Bearer " + token},
 			"mcp_servers.ctrlia.default_tools_approval_mode": "approve",
-			# 1.6.0: los objetivos de Codex no siguen solos sin pasar por Ctrl+IA (AIChat).
+			# 1.6.0: los objetivos de Codex no siguen solos sin pasar por Ctrl+IA.
 			"features.goals": False}
 		# Por SSH, no: Codex del otro equipo no llega al 127.0.0.1 de Windows.
 		conversacion.ajustes.extra["remoto"] = {"equipo": "mac", "carpeta": "/Users/x"}

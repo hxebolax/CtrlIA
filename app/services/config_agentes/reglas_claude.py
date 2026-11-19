@@ -1,9 +1,9 @@
-"""Las reglas de permisos de la propia configuración de Claude Code que valen en una carpeta (AIChat #336).
+"""Las reglas de permisos de la propia configuración de Claude Code que valen en una carpeta.
 
 Solo se leen: Ctrl+IA nunca escribe estos archivos (lo que guarda «Permitir
 siempre en esta carpeta» lo escribe Claude Code). Como cada turno lo hace
 Claude Code, estas reglas valen en las sesiones de Ctrl+IA igual que en la
-terminal y en la app de escritorio. Comprobado en AIChat con Claude Code 2.1.296:
+terminal y en la app de escritorio. Comprobado con Claude Code 2.1.296:
 
 - Las de tu usuario (``~/.claude/settings.json``) valen en todas las carpetas.
 - Las de ``.claude/settings.local.json`` de la carpeta, valen.

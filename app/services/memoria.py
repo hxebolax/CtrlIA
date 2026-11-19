@@ -259,7 +259,7 @@ def _habilidades(carpeta: Path, ambito: str, agente: str) -> list[ArchivoMemoria
 
 
 def _memorias_codex(raiz: Path) -> list[ArchivoMemoria]:
-	"""Lo que Codex recuerda de ti, en ``memories``, el índice ``MEMORY.md`` primero (AIChat #371).
+	"""Lo que Codex recuerda de ti, en ``memories``, el índice ``MEMORY.md`` primero.
 
 	``memories/rollout_summaries`` guarda un resumen de cada conversación pasada: eso es
 	historial, no memoria que quieras revisar, y ni se recorre (puede haber miles).

@@ -181,7 +181,7 @@ def _emitir(texto: str, interrumpir: bool, solo_braille: bool = False, siempre: 
 	except Exception:
 		log.exception("Error al enviar un anuncio al lector de pantalla.")
 		# Un lector que se reinicia (JAWS da RPC_E_DISCONNECTED) deja la salida inservible: se crea otra y se
-		# repite la frase una vez, como mucho cada pocos segundos (BlindPilot).
+		# repite la frase una vez, como mucho cada pocos segundos.
 		if _reconectar():
 			nueva = _obtener_salida()
 			if nueva is not None and not solo_braille:

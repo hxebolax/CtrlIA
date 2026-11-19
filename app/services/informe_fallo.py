@@ -1,4 +1,4 @@
-"""Informe de un fallo para abrir una incidencia en GitHub (AIChat #465).
+"""Informe de un fallo para abrir una incidencia en GitHub.
 
 Sin interfaz (no importa wx). Un informe es lo que escribe la persona (resumen,
 qué ha pasado, qué esperaba y los pasos) más una foto del entorno: versiones, cada

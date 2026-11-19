@@ -1,4 +1,4 @@
-"""Pruebas de las incidencias de AIChat hechas para Claude Code en la 1.4.3.
+"""Pruebas de las incidencias hechas para Claude Code en la 1.4.3.
 
 - #238: añadir un mensaje al turno en marcha sin detenerlo.
 - #83: «Enviar ahora» mientras Claude Code aún no tiene el primer mensaje va a la cola.

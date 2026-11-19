@@ -3,8 +3,7 @@
 Los adaptadores emiten ``TipoEvento.ACTIVIDAD`` con solo lo que cambia de cada
 tarea (campos en ``agentes.base.CAMPOS_ACTIVIDAD``); este módulo los acumula
 por sesión y por ``id`` para la ventana «Actividad en segundo plano»
-(``ui/dialogos/actividad.py``), el Estado del turno y los avisos. Idea de
-FastChat («Activity»), AIChat (#468, #521, #600) y BlindPilot.
+(``ui/dialogos/actividad.py``), el Estado del turno y los avisos.
 
 No importa wx: se prueba sin ventanas. Es seguro entre hilos (el gestor lo
 alimenta desde los hilos de los agentes y la interfaz lo lee).
