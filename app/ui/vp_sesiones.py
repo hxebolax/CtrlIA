@@ -223,7 +223,15 @@ class MixinSesiones:
 
 	def _al_listar(self, filas: list[FilaSesion], reordenar: bool) -> None:
 		self._todas = filas
+		tenia_filas = bool(self._visibles)
 		self.mostrar_sesiones(reordenar or wx.Window.FindFocus() is not self.lista_sesiones)
+		# El título puede llegar cambiado de fuera (título automático del agente, otra aplicación).
+		self.actualizar_titulo_ventana()
+		if (tenia_filas and not self._visibles and wx.Window.FindFocus() is self.lista_sesiones
+				and self.opcion("lectura.anunciar_vista_vacia", True)):
+			# La última sesión de la vista se ha ido con el foco en la lista: sin esto no se oye nada.
+			# Sin interrumpir, para no cortar el aviso de la acción que la quitó («Sesión archivada»).
+			avisos.anunciar(_("No hay sesiones en esta vista."))
 		if self._primera_carga:
 			self._primera_carga = False
 			self._abrir_ultima_sesion()
@@ -452,7 +460,8 @@ class MixinSesiones:
 			menu.AppendSeparator()
 			for _id, nombre in grupos:
 				vista = f"grupo:{nombre}"
-				item = menu.AppendRadioItem(wx.ID_ANY, _("Grupo: {g}").format(g=nombre))
+				# «&&»: un «&» del nombre se ve tal cual y no se toma como letra de acceso.
+				item = menu.AppendRadioItem(wx.ID_ANY, _("Grupo: {g}").format(g=nombre.replace("&", "&&")))
 				item.Check(vista == actual)
 				self.Bind(wx.EVT_MENU, lambda _e, v=vista: self.cambiar_vista(v), item)
 
@@ -1284,18 +1293,46 @@ class MixinSesiones:
 
 	def accion_importar(self) -> None:
 		"""Archivo, «Importar sesiones...»: trae las sesiones de un archivo exportado en otro equipo."""
-		with wx.FileDialog(self, _("Importar sesiones de un archivo"),
-				wildcard=_("Archivo de sesiones de Ctrl+IA (*.zip)|*.zip"), style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as elegir:
+		comodines = "|".join((
+			_("Sesiones de Ctrl+IA y conversaciones de BasiliskLLM (*.zip; *.bskc)|*.zip;*.bskc"),
+			_("Archivo de sesiones de Ctrl+IA (*.zip)|*.zip"),
+			_("Conversación de BasiliskLLM (*.bskc)|*.bskc"),
+		))
+		with wx.FileDialog(self, _("Importar sesiones de un archivo"), wildcard=comodines,
+				style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE) as elegir:
 			if elegir.ShowModal() != wx.ID_OK:
 				return
-			ruta = Path(elegir.GetPath())
+			rutas = [Path(r) for r in elegir.GetPaths()]
+		if not rutas:
+			return
 		avisos.anunciar(_("Importando sesiones..."))
 		progreso = self._progreso_por_voz(_("Importando {i} de {n}..."))
 
 		def importar():
-			from app.services.intercambio import importar_sesiones
+			from app.services.intercambio import ResultadoImportacion, es_bskc, importar_bskc, importar_sesiones
 
-			return importar_sesiones(ruta, self.almacen, progreso=progreso)
+			total = ResultadoImportacion()
+			for numero, ruta in enumerate(rutas, start=1):
+				try:
+					if es_bskc(ruta):
+						if len(rutas) > 1:
+							progreso(numero, len(rutas))
+						parcial = importar_bskc(ruta, self.almacen)
+					else:
+						parcial = importar_sesiones(ruta, self.almacen, progreso=progreso)
+				except ValueError as error:
+					if len(rutas) == 1:
+						raise
+					total.errores.append(f"{ruta.name} ({error})")
+					continue
+				total.nuevas += parcial.nuevas
+				total.actualizadas += parcial.actualizadas
+				total.sin_cambios += parcial.sin_cambios
+				total.del_equipo += parcial.del_equipo
+				total.errores.extend(parcial.errores)
+				total.equipos.update(parcial.equipos)
+				total.claves.extend(parcial.claves)
+			return total
 
 		def hecho(resultado) -> None:
 			partes = [_("Sesiones nuevas: {n}.").format(n=resultado.nuevas),

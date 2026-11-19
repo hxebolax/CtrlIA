@@ -151,6 +151,7 @@ class PanelInstrucciones(wx.Panel):
 		self.instrucciones.SetMinSize(self.FromDIP(wx.Size(560, 70)))
 		self.etiqueta_carpetas, self.carpetas = crear_campo(
 			self, _("Más carpetas de traba&jo (opcional):"), wx.ListBox, choices=list(carpetas), style=wx.LB_SINGLE,
+			vacia=_("No hay más carpetas; Insert añade una"),
 			sizer=raiz, ayuda=_("Otras carpetas en las que el agente también puede leer y escribir, además de la de "
 				"trabajo. Nunca una unidad entera ni la raíz de una carpeta compartida. Insert añade una; Suprimir "
 				"quita la elegida."))

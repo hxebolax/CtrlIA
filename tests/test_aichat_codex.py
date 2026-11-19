@@ -278,7 +278,7 @@ def test_continuar_aqui_no_propone_un_modelo_retirado(tmp_path):
 	servidor = ServidorFalso(_respuestas())
 	conversacion, eventos = _conversacion(tmp_path, servidor, bifurcar_de="hilo-viejo", modelo="gpt-5.5")
 	conversacion._asegurar_hilo()  # noqa: SLF001
-	assert servidor.metodos()[:2] == ["model/list", "thread/fork"]
+	assert [m for m in servidor.metodos() if m != "thread/read"][:2] == ["model/list", "thread/fork"]
 	assert servidor.params("model/list") == {"includeHidden": True}
 	assert servidor.params("thread/fork")["model"] == "gpt-6"  # el predeterminado de la lista, no el retirado
 	assert conversacion.ajustes.modelo == "gpt-6"

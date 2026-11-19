@@ -72,7 +72,7 @@ MENUS: list[tuple[str, list[tuple]]] = [
 		("-",),
 		("exportar", _("&Exportar la sesión...\tCtrl+E"), _("Guarda la conversación en Markdown, HTML o texto."), "accion_exportar"),
 		("exportar_varias", _("Exportar &varias sesiones..."), _("Guarda las sesiones que elijas, un grupo o todas: en un archivo para leerlas en otro equipo o cada una en su propio archivo (Markdown, HTML o texto) dentro de una carpeta."), "accion_exportar_varias"),
-		("importar", _("I&mportar sesiones..."), _("Trae las sesiones de un archivo exportado en otro equipo, para leerlas y buscar en ellas."), "accion_importar"),
+		("importar", _("I&mportar sesiones..."), _("Trae las sesiones de un archivo exportado en otro equipo, o conversaciones de BasiliskLLM (.bskc), para leerlas, buscar en ellas y seguirlas."), "accion_importar"),
 		("borrar_importadas", _("Borrar las sesiones im&portadas..."), _("Quita de Ctrl+IA todas las copias importadas de otros equipos."), "accion_borrar_importadas"),
 		("carpeta", _("Abrir la carpeta en el E&xplorador\tCtrl+Shift+E"), _("Abre en el Explorador de Windows la carpeta de trabajo de la sesión."), "accion_abrir_explorador"),
 		("abrir_app", _("Abrir en la app del &agente\tCtrl+O"), _("Abre la sesión en la app de escritorio de Claude o de Codex, o la carpeta en Antigravity. Las sesiones de Ctrl+IA también: la app de Claude las importa la primera vez."), "accion_abrir_en_agente"),

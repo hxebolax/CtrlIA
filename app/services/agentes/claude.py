@@ -1109,6 +1109,8 @@ class _ProcesoClaude:
 		self.mcp_reintentados: set[str] = set()
 		#: Mensajes añadidos al turno, escritos y sin recoger todavía: uuid → mensaje.
 		self.anadidos: dict[str, _Anadido] = {}
+		#: Último ``total_cost_usd`` de este proceso: el coste de cada respuesta es lo que crece.
+		self.coste_anterior: float | None = None
 		#: Tareas de este proceso (subagentes, órdenes en segundo plano): task_id → lo que se sabe de ella.
 		self.tareas: dict[str, dict[str, Any]] = {}
 		#: Llamada (Task/Agent, Bash) que lanzó cada tarea: tool_use_id → task_id.
@@ -2896,6 +2898,38 @@ class ConversacionClaude(Conversacion):
 			tipo = "nuevo" if resultado.get("type") == "create" else "modificado"
 			self._emitir(TipoEvento.ARCHIVO, ruta, ruta=ruta, tipo=tipo, diff="\n".join(lineas))
 
+	@staticmethod
+	def _coste_de(vivo: _ProcesoClaude | None, datos: dict[str, Any]) -> tuple[float | None, float | str]:
+		"""(acumulado de la sesión, coste de esta respuesta) de un ``result``.
+
+		``total_cost_usd`` es la suma de TODA la sesión, no lo de la respuesta: dentro
+		de un proceso, cada resultado suma al anterior, y el primero de un proceso que
+		reanuda una sesión trae además el coste guardado de antes. Lo de la respuesta
+		es lo que crece desde el resultado anterior del mismo proceso; en el primero,
+		todo, salvo que traiga coste restaurado (los tokens de ``modelUsage``, que
+		acumulan la sesión, pasan de los de ``usage``, que son solo de esta respuesta).
+		``""`` si no se puede saber.
+		"""
+		total = datos.get("total_cost_usd")
+		if not isinstance(total, (int, float)) or isinstance(total, bool):
+			return None, ""
+		total = float(total)
+		anterior = vivo.coste_anterior if vivo is not None else None
+		if vivo is not None:
+			vivo.coste_anterior = total
+		if anterior is not None:
+			return total, max(0.0, total - anterior) if total >= anterior else ""
+		uso = datos.get("usage") or {}
+		claves = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+		propios = sum(int(uso.get(c) or 0) for c in claves if isinstance(uso, dict))
+		claves_modelo = ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")
+		acumulados = sum(
+			int(info.get(c) or 0) for info in (datos.get("modelUsage") or {}).values() if isinstance(info, dict)
+			for c in claves_modelo)
+		if acumulados > propios:
+			return total, ""
+		return total, total
+
 	def _al_resultado(self, turno: _Turno, datos: dict[str, Any]) -> None:
 		turno.resultados_pendientes = max(0, turno.resultados_pendientes - 1)
 		turno.ultimo_resultado = datos
@@ -2911,8 +2945,9 @@ class ConversacionClaude(Conversacion):
 		turno.contexto_total = total_contexto or turno.contexto_total
 		if turno.vivo is not None:
 			turno.vivo.contexto_total = turno.contexto_total
+		coste, coste_turno = self._coste_de(turno.vivo, datos)
 		self._emitir(TipoEvento.USO, entrada=int(uso.get("input_tokens") or 0), salida=int(uso.get("output_tokens") or 0),
-			contexto_total=turno.contexto_total or None, coste=datos.get("total_cost_usd"))
+			contexto_total=turno.contexto_total or None, coste=coste, coste_turno=coste_turno)
 		for denegacion in datos.get("permission_denials") or []:
 			if isinstance(denegacion, dict):
 				nombre = str(denegacion.get("tool_name") or "")
@@ -3361,10 +3396,20 @@ class ConversacionClaude(Conversacion):
 
 	def _solicitud_pregunta(self, identificador: str, entrada: dict[str, Any]) -> SolicitudPermiso:
 		preguntas = []
-		for numero, pregunta in enumerate(entrada.get("questions") or []):
+		brutas = entrada.get("questions") or []
+		if isinstance(brutas, str):
+			# Algún modelo manda la lista como texto JSON en vez de como lista.
+			try:
+				brutas = json.loads(brutas)
+			except ValueError:
+				brutas = []
+		if isinstance(brutas, dict):
+			brutas = [brutas]
+		for numero, pregunta in enumerate(brutas if isinstance(brutas, list) else []):
 			if not isinstance(pregunta, dict):
 				continue
-			validas = [o for o in pregunta.get("options") or [] if isinstance(o, dict)]
+			validas = [o if isinstance(o, dict) else {"label": o} for o in pregunta.get("options") or []
+				if isinstance(o, dict) or (isinstance(o, str) and o.strip())]
 			opciones = [(str(o.get("label") or ""), str(o.get("description") or "")) for o in validas]
 			# «preview»: lo que Claude quiere que veas con esa opción (un borrador, código, un esquema).
 			previas = [str(o.get("preview") or "") for o in validas]
@@ -3372,6 +3417,8 @@ class ConversacionClaude(Conversacion):
 				id=str(pregunta.get("question") or numero), texto=str(pregunta.get("question") or ""),
 				encabezado=str(pregunta.get("header") or ""), opciones=opciones,
 				multiple=bool(pregunta.get("multiSelect")),
+				# Claude Code admite siempre una respuesta escrita además de sus opciones.
+				admite_otra=True,
 				vistas_previas=previas if any(p.strip() for p in previas) else [],
 			))
 		return SolicitudPermiso(

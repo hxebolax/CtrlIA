@@ -102,7 +102,9 @@ class DialogoSolicitud(wx.Dialog):
 			titulo = pregunta.encabezado or _("Pregunta {n}").format(n=numero)
 			etiqueta = "{titulo}: {texto}".format(titulo=titulo, texto=pregunta.texto)
 			opciones = [f"{t} — {d}" if d else t for t, d in pregunta.opciones]
-			if pregunta.admite_otra:
+			# Sin opciones del agente se contesta escribiendo: una lista con solo «Otra respuesta»
+			# no deja elegir nada con las flechas.
+			if opciones and pregunta.admite_otra:
 				opciones.append(_("Otra respuesta (escríbela debajo)"))
 			if opciones and pregunta.multiple:
 				_e, control = crear_campo(panel, etiqueta, wx.CheckListBox, choices=opciones,
@@ -125,8 +127,24 @@ class DialogoSolicitud(wx.Dialog):
 			otra = None
 			if opciones and pregunta.admite_otra:
 				_e, otra = crear_campo(panel, _("Tu otra respuesta a «{t}»:").format(t=titulo), wx.TextCtrl,
-					ayuda=_("Solo se usa si eliges «Otra respuesta»."), sizer=raiz)
+					ayuda=_("Escribe aquí tu respuesta si ninguna opción te vale: al escribir se elige «Otra respuesta» "
+						"en la lista."), sizer=raiz)
+				otra.Bind(wx.EVT_TEXT, lambda evento, c=control: self._elegir_otra(evento, c))
 			self._preguntas.append((pregunta, control, otra))
+
+	@staticmethod
+	def _elegir_otra(evento: wx.CommandEvent, control: wx.Window) -> None:
+		"""Al escribir otra respuesta se elige «Otra respuesta», el último elemento de la lista."""
+		evento.Skip()
+		if not evento.GetString().strip():
+			return
+		ultimo = control.GetCount() - 1
+		if isinstance(control, wx.CheckListBox):
+			if not control.IsChecked(ultimo):
+				control.Check(ultimo, True)
+		elif isinstance(control, wx.ListBox) and control.GetSelection() != ultimo:
+			control.SetSelection(ultimo)
+			control.ProcessWindowEvent(wx.CommandEvent(wx.wxEVT_LISTBOX, control.GetId()))
 
 	def _crear_descripcion(self, panel: wx.Panel, raiz: wx.BoxSizer, control: wx.ListBox, titulo: str,
 			opciones: list[str]) -> None:

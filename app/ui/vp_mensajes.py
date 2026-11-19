@@ -506,7 +506,8 @@ class MixinMensajes:
 		titulo = "Ctrl+IA"
 		if fila is not None:
 			titulo = "{t} - {a} - Ctrl+IA".format(t=fila.titulo, a=nombre_agente(fila.proveedor))
-		self.SetTitle(titulo)
+		if self.GetTitle() != titulo:  # Cambiarlo sin motivo hace que algún lector lo repita.
+			self.SetTitle(titulo)
 
 	# ------------------------------------------------------------------
 	# Ver y copiar

@@ -205,11 +205,17 @@ def abrir_en_consola(orden: Sequence[str], carpeta: Path | None = None,
 	:param al_terminar: se llama (desde otro hilo) con el código de salida cuando
 		la consola se cierra; por ejemplo, para volver a comprobar el agente.
 	"""
+	entorno = None
+	if orden and Path(str(orden[0])).name.lower() in ("powershell.exe", "powershell"):
+		# Arrancado Ctrl+IA desde PowerShell 7, el hijo heredaría su PSModulePath y Windows
+		# PowerShell 5.1 podría cargar módulos que no son suyos; sin la variable usa los de serie.
+		entorno = entorno_hijo(quitar=("PSModulePath",))
 	try:
 		proceso = subprocess.Popen(  # noqa: S603 - orden fija de la aplicación, sin shell
 			list(orden),
 			cwd=str(carpeta) if carpeta else None,
 			creationflags=CREATE_NEW_CONSOLE if ES_WINDOWS else 0,
+			env=entorno,
 		)
 	except OSError:
 		log.exception("No se pudo abrir la consola con %s", orden[:1])

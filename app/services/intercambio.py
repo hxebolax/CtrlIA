@@ -332,16 +332,16 @@ def importar_sesiones(
 
 
 def _importar_una(datos: dict[str, Any], equipo_archivo: str, equipo_local: str, almacen: Almacen,
-		ya_importadas: dict[str, str], resultado: ResultadoImportacion) -> None:
+		ya_importadas: dict[str, str], resultado: ResultadoImportacion, *, ya_convertidos: bool = False) -> None:
 	clave_original = _texto(datos.get("clave"), 300)
 	if not clave_original:
 		raise ValueError("la sesión no tiene identificador")
 	equipo = _texto(datos.get("equipo"), 200) or equipo_archivo or "Equipo sin nombre"
-	if equipo.casefold() == equipo_local:
+	if equipo_local and equipo.casefold() == equipo_local:
 		resultado.del_equipo += 1
 		return
 	identidad = f"{equipo}|{clave_original}"
-	mensajes = _mensajes_importados(datos.get("mensajes"))
+	mensajes = datos["mensajes"] if ya_convertidos else _mensajes_importados(datos.get("mensajes"))
 	titulo = _texto(datos.get("titulo"), MAX_TITULO) or "Sesión importada"
 	actividad = _numero(datos.get("actividad")) or max((m["fecha"] for m in mensajes), default=0.0) or time.time()
 	extra = {"importada": {
@@ -379,6 +379,99 @@ def _importar_una(datos: dict[str, Any], equipo_archivo: str, equipo_local: str,
 			almacen.anadir_a_grupo(clave, almacen.crear_grupo(nombre_grupo))
 	resultado.equipos.add(equipo)
 	resultado.claves.append(clave)
+
+
+# ── Conversaciones de BasiliskLLM (.bskc) ────────────────────────────────────────
+
+#: Extensión de las conversaciones guardadas por BasiliskLLM.
+EXTENSION_BSKC = ".bskc"
+#: «Equipo» con el que se listan: no vienen de otro Ctrl+IA, sino de ese programa.
+ORIGEN_BSKC = "BasiliskLLM"
+#: Límites del ZIP: tamaño descomprimido total y número de archivos.
+MAX_BSKC_BYTES = 512 * 1024 * 1024
+MAX_BSKC_ARCHIVOS = 5000
+
+
+def es_bskc(ruta: Path) -> bool:
+	return Path(ruta).suffix.lower() == EXTENSION_BSKC
+
+
+def _leer_bskc(ruta: Path) -> dict[str, Any]:
+	try:
+		with zipfile.ZipFile(ruta) as archivo:
+			miembros = archivo.infolist()
+			if len(miembros) > MAX_BSKC_ARCHIVOS or sum(m.file_size for m in miembros) > MAX_BSKC_BYTES:
+				raise ValueError("La conversación es demasiado grande para importarla.")
+			datos = _leer_json(archivo, "conversation.json")
+	except (zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError) as error:
+		raise ValueError("El archivo no es una conversación de BasiliskLLM (.bskc) o está dañado.") from error
+	if not isinstance(datos, dict):
+		raise ValueError("El archivo no es una conversación de BasiliskLLM (.bskc).")
+	return datos
+
+
+def _mensajes_bskc(datos: dict[str, Any], fecha: float) -> tuple[list[dict[str, Any]], str]:
+	"""Los mensajes de una conversación .bskc y el modelo de la última respuesta."""
+	mensajes: list[dict[str, Any]] = []
+	sistemas = [_texto(s.get("content")) for s in datos.get("systems") or [] if isinstance(s, dict)]
+	sistema = "\n\n".join(s for s in sistemas if s.strip())
+	if sistema:
+		mensajes.append({"rol": "sistema", "texto": "Instrucciones del sistema:\n" + sistema, "fecha": fecha,
+			"detalle": "", "herramienta": "", "datos": {}})
+	modelo = ""
+	for bloque in datos.get("messages") or []:
+		if not isinstance(bloque, dict):
+			continue
+		peticion = bloque.get("request") if isinstance(bloque.get("request"), dict) else {}
+		respuesta = bloque.get("response") if isinstance(bloque.get("response"), dict) else {}
+		texto = _texto(peticion.get("content"))
+		adjuntos = []
+		for adjunto in peticion.get("attachments") or []:
+			if isinstance(adjunto, dict):
+				ubicacion = _texto(adjunto.get("location"))
+				nombre = ubicacion if ubicacion.startswith(("http://", "https://")) else Path(ubicacion).name
+				if nombre:
+					adjuntos.append(nombre)
+		if adjuntos:
+			texto += "\n\n" + "Adjuntos (no se importan): " + ", ".join(adjuntos)
+		if texto.strip():
+			mensajes.append({"rol": "usuario", "texto": texto, "fecha": fecha, "detalle": "", "herramienta": "",
+				"datos": {}})
+		if _texto(respuesta.get("content")).strip():
+			mensajes.append({"rol": "asistente", "texto": _texto(respuesta.get("content")), "fecha": fecha,
+				"detalle": "", "herramienta": "", "datos": {}})
+		datos_modelo = bloque.get("model")
+		if isinstance(datos_modelo, dict):
+			modelo = _texto(datos_modelo.get("model_id") or datos_modelo.get("provider_id"), 200) or modelo
+	return mensajes, modelo
+
+
+def importar_bskc(ruta: Path, almacen: Almacen) -> ResultadoImportacion:
+	"""Importa una conversación de BasiliskLLM como sesión de solo lectura que se puede continuar.
+
+	Volver a importar el mismo archivo la actualiza en vez de duplicarla. Los
+	adjuntos no se traen: se nombran en el mensaje que los llevaba.
+
+	:raises ValueError: el archivo no es una conversación de BasiliskLLM o está dañado.
+	:raises OSError: no se pudo leer.
+	"""
+	ruta = Path(ruta)
+	datos = _leer_bskc(ruta)
+	fecha = ruta.stat().st_mtime
+	mensajes, modelo = _mensajes_bskc(datos, fecha)
+	if not any(m["rol"] in ("usuario", "asistente") for m in mensajes):
+		raise ValueError("La conversación de BasiliskLLM no tiene mensajes.")
+	titulo = _texto(datos.get("title"), MAX_TITULO).strip() or ruta.stem
+	resultado = ResultadoImportacion()
+	sesion = {
+		# El nombre del archivo identifica la conversación: reimportarla la actualiza.
+		"clave": "bskc:" + ruta.name.casefold(), "titulo": titulo, "proveedor": "otro", "origen": "bskc",
+		"modelo": modelo, "actividad": fecha, "creada": fecha, "mensajes": mensajes,
+	}
+	_importar_una(sesion, ORIGEN_BSKC, "", almacen, almacen.sesiones_importadas(), resultado,
+		ya_convertidos=True)
+	log.info("Conversación de BasiliskLLM %s importada: %d mensajes", ruta.name, len(mensajes))
+	return resultado
 
 
 def es_importada(clave: str) -> bool:

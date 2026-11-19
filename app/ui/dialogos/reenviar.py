@@ -50,6 +50,7 @@ class DialogoReenviar(wx.Dialog):
 		raiz = wx.BoxSizer(wx.VERTICAL)
 		_etiqueta, self.destinos = crear_campo(
 			panel, _("Enviar &a:"), wx.ListBox, choices=list(destinos), style=wx.LB_SINGLE,
+			vacia=_("No hay otras sesiones"),
 			ayuda=_("Las sesiones de Ctrl+IA a las que puedes enviar la respuesta, de cualquier agente. La primera es la "
 				"que te envió la última respuesta, para contestarle con Intro. La última, «Nueva sesión...», abre ese "
 				"cuadro con el mensaje puesto, para elegir el agente y la carpeta. Intro envía."),

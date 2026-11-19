@@ -1065,6 +1065,8 @@ _PLANTILLA_BAT = r"""@echo off
 chcp 65001 >nul
 setlocal EnableExtensions DisableDelayedExpansion
 rem Script de sustitucion generado por app/services/actualizador.py. No lo edites.
+rem Sin el PSModulePath de PowerShell 7: el powershell.exe 5.1 de abajo usa sus propios modulos.
+set "PSModulePath="
 set "APP={app}"
 set "DATOS_APP=%APP%\data"
 set "TRABAJO={trabajo}"

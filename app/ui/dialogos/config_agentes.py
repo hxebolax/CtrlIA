@@ -138,6 +138,7 @@ class DialogoValor(wx.Dialog):
 			else:
 				self._elementos = [f"{k}={v}" for k, v in (valor.items() if existe and isinstance(valor, dict) else [])]
 			_e, self.control = crear_campo(panel, _("&Elementos:"), wx.ListBox, sizer=raiz, choices=list(self._elementos),
+				vacia=_("No hay elementos; Insert añade uno"),
 				ayuda=_("Un elemento por línea. Insertar añade, F2 cambia el elegido, Supr lo quita, Alt+flecha arriba y "
 					"abajo lo mueven.") if self.tipo == LISTA else _("Una variable por línea, como NOMBRE=valor. Insertar "
 					"añade, F2 cambia la elegida y Supr la quita."))

@@ -126,6 +126,22 @@ MAX_CAMBIOS_HIJOS = 128
 FUENTES_HILOS = ("cli", "vscode", "exec", "appServer", "unknown")
 #: Opción de configuración (no está en Preferencias): preguntas de Codex también fuera del modo Plan (punto 13 de 1.6.0).
 CLAVE_PREGUNTAS = "agentes.preguntas_codex"
+#: Opción: las órdenes de Codex pueden usar la red sin salir de la carpeta (``networkAccess`` del sandbox).
+CLAVE_RED = "agentes.red_codex"
+
+
+def _opcion_global(clave: str, defecto: bool = False) -> bool:
+	"""Una opción booleana de la configuración de Ctrl+IA (``defecto`` si no hay configuración cargada)."""
+	from app.core import configuracion
+
+	instancia = getattr(configuracion, "_instancia", None)
+	if instancia is None:
+		return defecto
+	try:
+		return bool(instancia.obtener(clave, defecto))
+	except Exception:  # noqa: BLE001 - una clave ilegible deja la opción como de fábrica
+		log.debug("No se pudo leer %s", clave, exc_info=True)
+		return defecto
 #: Lo que se dice de un hilo que Codex ya no tiene (AIChat, codex_owned ``_thread_gone``).
 MENSAJE_HILO_DESAPARECIDO = "Codex ya no tiene esta conversación; puedes borrarla de la lista."
 #: Clave de las instrucciones de la sesión en ``additionalContext`` de ``turn/start`` (AIChat usa ``tcp_chat_instructions``).
@@ -817,6 +833,8 @@ class ConversacionCodex(Conversacion):
 		self._anadidos_pendientes = 0
 		#: Tipo del sandbox que Codex aplica de verdad (``readOnly``...), según su última respuesta; «» si no se sabe.
 		self._sandbox_efectivo = ""
+		#: ``networkAccess`` del sandbox que Codex aplica con su configuración; ``None`` si aún no se sabe.
+		self._red_sandbox: bool | None = None
 		#: Ya se avisó de que Codex aplica un sandbox más restrictivo que el pedido (una vez por sesión, AIChat #297).
 		self._aviso_sandbox_dado = False
 		#: Ya se avisó de que el revisor del hilo no es el del modo elegido (una vez por sesión).
@@ -1439,13 +1457,19 @@ class ConversacionCodex(Conversacion):
 		carpetas = self._carpetas_adicionales()
 		if carpetas and modo.sandbox == "workspace-write":
 			configuracion["sandbox_workspace_write.writable_roots"] = carpetas
+		if modo.sandbox == "workspace-write" and _opcion_global(CLAVE_RED):
+			configuracion["sandbox_workspace_write.network_access"] = True
+		proveedor = ""
 		if metodo == "thread/fork":
 			params = {"threadId": ajustes.bifurcar_de, "excludeTurns": True, **comunes}
 			params.update(self._corte_bifurcacion(srv, ajustes.bifurcar_de))
+			proveedor = proveedor_de_hilo(srv, ajustes.bifurcar_de)
 		elif metodo == "thread/resume":
 			params = {"threadId": ajustes.id_externo, "excludeTurns": True, **comunes}
+			proveedor = proveedor_de_hilo(srv, ajustes.id_externo)
 		else:
 			params = comunes
+		mantener_proveedor(params, proveedor)
 		try:
 			respuesta = srv.peticion(metodo, params) or {}
 		except ErrorCodex as error:
@@ -1453,6 +1477,9 @@ class ConversacionCodex(Conversacion):
 					and hilo_desaparecido(srv, ajustes.id_externo)):
 				log.warning("Codex ya no tiene el hilo %s", ajustes.id_externo)
 				raise ErrorCodex(MENSAJE_HILO_DESAPARECIDO, error.codigo, hilo_desaparecido=True) from error
+			claro = error_de_proveedor(error, proveedor)
+			if claro is not None:
+				raise claro from error
 			raise
 		hilo = respuesta.get("thread") if isinstance(respuesta, dict) else None
 		id_hilo = hilo.get("id") if isinstance(hilo, dict) else None
@@ -1541,6 +1568,10 @@ class ConversacionCodex(Conversacion):
 	def _politica(self, modo: _Modo) -> dict[str, Any]:
 		"""La política de sandbox del turno: la del modo y, si escribe en la carpeta, las carpetas adicionales."""
 		politica = dict(modo.politica)
+		if politica.get("type") == "workspaceWrite" and (self._red_sandbox or _opcion_global(CLAVE_RED)):
+			# Una política enviada sin «networkAccess» lo deja en falso y taparía el de la configuración de Codex
+			# (sandbox_workspace_write.network_access): las órdenes se quedarían sin red.
+			politica["networkAccess"] = True
 		carpetas = self._carpetas_adicionales()
 		if carpetas and politica.get("type") == "workspaceWrite":
 			raiz = remoto.carpeta_remota(self.ajustes.extra) or str(self.ajustes.carpeta)
@@ -1599,6 +1630,9 @@ class ConversacionCodex(Conversacion):
 		pedido = str(modo.politica.get("type") or "")
 		with self._candado:
 			self._sandbox_efectivo = tipo
+			if tipo == "workspaceWrite" and isinstance(sandbox.get("networkAccess"), bool) and self._red_sandbox is None:
+				# Solo la primera vez: después Codex devuelve lo que Ctrl+IA le envió.
+				self._red_sandbox = sandbox["networkAccess"]
 			avisar = (not self._aviso_sandbox_dado and tipo in _NIVEL_SANDBOX and pedido in _NIVEL_SANDBOX
 				and _NIVEL_SANDBOX[tipo] < _NIVEL_SANDBOX[pedido])
 			if avisar:
@@ -3213,6 +3247,46 @@ def ultimo_turno_terminado(srv: _ServidorCodex, hilo: str) -> tuple[str, bool]:
 	return "", sin_terminar
 
 
+#: Proveedor de modelos de ChatGPT, el de fábrica de Codex.
+PROVEEDOR_CHATGPT = "openai"
+
+
+def proveedor_de_hilo(srv: _ServidorCodex, id_hilo: str) -> str:
+	"""El proveedor de modelos (``modelProvider``) con el que se hizo ``id_hilo``; «» si no se sabe."""
+	if not id_hilo:
+		return ""
+	try:
+		respuesta = srv.peticion("thread/read", {"threadId": id_hilo, "includeTurns": False}) or {}
+	except ErrorCodex:
+		log.debug("No se pudo leer el proveedor del hilo %s", id_hilo, exc_info=True)
+		return ""
+	hilo = respuesta.get("thread") if isinstance(respuesta, dict) else None
+	proveedor = hilo.get("modelProvider") if isinstance(hilo, dict) else None
+	return proveedor.strip() if isinstance(proveedor, str) else ""
+
+
+def mantener_proveedor(params: dict[str, Any], proveedor: str) -> None:
+	"""Un hilo hecho con otro proveedor (un modelo local...) sigue en él: sin esto, Codex usaría el de su
+	configuración (normalmente ChatGPT) y le mandaría la conversación. Su modelo es el del hilo, no uno
+	de la lista del proveedor actual."""
+	if proveedor and proveedor != PROVEEDOR_CHATGPT:
+		params["modelProvider"] = proveedor
+		params.pop("model", None)
+
+
+def error_de_proveedor(error: ErrorCodex, proveedor: str) -> ErrorCodex | None:
+	"""Un error claro si Codex rechaza el hilo porque su proveedor ya no está configurado."""
+	if not proveedor or proveedor == PROVEEDOR_CHATGPT or error.muerto or error.tiempo_agotado:
+		return None
+	texto = str(error).lower()
+	if "provider" not in texto and proveedor.lower() not in texto:
+		return None
+	return ErrorCodex(
+		"Esta conversación se hizo con el proveedor de modelos «%s», que ya no está en la configuración de Codex. "
+		"Ctrl+IA no la envía a otro proveedor: vuelve a añadirlo a la configuración de Codex (model_providers) para "
+		"seguir con ella." % proveedor, error.codigo)
+
+
 def hilo_desaparecido(srv: _ServidorCodex, id_hilo: str) -> bool:
 	"""Si Codex ya no tiene ``id_hilo`` en su lista (activos y archivados, de cualquier proveedor y origen).
 
@@ -3457,6 +3531,7 @@ def convertir_hilo(hilo: dict[str, Any]) -> dict[str, Any]:
 		"actualizado": hilo.get("updatedAt"),
 		"origen": str(origen or ""),
 		"estado": _ESTADOS_HILO.get(tipo_estado, tipo_estado),
+		"proveedor_modelos": str(hilo.get("modelProvider") or ""),
 	}
 
 
@@ -3952,7 +4027,15 @@ class ProveedorCodex(Proveedor):
 				"config": configuracion}
 			if ajustes.modelo:
 				params["model"] = ajustes.modelo
-			respuesta = srv.peticion("thread/fork", params) or {}
+			proveedor = proveedor_de_hilo(srv, hilo)
+			mantener_proveedor(params, proveedor)
+			try:
+				respuesta = srv.peticion("thread/fork", params) or {}
+			except ErrorCodex as error:
+				claro = error_de_proveedor(error, proveedor)
+				if claro is not None:
+					raise RuntimeError(claro.mensaje) from error
+				raise
 			copia = respuesta.get("thread") if isinstance(respuesta, dict) else None
 			id_copia = copia.get("id") if isinstance(copia, dict) else None
 			if not isinstance(id_copia, str) or not id_copia:

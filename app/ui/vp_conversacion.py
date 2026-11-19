@@ -37,6 +37,15 @@ log = logging.getLogger(__name__)
 MAX_ANUNCIO = 4000
 
 
+def _dolares(valor: Any) -> str:
+	"""Un importe en dólares con coma decimal y como mucho cuatro decimales («0,0123»)."""
+	try:
+		texto = f"{float(valor):.4f}".rstrip("0").rstrip(".")
+	except (TypeError, ValueError):
+		return str(valor)
+	return texto.replace(".", ",") or "0"
+
+
 def _insertado(antes: str, despues: str) -> str:
 	"""Lo que se ha metido en ``despues`` respecto a ``antes`` (el trozo entre lo común del principio y del final)."""
 	inicio = 0
@@ -916,8 +925,12 @@ class MixinConversacion:
 			lineas.append(_("- Todavía no hay datos de contexto: aparecen tras la primera respuesta."))
 		if uso.get("entrada") or uso.get("salida"):
 			lineas.append(_("- Último turno: {e} de entrada y {s} de salida.").format(e=uso.get("entrada", 0), s=uso.get("salida", 0)))
+		coste_turno = uso.get("coste_turno")
+		if isinstance(coste_turno, (int, float)) and not isinstance(coste_turno, bool):
+			lineas.append(_("- Coste equivalente de la última respuesta: {c} dólares.").format(c=_dolares(coste_turno)))
 		if uso.get("coste"):
-			lineas.append(_("- Coste equivalente del turno: {c} dólares (con suscripción no se te cobra aparte).").format(c=uso["coste"]))
+			lineas.append(_("- Coste equivalente acumulado de la sesión: {c} dólares (con suscripción no se te cobra "
+				"aparte).").format(c=_dolares(uso["coste"])))
 		from app.services import limites as servicio_limites
 
 		cuenta = self.gestor.limites_cuenta(fila.proveedor)

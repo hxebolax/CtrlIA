@@ -2,6 +2,29 @@
 
 Cada versión tiene su apartado, de la más reciente a la más antigua. Los cambios se cuentan con palabras de quien usa el programa: qué puedes hacer y dónde.
 
+## Versión 1.7.0 - 2026-11-19
+
+### Novedades
+
+- Importar conversaciones de BasiliskLLM: Archivo, «Importar sesiones...» abre también sus archivos .bskc, y puedes elegir varios a la vez. Cada una entra como sesión de solo lectura, con sus instrucciones, tus mensajes y las respuestas, y la sigues con «Continuar aquí» con el agente que quieras.
+- Importar un paquete de sonidos: en Herramientas, «Sonidos...», «Importar un paquete de sonidos...» (Alt+I) instala en tu carpeta propia los WAV de un ZIP que se llamen como un sonido de Ctrl+IA, te dice cuáles no ha usado y te ofrece pasar al esquema «Propio».
+- Nueva opción en Preferencias, Agentes: «Dejar que las órdenes de Codex usen Internet sin salir de la carpeta». Así funcionan npm install, pip install o git push en los modos que escriben en la carpeta, y Codex sigue sin poder tocar archivos fuera de ella.
+- «Uso y límites» (Ctrl+Mayús+U) separa, con Claude Code, el coste equivalente de la última respuesta y el acumulado de toda la sesión, con coma decimal.
+
+### Arreglos
+
+- Las preguntas que el agente escribe en su respuesta ya se pueden contestar bien con Ctrl+Mayús+A. Antes, si ponía las opciones en una lista («1. SQLite 2. PostgreSQL») o hacía varias preguntas seguidas, el diálogo solo mostraba «Otra respuesta» y el campo para escribir, sin poder elegir con las flechas, y solo salía la última pregunta. Ahora cada opción se elige con las flechas (también las que pone justo antes de preguntar «¿Cuál prefieres?») y salen todas las preguntas, cada una con sus opciones.
+- Una pregunta sin opciones ya no muestra una lista con un único elemento: se contesta escribiendo en su campo. Y al escribir en «Tu otra respuesta» queda elegida «Otra respuesta» sin tener que bajar a ella.
+- Claude Code admite siempre una respuesta escrita en sus preguntas, también cuando trae opciones.
+- El coste que se mostraba como «del turno» con Claude Code era en realidad el acumulado de la sesión.
+- Codex ya no deja sin Internet a sus órdenes cuando su configuración se lo permite y la sesión tiene más carpetas de trabajo o cambias de modo.
+- Las conversaciones hechas en Codex con otro proveedor de modelos (por ejemplo, uno local) ya no se mandan a ChatGPT al continuarlas, bifurcarlas, reintentarlas o preguntar aparte.
+- Las listas de los diálogos («Más carpetas de trabajo», los elementos de la configuración de los agentes, los destinos de «Reenviar»...) leen cada fila una sola vez y, si están vacías, lo dicen («No hay más carpetas») en vez de «desconocido».
+- Si la última sesión de la vista desaparece (archivada u ocultada desde fuera) con el foco en la lista, se dice «No hay sesiones en esta vista».
+- El título de la ventana sigue los cambios de nombre de la sesión abierta que llegan de fuera (el título automático del agente, otra aplicación), y ya no se repite cuando no cambia.
+- Un «&» en el nombre de un grupo se ve tal cual en Ver, Mostrar.
+- Abrir una consola de PowerShell (instalar o actualizar un agente, actualizar Ctrl+IA) ya no falla si arrancaste Ctrl+IA desde PowerShell 7.
+
 ## Versión 1.6.0 - 2026-11-14
 
 ### Novedades

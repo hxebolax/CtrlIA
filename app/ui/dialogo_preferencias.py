@@ -207,6 +207,11 @@ PAGINAS: tuple[Pagina, ...] = (
 			N_("Codex solo usa su herramienta de preguntas en el modo Plan; con esta opción la tiene siempre. Es una función "
 				"que Codex aún tiene en desarrollo y, mientras está activa, las instrucciones de desarrollador de un proyecto "
 				"pueden quedar tapadas. Se aplica al reiniciar Ctrl+IA.")),
+		Opcion("agentes.red_codex", N_("Dejar que las órdenes de Codex usen Internet sin salir de la carpeta"), BOOL,
+			N_("En los modos que escriben en la carpeta del proyecto, Codex aísla sus órdenes y, si su configuración no "
+				"dice otra cosa, sin red: fallan npm install, pip install, descargar una página o git push. Con esta "
+				"opción pueden usar Internet y siguen sin poder tocar archivos fuera de la carpeta. Vale desde el "
+				"siguiente mensaje de cada sesión.")),
 		Opcion("agentes.permitir_clave_api", N_("Permitir que Claude use una clave de API (puede costar dinero)"), BOOL,
 			N_("Normalmente Ctrl+IA solo usa tu suscripción de Claude y se niega a usar claves de API, que se cobran "
 				"por uso. Actívalo solo si sabes que quieres pagar por uso. Se aplica al reiniciar Ctrl+IA.")),

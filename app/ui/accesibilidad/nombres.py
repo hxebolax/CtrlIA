@@ -94,16 +94,48 @@ def foco_en_la_lista(accesible: wx.Accessible):
 class _AccesibleConNombre(wx.Accessible):
 	"""Objeto MSAA que expone un nombre (y opcionalmente una descripción) fijos."""
 
-	def __init__(self, ventana: wx.Window, nombre: str, descripcion: str = "") -> None:
+	def __init__(self, ventana: wx.Window, nombre: str, descripcion: str = "", vacia: str = "") -> None:
 		super().__init__(ventana)
 		self._nombre = nombre
 		self._descripcion = descripcion
 		self._es_lista = isinstance(ventana, wx.ListBox)
+		#: Lo que se lee al llegar a la lista sin filas (si no, NVDA dice «desconocido»).
+		self._vacia = vacia
+
+	def _lista_vacia(self, childId: int) -> bool:  # noqa: N803 - API de wx
+		"""Si se pregunta por la fila 1 de una lista vacía: Windows le da el foco aunque no exista."""
+		if not (self._es_lista and self._vacia and childId == 1):
+			return False
+		try:
+			ventana = self.GetWindow()
+			return bool(ventana) and ventana.GetCount() == 0
+		except RuntimeError:
+			return False
 
 	def GetName(self, childId: int):  # noqa: N802,N803 - API de wx
 		if childId == 0:
 			return (wx.ACC_OK, self._nombre)
+		if self._lista_vacia(childId):
+			return (wx.ACC_OK, self._vacia)
 		return (wx.ACC_NOT_IMPLEMENTED, "")
+
+	def GetRole(self, childId: int):  # noqa: N802,N803 - API de wx
+		if self._lista_vacia(childId):
+			return (wx.ACC_OK, wx.ROLE_SYSTEM_LISTITEM)
+		return (wx.ACC_NOT_IMPLEMENTED, 0)
+
+	def GetState(self, childId: int):  # noqa: N802,N803 - API de wx
+		if self._lista_vacia(childId):
+			estado = wx.ACC_STATE_SYSTEM_FOCUSABLE | wx.ACC_STATE_SYSTEM_READONLY
+			if wx.Window.FindFocus() is self.GetWindow():
+				estado |= wx.ACC_STATE_SYSTEM_FOCUSED
+			return (wx.ACC_OK, estado)
+		return (wx.ACC_NOT_IMPLEMENTED, 0)
+
+	def GetLocation(self, elementId: int):  # noqa: N802,N803 - API de wx
+		if self._lista_vacia(elementId):
+			return (wx.ACC_OK, self.GetWindow().GetScreenRect())
+		return (wx.ACC_NOT_IMPLEMENTED, wx.Rect())
 
 	def GetDescription(self, childId: int):  # noqa: N802,N803 - API de wx
 		if childId == 0 and self._descripcion:
@@ -186,6 +218,27 @@ def atar_etiqueta_anterior(control: wx.Window, nombre: str) -> bool:
 	return False
 
 
+def preparar_lista(lista: wx.ListBox, nombre: str, vacia: str = "") -> None:
+	"""Una ``wx.ListBox`` que lee su fila una sola vez y, sin filas, dice ``vacia`` en vez de «desconocido»."""
+	accesible = _AccesibleConNombre(lista, nombre, vacia=vacia or _("Lista vacía"))
+	referencias = getattr(lista, "_referencias_accesibles", None)
+	if referencias is None:
+		referencias = []
+		lista._referencias_accesibles = referencias
+	referencias.append(accesible)
+	lista.SetAccessible(accesible)
+
+
+def avisar_lista_vacia(lista: wx.ListBox) -> None:
+	"""Tras quitar la última fila con el foco en la lista: que el lector diga que se ha quedado vacía."""
+	if lista.GetCount() or wx.Window.FindFocus() is not lista:
+		return
+	try:
+		wx.Accessible.NotifyEvent(wx.ACC_EVENT_OBJECT_FOCUS, lista, wx.OBJID_CLIENT, 1)
+	except (AttributeError, RuntimeError):
+		log.debug("No se pudo avisar de la lista vacía", exc_info=True)
+
+
 def asignar_nombre_accesible(
 	control: wx.Window, nombre: str, descripcion: str = "", ref_persistente: wx.Window | None = None
 ) -> None:
@@ -257,6 +310,7 @@ def crear_campo(
 	sizer: wx.Sizer | None = None,
 	horizontal: bool = False,
 	expandir: bool = True,
+	vacia: str = "",
 	**kwargs,
 ) -> tuple[wx.StaticText, C]:
 	"""Crea una etiqueta y, JUSTO DESPUÉS, su control, con nombre y ayuda.
@@ -271,11 +325,14 @@ def crear_campo(
 	:param ayuda: texto para Ctrl+H (requiere ``wx.HelpProvider`` instalado).
 	:param sizer: si se indica, añade etiqueta y control en el orden correcto.
 	:param horizontal: etiqueta a la izquierda (True) o encima (False) del control.
+	:param vacia: en una ``wx.ListBox``, lo que se lee si no tiene filas («No hay reglas»); de fábrica, «Lista vacía».
 	"""
 	texto_etiqueta = wx.StaticText(padre, label=etiqueta)
 	kwargs.setdefault("name", nombre_limpio(etiqueta))
 	control = fabrica(padre, *args, **kwargs)
 	control._etiqueta_campo = texto_etiqueta  # para ``habilitar``
+	if type(control) is wx.ListBox:  # Las de casillas tienen su propio accesible (casillas.py).
+		preparar_lista(control, kwargs["name"], vacia)
 	if ayuda:
 		control.SetHelpText(ayuda)
 	if sizer is not None:

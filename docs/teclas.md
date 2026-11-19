@@ -246,6 +246,8 @@ Es el diálogo que se abre con Ctrl+Mayús+A cuando un agente te pide permiso, t
 | Tab | Recorrer el texto previo, el detalle, los campos y los botones |
 | Ctrl+Mayús+A | Volver a abrir una petición pendiente desde la ventana principal |
 
+En una pregunta con opciones, elige con las flechas; si el agente admite otra respuesta, basta con escribirla en el campo de debajo y queda elegida «Otra respuesta». Una pregunta sin opciones se contesta escribiendo en su campo.
+
 Cada botón de respuesta, también «Responder después», tiene su propia letra subrayada: pulsa Alt más esa letra para elegirlo. Alt+D lleva al detalle; Alt+M, al mensaje para el agente; Alt+Q, a «Qué cambiar del plan»; y, si el agente escribió algo justo antes de preguntar, Alt+E lleva a «Lo que el agente escribió antes».
 
 ## Permisos de la sesión
@@ -574,7 +576,9 @@ Es el diálogo de Herramientas, «Sonidos...».
 | Intro | Oír el sonido elegido, aunque esté desactivado |
 | Ctrl+A | Activar todos los sonidos |
 | Ctrl+Mayús+A | Desactivar todos los sonidos |
-| Aplicaciones | Menú con Reproducir, Activar o desactivar y Abrir la carpeta de sonidos propios |
+| Aplicaciones | Menú con Reproducir, Activar o desactivar, Abrir la carpeta de sonidos propios e Importar un paquete de sonidos |
+
+Los botones tienen su letra subrayada: Alt+R reproduce, Alt+P abre la carpeta de sonidos propios y Alt+I importa un paquete de sonidos en ZIP.
 
 ## Preferencias
 

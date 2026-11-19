@@ -120,6 +120,8 @@ VALORES_POR_DEFECTO: dict[str, dict[str, Any]] = {
 		"preguntas_con_herramienta": False,
 		# Codex pregunta con su herramienta (request_user_input) también fuera del modo Plan (en desarrollo en Codex).
 		"preguntas_codex": False,
+		# Las órdenes de Codex pueden usar Internet sin dejar de estar limitadas a la carpeta (npm install, pip, git push).
+		"red_codex": False,
 	},
 	"skills": {
 		# Las skills de ejemplo de data/skills_ejemplo ya se cargaron en el catálogo (solo la primera vez:

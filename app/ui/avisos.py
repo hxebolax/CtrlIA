@@ -226,6 +226,77 @@ def ruta_sonido(nombre: str) -> Path | None:
 	return next((ruta for ruta in candidatos if ruta.is_file()), None)
 
 
+#: Límites de un paquete de sonidos en ZIP: tamaño descomprimido y número de archivos.
+MAX_PAQUETE_BYTES = 64 * 1024 * 1024
+MAX_PAQUETE_ARCHIVOS = 500
+
+
+def nombres_de_sonidos() -> set[str]:
+	"""Los sonidos que conoce Ctrl+IA: los del catálogo y los WAV del esquema de fábrica."""
+	from app.core.paths import ruta_sonidos
+
+	nombres = {nombre for nombre, _descripcion in EVENTOS_SONIDO}
+	try:
+		nombres.update(ruta.stem.lower() for ruta in ruta_sonidos().glob("*.wav"))
+	except OSError:
+		log.debug("No se pudo listar la carpeta de sonidos", exc_info=True)
+	return nombres
+
+
+def importar_paquete_sonidos(archivo: Path, destino: Path | None = None) -> tuple[list[str], list[str]]:
+	"""Instala en la carpeta propia los WAV de un ZIP que se llamen como un sonido de Ctrl+IA.
+
+	Devuelve ``(instalados, descartados)``: los nombres de sonido instalados y los
+	archivos del ZIP que no se usan (otro nombre, otro formato o un WAV que no lo es).
+	Lo instalado sustituye al sonido propio que hubiera; nada más de la carpeta cambia.
+
+	:raises ValueError: si el ZIP no vale (dañado, demasiado grande o sin ningún sonido).
+	:raises OSError: si no se puede escribir en la carpeta.
+	"""
+	import shutil
+	import tempfile
+	import zipfile
+	from pathlib import PurePosixPath
+
+	destino = destino or carpeta_sonidos_propios()
+	conocidos = nombres_de_sonidos()
+	elegidos: dict[str, zipfile.ZipInfo] = {}
+	descartados: list[str] = []
+	try:
+		with zipfile.ZipFile(archivo) as paquete:
+			miembros = [m for m in paquete.infolist() if not m.is_dir()]
+			if len(miembros) > MAX_PAQUETE_ARCHIVOS or sum(m.file_size for m in miembros) > MAX_PAQUETE_BYTES:
+				raise ValueError(_("El paquete es demasiado grande: como mucho {n} archivos y {mb} MB.").format(
+					n=MAX_PAQUETE_ARCHIVOS, mb=MAX_PAQUETE_BYTES // (1024 * 1024)))
+			for miembro in miembros:
+				ruta = PurePosixPath(miembro.filename.replace("\\", "/"))
+				nombre = ruta.stem.lower()
+				if ruta.suffix.lower() == ".wav" and nombre in conocidos and nombre not in elegidos:
+					elegidos[nombre] = miembro
+				else:
+					descartados.append(ruta.name)
+			if not elegidos:
+				raise ValueError(_("El paquete no trae ningún WAV con el nombre de un sonido de Ctrl+IA."))
+			destino.mkdir(parents=True, exist_ok=True)
+			instalados: list[str] = []
+			with tempfile.TemporaryDirectory(dir=destino.parent) as temporal:
+				for nombre, miembro in sorted(elegidos.items()):
+					datos = paquete.read(miembro)
+					if len(datos) < 12 or datos[:4] != b"RIFF" or datos[8:12] != b"WAVE":
+						descartados.append(PurePosixPath(miembro.filename).name)
+						continue
+					(Path(temporal) / f"{nombre}.wav").write_bytes(datos)
+					instalados.append(nombre)
+				if not instalados:
+					raise ValueError(_("Ninguno de los WAV del paquete es un archivo de sonido válido."))
+				for nombre in instalados:
+					shutil.move(str(Path(temporal) / f"{nombre}.wav"), str(destino / f"{nombre}.wav"))
+	except zipfile.BadZipFile as error:
+		raise ValueError(_("El archivo no es un ZIP válido.")) from error
+	log.info("Paquete de sonidos importado: %d instalados, %d descartados", len(instalados), len(descartados))
+	return instalados, descartados
+
+
 def sonido_activo(nombre: str) -> bool:
 	"""Interruptor general y el del evento (los eventos sin interruptor suenan siempre)."""
 	opcion = _estado["opcion"]

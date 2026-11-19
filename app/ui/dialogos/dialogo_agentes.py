@@ -54,6 +54,7 @@ class DialogoConversacionSesiones(wx.Dialog):
 		)
 		_e, self.destinos = crear_campo(
 			panel, _("&Segunda sesión:"), wx.ListBox, choices=list(destinos), style=wx.LB_SINGLE,
+			vacia=_("No hay otras sesiones"),
 			ayuda=_("La sesión de Ctrl+IA que contesta a la primera, de cualquier agente: por ejemplo, Codex para revisar "
 				"lo que escribe Claude. Tiene que estar parada."),
 			sizer=raiz,
@@ -244,6 +245,7 @@ class DialogoConversacionesGuardadas(wx.Dialog):
 		raiz = wx.BoxSizer(wx.VERTICAL)
 		_e, self.lista = crear_campo(
 			panel, _("&Conversaciones:"), wx.ListBox, choices=list(nombres), style=wx.LB_SINGLE,
+			vacia=_("No hay conversaciones"),
 			ayuda=_("Las conversaciones automáticas guardadas, de la más reciente a la más antigua. Intro muestra la elegida "
 				"y Suprimir la borra. Cada mensaje sigue además en su sesión."),
 			sizer=raiz,

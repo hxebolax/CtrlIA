@@ -1,4 +1,4 @@
-"""Cuadro «Sonidos»: probar cada sonido, activarlo o desactivarlo y abrir la carpeta propia.
+"""Cuadro «Sonidos»: probar cada sonido, activarlo o desactivarlo, abrir la carpeta propia o importar un paquete.
 
 Una lista de casillas con un elemento por evento («Mensaje enviado», «El
 agente te necesita»...). La barra espaciadora activa o desactiva el sonido;
@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import wx
 
 from app.core.configuracion import Configuracion
 from app.ui import avisos
 from app.ui.accesibilidad.casillas import CheckListBoxAccesible
-from app.ui.accesibilidad.dialogos import crear_botonera, mostrar_error, preparar_dialogo
+from app.ui.accesibilidad.dialogos import confirmar, crear_botonera, mostrar_error, mostrar_mensaje, preparar_dialogo
 from app.ui.accesibilidad.teclado import vincular_menu_contextual
 from app.ui.comun import _
 
@@ -65,7 +66,14 @@ class DialogoSonidos(wx.Dialog):
 			"respuesta.wav) y elige el esquema «Propio» en Preferencias, pestaña Sonidos."
 		))
 		self.boton_carpeta.Bind(wx.EVT_BUTTON, lambda _evento: self.abrir_carpeta_propia())
-		fila.Add(self.boton_carpeta, 0)
+		fila.Add(self.boton_carpeta, 0, wx.RIGHT, 8)
+		self.boton_importar = wx.Button(panel, label=_("&Importar un paquete de sonidos..."))
+		self.boton_importar.SetHelpText(_(
+			"Elige un archivo ZIP con sonidos WAV. Se instalan en tu carpeta propia los que se llamen como un sonido de "
+			"Ctrl+IA (por ejemplo respuesta.wav) y se te dice cuáles no se han usado."
+		))
+		self.boton_importar.Bind(wx.EVT_BUTTON, lambda _evento: self.importar_paquete())
+		fila.Add(self.boton_importar, 0)
 		sizer.Add(fila, 0, wx.LEFT | wx.RIGHT, 8)
 
 		sizer.Add(crear_botonera(panel, wx.OK | wx.CANCEL), 0, wx.ALIGN_RIGHT | wx.ALL, 8)
@@ -133,6 +141,50 @@ class DialogoSonidos(wx.Dialog):
 			log.warning("No se pudo abrir la carpeta de sonidos propios", exc_info=True)
 			mostrar_error(self, _("No se pudo abrir la carpeta {carpeta}: {error}").format(carpeta=carpeta, error=error))
 
+	def importar_paquete(self, archivo: Path | None = None) -> bool:
+		"""Instala los sonidos de un ZIP en la carpeta propia y ofrece usar el esquema «Propio»."""
+		if archivo is None:
+			with wx.FileDialog(self, _("Importar un paquete de sonidos"), wildcard=_("Archivos ZIP (*.zip)|*.zip"),
+					style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as dialogo:
+				if dialogo.ShowModal() != wx.ID_OK:
+					return False
+				archivo = Path(dialogo.GetPath())
+		try:
+			instalados, descartados = avisos.importar_paquete_sonidos(archivo)
+		except ValueError as error:
+			mostrar_error(self, str(error), _("No se pudo importar el paquete"))
+			return False
+		except OSError as error:
+			log.exception("No se pudo importar el paquete de sonidos %s", archivo)
+			mostrar_error(self, _("No se pudo copiar los sonidos: {error}").format(error=error),
+				_("No se pudo importar el paquete"))
+			return False
+		descripciones = dict(avisos.EVENTOS_SONIDO)
+		nombres = [_(descripciones[n]) if n in descripciones else n for n in instalados]
+		mensaje = _("Se han instalado {n} sonidos: {lista}.").format(n=len(instalados), lista=", ".join(nombres))
+		if descartados:
+			mensaje += "\n\n" + _("No se han usado {n} archivos porque no se llaman como un sonido de Ctrl+IA o no son "
+				"WAV: {lista}.").format(n=len(descartados), lista=", ".join(descartados[:30]))
+		if self._config.obtener("sonidos.esquema", "predeterminado") != "propio":
+			mensaje += "\n\n" + _("¿Usar ya tus sonidos propios (esquema «Propio»)?")
+			if confirmar(self, mensaje, _("Paquete de sonidos importado")) == wx.ID_YES:
+				self._config.establecer("sonidos.esquema", "propio")
+		else:
+			mostrar_mensaje(self, mensaje, _("Paquete de sonidos importado"))
+		self._refrescar_textos()
+		return True
+
+	def _refrescar_textos(self) -> None:
+		"""Vuelve a decir de dónde sale cada sonido sin perder las casillas ni el sitio."""
+		marcados = [self.lista.IsChecked(i) for i in range(len(self.eventos))]
+		seleccion = self.lista.GetSelection()
+		self.lista.Set(self._textos())
+		for indice, marcado in enumerate(marcados):
+			self.lista.Check(indice, marcado)
+		if 0 <= seleccion < len(self.eventos):
+			self.lista.SetSelection(seleccion)
+		self.texto_esquema.SetLabel(self._describir_esquema())
+
 	def activos(self) -> dict[str, bool]:
 		"""Estado de cada sonido según las casillas."""
 		return {f"sonidos.{nombre}": self.lista.IsChecked(posicion) for posicion, nombre in enumerate(self.eventos)}
@@ -158,6 +210,7 @@ class DialogoSonidos(wx.Dialog):
 			(_("&Reproducir\tIntro"), self.reproducir),
 			(_("&Activar o desactivar\tEspacio"), self.alternar),
 			(_("Abrir la carpeta de sonidos &propios"), self.abrir_carpeta_propia),
+			(_("&Importar un paquete de sonidos..."), self.importar_paquete),
 		):
 			item = menu.Append(wx.ID_ANY, etiqueta)
 			self.lista.Bind(wx.EVT_MENU, lambda _evento, a=accion: a(), item)
